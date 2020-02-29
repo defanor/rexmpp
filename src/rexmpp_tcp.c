@@ -66,6 +66,31 @@ void rexmpp_dns_a_cb (void *ptr,
 }
 
 rexmpp_tcp_conn_error_t
+rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
+  int i;
+  conn->fd = fd;
+
+  /* Close other connections, cleanup. */
+  for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
+    if (conn->sockets[i] != -1 && conn->sockets[i] != conn->fd) {
+      close(conn->sockets[i]);
+      conn->sockets[i] = -1;
+    }
+  }
+  ares_destroy(conn->resolver_channel);
+  if (conn->addr_v4 != NULL) {
+    ares_free_hostent(conn->addr_v4);
+    conn->addr_v4 = NULL;
+  }
+  if (conn->addr_v6 != NULL) {
+    ares_free_hostent(conn->addr_v6);
+    conn->addr_v6 = NULL;
+  }
+
+  return REXMPP_CONN_DONE;
+}
+
+rexmpp_tcp_conn_error_t
 rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
                       const char *host,
                       int port)
@@ -105,7 +130,8 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
         return REXMPP_CONN_ERROR;
       }
     } else {
-      return REXMPP_CONN_DONE;
+      return rexmpp_tcp_connected(conn,
+                                  conn->sockets[conn->connection_attempts]);
     }
     conn->connection_attempts++;
     return REXMPP_CONN_IN_PROGRESS;
@@ -125,7 +151,8 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
         return REXMPP_CONN_ERROR;
       }
     } else {
-      return REXMPP_CONN_DONE;
+      return rexmpp_tcp_connected(conn,
+                                  conn->sockets[conn->connection_attempts]);
     }
     conn->connection_attempts++;
     return REXMPP_CONN_IN_PROGRESS;
@@ -143,22 +170,6 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
 }
 
 int rexmpp_tcp_conn_finish (rexmpp_tcp_conn_t *conn) {
-  int i;
-  for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
-    if (conn->sockets[i] != -1 && conn->sockets[i] != conn->fd) {
-      close(conn->sockets[i]);
-      conn->sockets[i] = -1;
-    }
-  }
-  ares_destroy(conn->resolver_channel);
-  if (conn->addr_v4 != NULL) {
-    ares_free_hostent(conn->addr_v4);
-    conn->addr_v4 = NULL;
-  }
-  if (conn->addr_v6 != NULL) {
-    ares_free_hostent(conn->addr_v6);
-    conn->addr_v6 = NULL;
-  }
   return conn->fd;
 }
 
@@ -191,8 +202,7 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
         return REXMPP_CONN_ERROR;
       } else {
         if (err == 0) {
-          conn->fd = conn->sockets[i];
-          return REXMPP_CONN_DONE;
+          return rexmpp_tcp_connected(conn, conn->sockets[i]);
         } else if (err != EINPROGRESS) {
           close(conn->sockets[i]);
           conn->sockets[i] = -1;
@@ -280,8 +290,8 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
             }
           }
         } else {
-          conn->fd = conn->sockets[conn->connection_attempts];
-          return REXMPP_CONN_DONE;
+          return rexmpp_tcp_connected(conn,
+                                      conn->sockets[conn->connection_attempts]);
         }
       }
     }
