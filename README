@@ -1,0 +1,85 @@
+rexmpp - a reusable XMPP IM client library
+
+This is currently at a draft/prototype stage.
+
+The goal is to produce a library reusable from different languages
+(via C FFI), without hijacking an event loop, requiring any specific
+one, or otherwise restricting a user, and fairly feature-rich. The
+motivation for that is multitude of clients using custom and
+incomplete XMPP implementations, occasionally even failing to deliver
+one-to-one textual messages.
+
+The exact scope is yet to be determined, but it shouldn't implement or
+rely on any particular UI, should be flexible and not stay in the way
+of implementing additional XEPs on top of it, and should try to make
+it easy to implement a decent client application using it.
+
+Current dependencies: c-ares, libxml2, gnutls, gsasl.
+
+
+A rough roadmap:
+
+
+- Basic protocol:
+
+[+] XMPP core (RFC 6120). A prototype is mostly ready, though it can
+    use more of error handling and refinement.
+
+
+- Reliable and predictable message delivery:
+
+[+] XEP-0198: Stream Management. Implemented (both acknowledgements
+    and resumption, making use of XEP-0203: Delayed Delivery).
+
+[+] XEP-0280: Message Carbons. Enables them in case if they are
+    supported by the server (discovering it using XEP-0030: Service
+    Discovery). Though maybe it shouldn't be done by the library.
+
+
+- Better connectivity:
+
+[+] "Happy Eyeballs" (RFC 8305).
+[+] XEP-0368: SRV records for XMPP over TLS.
+[ ] SOCKS5 (RFC 1928) support. Perhaps a module with functions usable
+    for SOCKS5 bytestreams at once.
+
+
+- Library refinement:
+
+[.] Documentation. Partial Doxygen documentation is added, but
+    planning a texinfo manual as well.
+[ ] Proper JID handling (RFC 7622).
+[ ] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
+    optional usage of alternative ones. Though maybe shouldn't
+    abstract out XML functions and structures: could reuse existing
+    libxml2 bindings that way.
+[ ] Automated testing.
+
+
+- Primary IM features (?):
+
+[ ] XMPP IM (RFC 6121): loading and managing of the roster and
+    presence subscriptions? Maybe it'd be better done by a client. Or
+    just some utility functions can be provided.
+
+
+- Common and reliable IM features (?):
+
+[.] XEP-0030: Service Discovery (implemented partially, just to
+    discover server features)
+[ ] XEP-0115: Entity Capabilities
+[ ] XEP-0045: Multi-User Chat
+[ ] XEP-0166: Jingle
+[ ] XEP-0234: Jingle File Transfer
+[ ] XEP-0261: Jingle In-Band Bytestreams Transport Method
+
+
+- Other features (?):
+
+[ ] XEP-0313: Message Archive Management
+[ ] XEP-0163: Personal Eventing Protocol
+[ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method
+[ ] XEP-0391: Jingle Encrypted Transports
+[ ] XEP-0363: HTTP File Upload
+[ ] XEP-0384: OMEMO Encryption
+[ ] XEP-0184: Message Delivery Receipts
