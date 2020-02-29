@@ -66,7 +66,7 @@ struct rexmpp_tcp_connection {
   /** @brief A host we are connecting to. */
   const char *host;
   /** @brief A port we are connecting to. */
-  int port;
+  uint16_t port;
 
   /** @brief Resolver channel. */
   ares_channel resolver_channel;
@@ -116,7 +116,7 @@ struct rexmpp_tcp_connection {
 rexmpp_tcp_conn_error_t
 rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
                       const char *host,
-                      int port);
+                      uint16_t port);
 
 /**
     @brief Continues a connection process.

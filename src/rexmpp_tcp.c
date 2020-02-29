@@ -93,7 +93,7 @@ rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
 rexmpp_tcp_conn_error_t
 rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
                       const char *host,
-                      int port)
+                      uint16_t port)
 {
   int i;
   for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {

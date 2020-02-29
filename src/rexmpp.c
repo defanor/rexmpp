@@ -661,7 +661,7 @@ void rexmpp_process_conn_err (rexmpp_t *s, int err);
 
 void rexmpp_try_next_host (rexmpp_t *s) {
   const char *host;
-  int port;
+  uint16_t port;
   /* todo: check priorities and weights */
   s->tls_state = REXMPP_TLS_INACTIVE;
   if (s->server_srv_tls != NULL && s->server_srv_tls_cur == NULL) {
@@ -822,7 +822,7 @@ void rexmpp_after_srv (rexmpp_t *s) {
   if (s->server_srv == NULL && s->server_srv_tls == NULL) {
     /* Failed to resolve anything: a fallback. */
     const char *host = jid_bare_to_host(s->initial_jid);
-    int port = 5222;
+    uint16_t port = 5222;
     rexmpp_log(s, LOG_DEBUG, "Connecting to %s:%d", host, port);
     rexmpp_process_conn_err(s, rexmpp_tcp_conn_init(&s->server_connection,
                                                     host, port));
