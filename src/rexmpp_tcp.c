@@ -65,19 +65,19 @@ void rexmpp_dns_a_cb (void *ptr,
   }
 }
 
-rexmpp_tcp_conn_error_t
-rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
+void rexmpp_tcp_cleanup (rexmpp_tcp_conn_t *conn) {
   int i;
-  conn->fd = fd;
-
-  /* Close other connections, cleanup. */
   for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
     if (conn->sockets[i] != -1 && conn->sockets[i] != conn->fd) {
       close(conn->sockets[i]);
       conn->sockets[i] = -1;
     }
   }
-  ares_destroy(conn->resolver_channel);
+  if (conn->resolution_v4 != REXMPP_CONN_RESOLUTION_INACTIVE) {
+    ares_destroy(conn->resolver_channel);
+    conn->resolution_v4 = REXMPP_CONN_RESOLUTION_INACTIVE;
+    conn->resolution_v6 = REXMPP_CONN_RESOLUTION_INACTIVE;
+  }
   if (conn->addr_v4 != NULL) {
     ares_free_hostent(conn->addr_v4);
     conn->addr_v4 = NULL;
@@ -86,7 +86,12 @@ rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
     ares_free_hostent(conn->addr_v6);
     conn->addr_v6 = NULL;
   }
+}
 
+rexmpp_tcp_conn_error_t
+rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
+  conn->fd = fd;
+  rexmpp_tcp_cleanup(conn);
   return REXMPP_CONN_DONE;
 }
 
@@ -103,7 +108,6 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
   conn->port = port;
   conn->addr_v4 = NULL;
   conn->addr_v6 = NULL;
-  conn->resolver_error = ares_init(&(conn->resolver_channel));
   conn->fd = -1;
   conn->next_connection_time.tv_sec = 0;
   conn->next_connection_time.tv_usec = 0;
@@ -160,6 +164,7 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
 
   conn->resolution_v4 = REXMPP_CONN_RESOLUTION_WAITING;
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_WAITING;
+  conn->resolver_error = ares_init(&(conn->resolver_channel));
 
   ares_query(conn->resolver_channel, host,
                ns_c_in, ns_t_aaaa, rexmpp_dns_aaaa_cb, conn);
@@ -170,6 +175,7 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
 }
 
 int rexmpp_tcp_conn_finish (rexmpp_tcp_conn_t *conn) {
+  rexmpp_tcp_cleanup(conn);
   return conn->fd;
 }
 
