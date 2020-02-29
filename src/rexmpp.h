@@ -129,6 +129,8 @@ enum rexmpp_err {
   REXMPP_E_DNS,
   /** XML-related error. */
   REXMPP_E_XML,
+  /** JID-related error. */
+  REXMPP_E_JID,
   /** Failure to allocate memory. */
   REXMPP_E_MALLOC
 };

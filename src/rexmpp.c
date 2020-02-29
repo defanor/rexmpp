@@ -101,6 +101,11 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->xml_in_cb = xml_in_cb;
   s->xml_out_cb = xml_out_cb;
 
+  if (jid == NULL) {
+    rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
+    return REXMPP_E_JID;
+  }
+
   s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
 
   if (s->xml_parser == NULL) {
