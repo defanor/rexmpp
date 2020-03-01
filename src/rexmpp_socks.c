@@ -1,3 +1,11 @@
+/**
+   @file rexmpp_socks.c
+   @brief SOCKS5 connection establishment.
+   @author defanor <defanor@uberspace.net>
+   @date 2020
+   @copyright MIT license.
+*/
+
 #include <memory.h>
 #include <sys/types.h>
 #include <sys/socket.h>
