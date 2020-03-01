@@ -176,6 +176,11 @@ struct rexmpp
   /* Basic configuration. */
   const char *initial_jid;
 
+  /* Manual host/port configuration. */
+  const char *manual_host;
+  uint16_t manual_port;
+  int manual_direct_tls;
+
   /* Socks settings. */
   const char *socks_host;
   uint16_t socks_port;

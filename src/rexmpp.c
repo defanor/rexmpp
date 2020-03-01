@@ -73,6 +73,9 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->sasl_state = REXMPP_SASL_INACTIVE;
   s->sm_state = REXMPP_SM_INACTIVE;
   s->carbons_state = REXMPP_CARBONS_INACTIVE;
+  s->manual_host = NULL;
+  s->manual_port = 5222;
+  s->manual_direct_tls = 0;
   s->socks_host = NULL;
   s->server_host = NULL;
   s->send_buffer = NULL;
@@ -1445,7 +1448,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   struct timeval now;
   gettimeofday(&now, NULL);
 
-  /* Inactive: start by querying SRV records. */
+  /* Inactive: start or reconnect. */
   if ((s->resolver_state == REXMPP_RESOLVER_NONE ||
        s->resolver_state == REXMPP_RESOLVER_READY) &&
       (s->tcp_state == REXMPP_TCP_NONE ||
@@ -1453,21 +1456,34 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
          s->tcp_state == REXMPP_TCP_CONNECTION_FAILURE) &&
         s->reconnect_number > 0 &&
         s->next_reconnect_time.tv_sec <= now.tv_sec))) {
-    rexmpp_log(s, LOG_DEBUG, "start (or reconnect)");
-    size_t srv_query_buf_len = strlen(jid_bare_to_host(s->initial_jid)) +
-      strlen("_xmpps-client._tcp..") +
-      1;
-    char *srv_query = malloc(srv_query_buf_len);
-    snprintf(srv_query, srv_query_buf_len,
-             "_xmpps-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
-    ares_query(s->resolver_channel, srv_query,
-               ns_c_in, ns_t_srv, rexmpp_srv_tls_cb, s);
-    snprintf(srv_query, srv_query_buf_len,
-             "_xmpp-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
-    ares_query(s->resolver_channel, srv_query,
-               ns_c_in, ns_t_srv, rexmpp_srv_cb, s);
-    s->resolver_state = REXMPP_RESOLVER_SRV;
-    free(srv_query);
+    if (s->manual_host == NULL) {
+      /* Start by querying SRV records. */
+      rexmpp_log(s, LOG_DEBUG, "start (or reconnect)");
+      size_t srv_query_buf_len = strlen(jid_bare_to_host(s->initial_jid)) +
+        strlen("_xmpps-client._tcp..") +
+        1;
+      char *srv_query = malloc(srv_query_buf_len);
+      snprintf(srv_query, srv_query_buf_len,
+               "_xmpps-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
+      ares_query(s->resolver_channel, srv_query,
+                 ns_c_in, ns_t_srv, rexmpp_srv_tls_cb, s);
+      snprintf(srv_query, srv_query_buf_len,
+               "_xmpp-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
+      ares_query(s->resolver_channel, srv_query,
+                 ns_c_in, ns_t_srv, rexmpp_srv_cb, s);
+      s->resolver_state = REXMPP_RESOLVER_SRV;
+      free(srv_query);
+    } else {
+      /* A host is configured manually, connect there. */
+      s->server_host = s->manual_host;
+      s->server_port = s->manual_port;
+      if (s->manual_direct_tls) {
+        s->tls_state = REXMPP_TLS_AWAITING_DIRECT;
+      } else {
+        s->tls_state = REXMPP_TLS_INACTIVE;
+      }
+      rexmpp_start_connecting(s);
+    }
   }
 
   /* Resolving SRV records. This continues in rexmpp_srv_tls_cb,
