@@ -18,13 +18,29 @@
 
 
 typedef struct rexmpp rexmpp_t;
+
+/**
+   @brief An info/query callback function type.
+   @param[in,out] s A ::rexmpp structure.
+   @param[in] request A request that was made.
+   @param[in] response A response we have received. @c NULL if we are
+   giving up on this IQ.
+
+   A callback must not free the request or the response, but merely
+   inspect those and react.
+*/
 typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s, xmlNodePtr request, xmlNodePtr response);
 
 typedef struct rexmpp_iq rexmpp_iq_t;
+
+/** @brief A pending info/query request. */
 struct rexmpp_iq
 {
+  /** @brief The sent request. */
   xmlNodePtr request;
+  /** @brief A callback to call on reply. */
   rexmpp_iq_callback_t cb;
+  /** @brief Next pending IQ. */
   rexmpp_iq_t *next;
 };
 
@@ -289,6 +305,25 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s);
    ownership of the element, so it must not be freed by the caller.
 */
 rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node);
+
+/**
+   @brief Prepare and send a new info/query request.
+   @param[in,out] s ::rexmpp
+   @param[in] type
+   @param[in] to
+   @param[in] payload IQ payload, the library assumes ownership of it.
+   @param[in] cb A ::rexmpp_iq_callback_t function to call on reply
+   (or if we will give up on it), can be NULL.
+
+   This function is specifically for IQs that should be tracked by the
+   library. If an application wants to track replies on its own, it
+   should use ::rexmpp_send.
+*/
+void rexmpp_iq_new (rexmpp_t *s,
+                    const char *type,
+                    const char *to,
+                    xmlNodePtr payload,
+                    rexmpp_iq_callback_t cb);
 
 struct timeval *rexmpp_timeout (rexmpp_t *s, struct timeval *max_tv, struct timeval *tv);
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
