@@ -79,6 +79,10 @@ main () {
 
   /* s.socks_host = "127.0.0.1"; */
   /* s.socks_port = 4321; */
+  /* s.manual_host = "foo.custom"; */
+  /* gnutls_certificate_set_x509_trust_file(s.gnutls_cred, */
+  /*                                        "foo.custom.crt", */
+  /*                                        GNUTLS_X509_FMT_PEM); */
 
   do {
 

@@ -145,6 +145,15 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
   }
+  err = gnutls_certificate_set_x509_system_trust(s->gnutls_cred);
+  if (err < 0) {
+    rexmpp_log(s, LOG_CRIT, "Certificates loading error: %s",
+               gnutls_strerror(err));
+    ares_destroy(s->resolver_channel);
+    ares_library_cleanup();
+    xmlFreeParserCtxt(s->xml_parser);
+    return REXMPP_E_TLS;
+  }
 
   err = gsasl_init(&(s->sasl_ctx));
   if (err) {
@@ -247,10 +256,10 @@ void rexmpp_done (rexmpp_t *s) {
   }
 }
 
-void rexmpp_schedule_reconnect(rexmpp_t *s) {
+void rexmpp_schedule_reconnect (rexmpp_t *s) {
   gettimeofday(&(s->next_reconnect_time), NULL);
-  if (s->reconnect_number < 12) {
-    s->next_reconnect_time.tv_sec += (2 << s->reconnect_number);
+  if (s->reconnect_number < 10) {
+    s->next_reconnect_time.tv_sec += (8 << s->reconnect_number);
   } else {
     s->next_reconnect_time.tv_sec += 3600;
   }
@@ -649,7 +658,7 @@ void rexmpp_recv (rexmpp_t *s) {
   } while (chunk_raw_len > 0);
 }
 
-int rexmpp_stream_open (rexmpp_t *s) {
+rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
   char buf[2048];
   snprintf(buf, 2048,
            "<?xml version='1.0'?>\n"
@@ -658,9 +667,7 @@ int rexmpp_stream_open (rexmpp_t *s) {
            "xmlns:stream='http://etherx.jabber.org/streams'>",
            jid_bare_to_host(s->initial_jid));
   s->stream_state = REXMPP_STREAM_OPENING;
-  rexmpp_send_raw(s, buf, strlen(buf));
-
-  return 0;
+  return rexmpp_send_raw(s, buf, strlen(buf));
 }
 
 void rexmpp_process_conn_err (rexmpp_t *s, int err);
@@ -721,14 +728,33 @@ void rexmpp_try_next_host (rexmpp_t *s) {
   rexmpp_start_connecting(s);
 }
 
-void rexmpp_tls_handshake (rexmpp_t *s) {
+rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
   s->tls_state = REXMPP_TLS_HANDSHAKE;
   int ret = gnutls_handshake(s->gnutls_session);
   if (ret == GNUTLS_E_AGAIN) {
     rexmpp_log(s, LOG_DEBUG, "Waiting for TLS handshake to complete");
+    return REXMPP_E_AGAIN;
   } else if (ret == 0) {
-    rexmpp_log(s, LOG_DEBUG, "TLS ready");
+    int status;
+    ret = gnutls_certificate_verify_peers3(s->gnutls_session,
+                                           jid_bare_to_host(s->initial_jid),
+                                           &status);
+    if (ret || status) {
+      s->tls_state = REXMPP_TLS_ERROR;
+      if (ret) {
+        rexmpp_log(s, LOG_ERR, "Certificate parsing error: %s",
+                   gnutls_strerror(ret));
+      } else if (status & GNUTLS_CERT_UNEXPECTED_OWNER) {
+        rexmpp_log(s, LOG_ERR, "Unexpected certificate owner");
+      } else {
+        rexmpp_log(s, LOG_ERR, "Untrusted certificate");
+      }
+      gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
+      rexmpp_cleanup(s);
+      return REXMPP_E_TLS;
+    }
     s->tls_state = REXMPP_TLS_ACTIVE;
+    rexmpp_log(s, LOG_DEBUG, "TLS ready");
 
     if (gnutls_session_is_resumed(s->gnutls_session)) {
       rexmpp_log(s, LOG_INFO, "TLS session is resumed");
@@ -746,34 +772,28 @@ void rexmpp_tls_handshake (rexmpp_t *s) {
       if (ret != GNUTLS_E_SUCCESS) {
         rexmpp_log(s, LOG_ERR, "Failed to get TLS session data: %s",
                    gnutls_strerror(ret));
+        return REXMPP_E_TLS;
       }
     }
 
     if (s->stream_state == REXMPP_STREAM_NONE) {
       /* It's a direct TLS connection, so open a stream after
          connecting. */
-      rexmpp_stream_open(s);
+      return rexmpp_stream_open(s);
     } else {
       /* A STARTTLS connection, restart the stream. */
       s->stream_state = REXMPP_STREAM_RESTART;
+      return REXMPP_SUCCESS;
     }
-
   } else {
     rexmpp_log(s, LOG_ERR, "Unexpected TLS handshake error: %s",
                gnutls_strerror(ret));
-    if (s->stream_state == REXMPP_STREAM_NONE) {
-      /* It was a direct TLS connection attempt: cleanup the session,
-         continue connection attempts. */
-      gnutls_deinit(s->gnutls_session);
-      s->tls_state = REXMPP_TLS_INACTIVE;
-      rexmpp_try_next_host(s);
-    } else {
-      rexmpp_cleanup(s);
-    }
+    rexmpp_cleanup(s);
+    return REXMPP_E_TLS;
   }
 }
 
-void rexmpp_tls_start (rexmpp_t *s) {
+rexmpp_err_t rexmpp_tls_start (rexmpp_t *s) {
   gnutls_datum_t xmpp_client_protocol = {"xmpp-client", strlen("xmpp-client")};
   rexmpp_log(s, LOG_DEBUG, "starting TLS");
   gnutls_init(&s->gnutls_session, GNUTLS_CLIENT);
@@ -795,21 +815,22 @@ void rexmpp_tls_start (rexmpp_t *s) {
     if (ret != GNUTLS_E_SUCCESS) {
       rexmpp_log(s, LOG_ERR, "Failed to set TLS session data: %s",
                  gnutls_strerror(ret));
+      return REXMPP_E_TLS;
     }
   }
   s->tls_state = REXMPP_TLS_HANDSHAKE;
-  rexmpp_tls_handshake(s);
+  return rexmpp_tls_handshake(s);
 }
 
-void rexmpp_connected_to_server (rexmpp_t *s) {
+rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
   s->tcp_state = REXMPP_TCP_CONNECTED;
   rexmpp_log(s, LOG_INFO, "Connected to the server");
   s->reconnect_number = 0;
   xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
   if (s->tls_state == REXMPP_TLS_AWAITING_DIRECT) {
-    rexmpp_tls_start(s);
+    return rexmpp_tls_start(s);
   } else {
-    rexmpp_stream_open(s);
+    return rexmpp_stream_open(s);
   }
 }
 
