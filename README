@@ -40,8 +40,7 @@ A rough roadmap:
 
 [+] "Happy Eyeballs" (RFC 8305).
 [+] XEP-0368: SRV records for XMPP over TLS.
-[ ] SOCKS5 (RFC 1928) support. Perhaps a module with functions usable
-    for SOCKS5 bytestreams at once.
+[+] SOCKS5 (RFC 1928) support. Implemented, though can be improved.
 
 
 - Library refinement:

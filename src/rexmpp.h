@@ -14,6 +14,7 @@
 #include <gsasl.h>
 #include <libxml/tree.h>
 #include "rexmpp_tcp.h"
+#include "rexmpp_socks.h"
 
 
 typedef struct rexmpp rexmpp_t;
@@ -41,6 +42,7 @@ enum resolver_st {
 enum tcp_st {
   REXMPP_TCP_NONE,
   REXMPP_TCP_CONNECTING,
+  REXMPP_TCP_SOCKS,
   REXMPP_TCP_CONNECTED,
   REXMPP_TCP_CLOSED,
   REXMPP_TCP_CONNECTION_FAILURE,
@@ -158,6 +160,10 @@ struct rexmpp
   /* Basic configuration. */
   const char *initial_jid;
 
+  /* Socks settings. */
+  const char *socks_host;
+  uint16_t socks_port;
+
   /* Resource limits. */
   uint32_t stanza_queue_size;
   uint32_t send_queue_size;
@@ -193,11 +199,17 @@ struct rexmpp
   struct ares_srv_reply *server_srv_tls;
   struct ares_srv_reply *server_srv_tls_cur;
 
+  /* The XMPP server we are connecting to. */
+  const char *server_host;
+  uint16_t server_port;
+
   /* The primary socket used for communication with the server. */
   int server_socket;
 
   /* A structure used to establish a TCP connection. */
   rexmpp_tcp_conn_t server_connection;
+  /* A structure used to establish a SOCKS5 connection. */
+  rexmpp_socks_t server_socks_conn;
 
   /* Send buffer. NULL if there is nothing to send (and must not be
      NULL if there is anything in the send queue). Not appending data

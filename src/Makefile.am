@@ -8,7 +8,7 @@ AM_CFLAGS = -Werror -Wall -Wextra -Wno-pointer-sign -Wno-unused-parameter
 
 lib_LTLIBRARIES = librexmpp.la
 
-librexmpp_la_SOURCES = rexmpp_tcp.h rexmpp_tcp.c rexmpp.h rexmpp.c
-include_HEADERS = rexmpp_tcp.h rexmpp.h
+librexmpp_la_SOURCES = rexmpp_tcp.h rexmpp_tcp.c rexmpp_socks.h rexmpp_socks.c rexmpp.h rexmpp.c
+include_HEADERS = rexmpp_tcp.h rexmpp_socks.h rexmpp.h
 librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) $(GNUTLS_CFLAGS) $(GSASL_CFLAGS) $(CARES_CFLAGS)
 librexmpp_la_LIBADD = $(LIBXML_LIBS) $(GNUTLS_LIBS) $(GSASL_LIBS) $(CARES_LIBS)

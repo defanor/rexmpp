@@ -111,9 +111,6 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
   conn->fd = -1;
   conn->next_connection_time.tv_sec = 0;
   conn->next_connection_time.tv_usec = 0;
-  if (conn->resolver_error) {
-    return REXMPP_CONN_RESOLVER_ERROR;
-  }
 
   conn->resolution_v4 = REXMPP_CONN_RESOLUTION_INACTIVE;
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_INACTIVE;
@@ -161,10 +158,12 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
     conn->connection_attempts++;
     return REXMPP_CONN_IN_PROGRESS;
   }
-
   conn->resolution_v4 = REXMPP_CONN_RESOLUTION_WAITING;
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_WAITING;
   conn->resolver_error = ares_init(&(conn->resolver_channel));
+  if (conn->resolver_error != ARES_SUCCESS) {
+    return REXMPP_CONN_RESOLVER_ERROR;
+  }
 
   ares_query(conn->resolver_channel, host,
                ns_c_in, ns_t_aaaa, rexmpp_dns_aaaa_cb, conn);
@@ -221,6 +220,12 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
     ares_process(conn->resolver_channel, read_fds, write_fds);
+  }
+
+  if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_FAILURE &&
+      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_FAILURE) {
+    /* Failed to resolve anything. */
+    return REXMPP_CONN_FAILURE;
   }
 
   /* New connections. */
@@ -330,11 +335,14 @@ int rexmpp_tcp_conn_fds (rexmpp_tcp_conn_t *conn,
                          fd_set *write_fds)
 {
   int max_fd = 0, i;
-  max_fd = ares_fds(conn->resolver_channel, read_fds, write_fds);
+  if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
+      conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING) {
+    max_fd = ares_fds(conn->resolver_channel, read_fds, write_fds);
+  }
   for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
     if (conn->sockets[i] != -1) {
       FD_SET(conn->sockets[i], write_fds);
-      if (max_fd < conn->sockets[i]) {
+      if (max_fd < conn->sockets[i] + 1) {
         max_fd = conn->sockets[i] + 1;
       }
     }
@@ -347,10 +355,15 @@ struct timeval *rexmpp_tcp_conn_timeout (rexmpp_tcp_conn_t *conn,
                                          struct timeval *tv)
 {
   struct timeval now;
-  struct timeval *ret;
-  ret = ares_timeout(conn->resolver_channel, max_tv, tv);
+  struct timeval *ret = max_tv;
+  if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
+      conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING) {
+    ret = ares_timeout(conn->resolver_channel, max_tv, tv);
+  }
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_SUCCESS ||
-      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_SUCCESS) {
+      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_SUCCESS ||
+      (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_INACTIVE &&
+       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_INACTIVE)) {
     gettimeofday(&now, NULL);
     if (now.tv_sec < conn->next_connection_time.tv_sec ||
         (now.tv_sec == conn->next_connection_time.tv_sec &&

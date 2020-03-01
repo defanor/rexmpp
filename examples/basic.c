@@ -77,6 +77,8 @@ main () {
   struct timeval *mtv;
   int n = 0;
 
+  /* s.socks_host = "127.0.0.1"; */
+  /* s.socks_port = 4321; */
 
   do {
 
