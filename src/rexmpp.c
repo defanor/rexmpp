@@ -678,7 +678,7 @@ rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
   return rexmpp_send_raw(s, buf, strlen(buf));
 }
 
-void rexmpp_process_conn_err (rexmpp_t *s, int err);
+void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err);
 
 void rexmpp_start_connecting (rexmpp_t *s) {
   if (s->socks_host == NULL) {
@@ -844,7 +844,19 @@ rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
   }
 }
 
-void rexmpp_process_conn_err (rexmpp_t *s, int err) {
+void rexmpp_process_socks_err (rexmpp_t *s, enum socks_err err) {
+  if (err == REXMPP_SOCKS_CONNECTED) {
+    rexmpp_connected_to_server(s);
+  } else if (err != REXMPP_SOCKS_E_AGAIN) {
+    rexmpp_log(s, LOG_ERR, "SOCKS5 connection failed.");
+    s->tcp_state = REXMPP_TCP_CONNECTION_FAILURE;
+    close(s->server_socket);
+    s->server_socket = -1;
+    rexmpp_try_next_host(s);
+  }
+}
+
+void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err) {
   s->tcp_state = REXMPP_TCP_CONNECTING;
   if (err == REXMPP_CONN_DONE) {
     s->server_socket = rexmpp_tcp_conn_finish(&s->server_connection);
@@ -852,8 +864,10 @@ void rexmpp_process_conn_err (rexmpp_t *s, int err) {
       rexmpp_connected_to_server(s);
     } else {
       s->tcp_state = REXMPP_TCP_SOCKS;
-      rexmpp_socks_init(&s->server_socks_conn, s->server_socket,
-                        s->server_host, s->server_port);
+      rexmpp_process_socks_err(s, rexmpp_socks_init(&s->server_socks_conn,
+                                                    s->server_socket,
+                                                    s->server_host,
+                                                    s->server_port));
     }
   } else if (err != REXMPP_CONN_IN_PROGRESS) {
     if (err == REXMPP_CONN_ERROR) {
@@ -1535,16 +1549,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 
   /* SOCKS5 connection. */
   if (s->tcp_state == REXMPP_TCP_SOCKS) {
-    enum socks_err err = rexmpp_socks_proceed(&s->server_socks_conn);
-    if (err == REXMPP_SOCKS_CONNECTED) {
-      rexmpp_connected_to_server(s);
-    } else if (err != REXMPP_SOCKS_E_AGAIN) {
-      rexmpp_log(s, LOG_ERR, "SOCKS5 connection failed.");
-      s->tcp_state = REXMPP_TCP_CONNECTION_FAILURE;
-      close(s->server_socket);
-      s->server_socket = -1;
-      rexmpp_try_next_host(s);
-    }
+    rexmpp_process_socks_err(s, rexmpp_socks_proceed(&s->server_socks_conn));
   }
 
   /* The things we do while connected. */
