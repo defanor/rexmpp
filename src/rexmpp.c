@@ -194,6 +194,7 @@ void rexmpp_cleanup (rexmpp_t *s) {
   if (s->server_socket != -1) {
     close(s->server_socket);
     s->server_socket = -1;
+    s->tcp_state = REXMPP_TCP_NONE;
   }
   if (s->send_buffer != NULL) {
     free(s->send_buffer);
@@ -451,17 +452,17 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
         if (ret != GNUTLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
-          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_log(s, LOG_ERR, "TLS send error: %s", gnutls_strerror(ret));
           rexmpp_cleanup(s);
+          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
           return REXMPP_E_TLS;
         }
       } else {
         if (errno != EAGAIN) {
-          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_log(s, LOG_ERR, "TCP send error: %s", strerror(errno));
           rexmpp_cleanup(s);
+          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
           return REXMPP_E_TCP;
         }
@@ -639,9 +640,9 @@ void rexmpp_recv (rexmpp_t *s) {
         s->tls_state = REXMPP_TLS_CLOSED;
         rexmpp_log(s, LOG_INFO, "TLS disconnected");
       }
-      s->tcp_state = REXMPP_TCP_CLOSED;
       rexmpp_log(s, LOG_INFO, "TCP disconnected");
       rexmpp_cleanup(s);
+      s->tcp_state = REXMPP_TCP_CLOSED;
       if (s->stream_state == REXMPP_STREAM_READY) {
         rexmpp_schedule_reconnect(s);
       }
@@ -650,16 +651,16 @@ void rexmpp_recv (rexmpp_t *s) {
         if (chunk_raw_len != GNUTLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
-          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_log(s, LOG_ERR, "TLS recv error: %s",
                      gnutls_strerror(chunk_raw_len));
           rexmpp_cleanup(s);
+          s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
         }
       } else if (errno != EAGAIN) {
-        s->tcp_state = REXMPP_TCP_ERROR;
         rexmpp_log(s, LOG_ERR, "TCP recv error: %s", strerror(errno));
         rexmpp_cleanup(s);
+        s->tcp_state = REXMPP_TCP_ERROR;
         rexmpp_schedule_reconnect(s);
       }
     }
@@ -1553,59 +1554,76 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
 
   /* The things we do while connected. */
-  if (s->tcp_state == REXMPP_TCP_CONNECTED) {
 
-    /* Sending queued data. */
-    if (FD_ISSET(s->server_socket, write_fds) &&
-        s->send_buffer != NULL) {
-      rexmpp_send_continue(s);
-    }
+  /* Sending queued data. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      FD_ISSET(s->server_socket, write_fds) &&
+      (s->tls_state == REXMPP_TLS_ACTIVE ||
+       s->tls_state == REXMPP_TLS_INACTIVE) &&
+      (s->stream_state != REXMPP_STREAM_NONE &&
+       s->stream_state != REXMPP_STREAM_CLOSED &&
+       s->stream_state != REXMPP_STREAM_ERROR) &&
+      s->sasl_state != REXMPP_SASL_ERROR &&
+      s->send_buffer != NULL) {
+    rexmpp_send_continue(s);
+  }
 
-    /* Receiving data. Leads to all kinds of things. */
-    if (FD_ISSET(s->server_socket, read_fds) &&
-        s->stream_state != REXMPP_STREAM_NONE &&
-        s->tcp_state == REXMPP_TCP_CONNECTED &&
-        s->tls_state != REXMPP_TLS_HANDSHAKE) {
-      rexmpp_recv(s);
-    }
+  /* Receiving data. Leads to all kinds of things. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      FD_ISSET(s->server_socket, read_fds) &&
+      (s->tls_state == REXMPP_TLS_ACTIVE ||
+       s->tls_state == REXMPP_TLS_INACTIVE) &&
+      (s->stream_state != REXMPP_STREAM_NONE &&
+       s->stream_state != REXMPP_STREAM_CLOSED &&
+       s->stream_state != REXMPP_STREAM_ERROR) &&
+      s->sasl_state != REXMPP_SASL_ERROR) {
+    rexmpp_recv(s);
+  }
 
-    /* Performing a TLS handshake. A stream restart happens after
-       this, if everything goes well. */
-    if (s->tls_state == REXMPP_TLS_HANDSHAKE) {
-      rexmpp_tls_handshake(s);
-    }
+  /* Performing a TLS handshake. A stream restart happens after
+     this, if everything goes well. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->tls_state == REXMPP_TLS_HANDSHAKE) {
+    rexmpp_tls_handshake(s);
+  }
 
-    /* Restarting a stream if needed after the above actions. Since it
-       involves resetting the parser, functions called by that parser
-       can't do it on their own. */
-    if (s->stream_state == REXMPP_STREAM_RESTART) {
-      xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
-      rexmpp_stream_open(s);
-    }
+  /* Restarting a stream if needed after the above actions. Since it
+     involves resetting the parser, functions called by that parser
+     can't do it on their own. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      (s->tls_state == REXMPP_TLS_ACTIVE ||
+       s->tls_state == REXMPP_TLS_INACTIVE) &&
+      s->stream_state == REXMPP_STREAM_RESTART) {
+    xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
+    rexmpp_stream_open(s);
+  }
 
-    /* Closing the stream once everything is sent. */
-    if (s->stream_state == REXMPP_STREAM_CLOSE_REQUESTED &&
-        s->send_buffer == NULL) {
-      rexmpp_close(s);
-    }
+  /* Closing the stream once everything is sent. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_CLOSE_REQUESTED &&
+      s->send_buffer == NULL) {
+    rexmpp_close(s);
+  }
 
-    /* Closing TLS and TCP connections once stream is closed. If
-       there's no TLS, the TCP connection is closed at once
-       elsewhere. */
-    if (s->stream_state == REXMPP_STREAM_CLOSED &&
-        s->tls_state == REXMPP_TLS_CLOSING) {
-      int ret = gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
-      if (ret == GNUTLS_E_SUCCESS) {
-        s->tls_state = REXMPP_TLS_INACTIVE;
-        rexmpp_cleanup(s);
-        s->tcp_state = REXMPP_TCP_CLOSED;
-      }
+  /* Closing TLS and TCP connections once stream is closed. If
+     there's no TLS, the TCP connection is closed at once
+     elsewhere. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_CLOSED &&
+      s->tls_state == REXMPP_TLS_CLOSING) {
+    int ret = gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
+    if (ret == GNUTLS_E_SUCCESS) {
+      s->tls_state = REXMPP_TLS_INACTIVE;
+      rexmpp_cleanup(s);
+      s->tcp_state = REXMPP_TCP_CLOSED;
     }
   }
+
   if (s->tcp_state == REXMPP_TCP_CLOSED) {
     return REXMPP_SUCCESS;
+  } else {
+    return REXMPP_E_AGAIN;
   }
-  return REXMPP_E_AGAIN;
 }
 
 int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
