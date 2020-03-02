@@ -663,7 +663,7 @@ void rexmpp_recv (rexmpp_t *s) {
         rexmpp_schedule_reconnect(s);
       }
     }
-  } while (chunk_raw_len > 0);
+  } while (chunk_raw_len > 0 && s->reconnect_number == 0);
 }
 
 rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
@@ -759,6 +759,7 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
       }
       gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
       rexmpp_cleanup(s);
+      rexmpp_schedule_reconnect(s);
       return REXMPP_E_TLS;
     }
     s->tls_state = REXMPP_TLS_ACTIVE;
@@ -797,6 +798,7 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
     rexmpp_log(s, LOG_ERR, "Unexpected TLS handshake error: %s",
                gnutls_strerror(ret));
     rexmpp_cleanup(s);
+    rexmpp_schedule_reconnect(s);
     return REXMPP_E_TLS;
   }
 }
