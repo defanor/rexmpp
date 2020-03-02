@@ -663,7 +663,7 @@ void rexmpp_recv (rexmpp_t *s) {
         rexmpp_schedule_reconnect(s);
       }
     }
-  } while (chunk_raw_len > 0 && s->reconnect_number == 0);
+  } while (chunk_raw_len > 0 && s->tcp_state == REXMPP_TCP_CONNECTED);
 }
 
 rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
