@@ -16,6 +16,7 @@
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include <gnutls/gnutls.h>
+#include <gnutls/crypto.h>
 #include <gnutls/x509.h>
 #include <gsasl.h>
 
@@ -257,15 +258,22 @@ void rexmpp_done (rexmpp_t *s) {
 }
 
 void rexmpp_schedule_reconnect (rexmpp_t *s) {
-  gettimeofday(&(s->next_reconnect_time), NULL);
-  if (s->reconnect_number < 10) {
-    s->next_reconnect_time.tv_sec += (8 << s->reconnect_number);
-  } else {
-    s->next_reconnect_time.tv_sec += 3600;
+  if (s->reconnect_number == 0) {
+    gnutls_rnd(GNUTLS_RND_NONCE, &s->reconnect_seconds, sizeof(time_t));
+    if (s->reconnect_seconds < 0) {
+      s->reconnect_seconds = - s->reconnect_seconds;
+    }
+    s->reconnect_seconds %= 60;
   }
-  rexmpp_log(s, LOG_DEBUG, "Scheduled reconnect number %d, for %u.%u",
+  time_t seconds = s->reconnect_seconds << s->reconnect_number;
+  if (seconds > 3600) {
+    seconds = 3600;
+  }
+  gettimeofday(&(s->next_reconnect_time), NULL);
+  s->next_reconnect_time.tv_sec += seconds;
+  rexmpp_log(s, LOG_DEBUG, "Scheduled reconnect number %d, in %d seconds",
              s->reconnect_number,
-             s->next_reconnect_time.tv_sec, s->next_reconnect_time.tv_usec);
+             seconds);
   s->reconnect_number++;
 }
 

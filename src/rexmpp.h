@@ -206,6 +206,7 @@ struct rexmpp
   /* Connection and stream management. */
   unsigned int id_counter;
   unsigned int reconnect_number;
+  time_t reconnect_seconds;
   struct timeval next_reconnect_time;
   xmlNodePtr stanza_queue;
   uint32_t stanzas_out_count;
