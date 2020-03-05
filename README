@@ -53,6 +53,7 @@ A rough roadmap:
     abstract out XML functions and structures: could reuse existing
     libxml2 bindings that way.
 [ ] Automated testing.
+[ ] Separate states for server-to-client and client-to-server streams?
 
 
 - Primary IM features (?):

@@ -56,42 +56,78 @@ enum resolver_st {
 
 /** @brief TCP connection state */
 enum tcp_st {
+  /** No active TCP connection. */
   REXMPP_TCP_NONE,
+  /** Connection establishment. */
   REXMPP_TCP_CONNECTING,
+  /** Connected to a SOCKS server, asking it to connect to XMPP
+      server. */
   REXMPP_TCP_SOCKS,
+  /** Connected to XMPP server. */
   REXMPP_TCP_CONNECTED,
+  /** Connection is closed properly. */
   REXMPP_TCP_CLOSED,
+  /** Failed to connect. */
   REXMPP_TCP_CONNECTION_FAILURE,
+  /** An error occurred. */
   REXMPP_TCP_ERROR
 };
 
-/** @brief XML stream state */
+/** @brief High-level state of both XML streams */
 enum stream_st {
   REXMPP_STREAM_NONE,
+  /** Opening a stream: sending the opening tag, and waiting for
+      one. */
   REXMPP_STREAM_OPENING,
+  /** Stream futures negotiation. */
   REXMPP_STREAM_NEGOTIATION,
+  /** STARTTLS negotiation. */
   REXMPP_STREAM_STARTTLS,
+  /** SASL negotiation (authentication). */
   REXMPP_STREAM_SASL,
+  /** Resource binding. */
   REXMPP_STREAM_BIND,
+  /** Requesting stream management (XEP-0198) with resumption. */
   REXMPP_STREAM_SM_FULL,
+  /** Requesting stream management just with acknowledgements. */
   REXMPP_STREAM_SM_ACKS,
+  /** Resuming a stream. */
   REXMPP_STREAM_SM_RESUME,
+  /** Restarting a stream. */
   REXMPP_STREAM_RESTART,
+  /** The streams are ready for use: messaging and other higher-level
+      things not covered here. */
   REXMPP_STREAM_READY,
+  /** Stream closing is requested; at this state we're sending
+      pending/queued messages and wrapping up stream management before
+      actually closing it. */
   REXMPP_STREAM_CLOSE_REQUESTED,
+  /** Closing a stream: sending the closing tag, waiting for a closing
+      tag (and still accepting incoming messages). */
   REXMPP_STREAM_CLOSING,
+  /** The server-to-client stream is closed. */
   REXMPP_STREAM_CLOSED,
+  /** A stream error was detected in the server-to-client stream. */
   REXMPP_STREAM_ERROR
 };
 
 /** @brief TLS state */
 enum tls_st {
+  /** No active TLS connection. */
   REXMPP_TLS_INACTIVE,
+  /** Awaiting direct TLS: this state may be set during a TCP
+      connection establishment, so that we know if it's @c
+      xmpps-client service. */
   REXMPP_TLS_AWAITING_DIRECT,
+  /** Handshake is in progress. */
   REXMPP_TLS_HANDSHAKE,
+  /** TLS connection is active. */
   REXMPP_TLS_ACTIVE,
+  /** Closing a connection. */
   REXMPP_TLS_CLOSING,
+  /** A connection is closed. */
   REXMPP_TLS_CLOSED,
+  /** An error occurred. */
   REXMPP_TLS_ERROR
 };
 
