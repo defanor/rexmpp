@@ -79,6 +79,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->manual_direct_tls = 0;
   s->socks_host = NULL;
   s->server_host = NULL;
+  s->enable_carbons = 1;
+  s->enable_service_discovery = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -225,9 +227,6 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->server_srv_tls_cur = NULL;
   }
   s->sm_state = REXMPP_SM_INACTIVE;
-  if (s->carbons_state != REXMPP_CARBONS_DISABLED) {
-    s->carbons_state = REXMPP_CARBONS_INACTIVE;
-  }
 }
 
 /* Frees the things that persist through reconnects. */
@@ -1021,7 +1020,7 @@ void rexmpp_discovery_info (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response) {
         if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
                              "feature")) {
           char *var = xmlGetProp(child, "var");
-          if (s->carbons_state != REXMPP_CARBONS_DISABLED &&
+          if (s->enable_carbons &&
               strcmp(var, "urn:xmpp:carbons:2") == 0) {
             xmlNodePtr carbons_enable = xmlNewNode(NULL, "enable");
             xmlNewNs(carbons_enable, "urn:xmpp:carbons:2", NULL);
@@ -1039,10 +1038,12 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_READY;
   rexmpp_resend_stanzas(s);
   rexmpp_send(s, xmlNewNode(NULL, "presence"));
-  xmlNodePtr disco_query = xmlNewNode(NULL, "query");
-  xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
-  rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
-                disco_query, rexmpp_discovery_info);
+  if (s->enable_service_discovery) {
+    xmlNodePtr disco_query = xmlNewNode(NULL, "query");
+    xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
+    rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
+                  disco_query, rexmpp_discovery_info);
+  }
 }
 
 /* Resource binding,

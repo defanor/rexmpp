@@ -150,8 +150,7 @@ enum sm_st {
 enum carbons_st {
   REXMPP_CARBONS_INACTIVE,
   REXMPP_CARBONS_NEGOTIATION,
-  REXMPP_CARBONS_ACTIVE,
-  REXMPP_CARBONS_DISABLED
+  REXMPP_CARBONS_ACTIVE
 };
 
 /** Error codes. */
@@ -220,6 +219,10 @@ struct rexmpp
   /* Socks settings. */
   const char *socks_host;
   uint16_t socks_port;
+
+  /* Various knobs (these are used instead of loadable modules). */
+  int enable_carbons;
+  int enable_service_discovery;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
