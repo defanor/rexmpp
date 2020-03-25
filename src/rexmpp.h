@@ -29,7 +29,10 @@ typedef struct rexmpp rexmpp_t;
    A callback must not free the request or the response, but merely
    inspect those and react.
 */
-typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s, xmlNodePtr request, xmlNodePtr response);
+typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s,
+                                      xmlNodePtr request,
+                                      xmlNodePtr response,
+                                      int success);
 
 typedef struct rexmpp_iq rexmpp_iq_t;
 
@@ -185,7 +188,13 @@ enum rexmpp_err {
   /** JID-related error. */
   REXMPP_E_JID,
   /** Failure to allocate memory. */
-  REXMPP_E_MALLOC
+  REXMPP_E_MALLOC,
+  /** Roster-related error. */
+  REXMPP_E_ROSTER,
+  /** A roster item is not found. */
+  REXMPP_E_ROSTER_ITEM_NOT_FOUND,
+  /** An erroneous parameter is supplied. */
+  REXMPP_E_PARAM
 };
 typedef enum rexmpp_err rexmpp_err_t;
 
@@ -223,6 +232,7 @@ struct rexmpp
   /* Various knobs (these are used instead of loadable modules). */
   int enable_carbons;
   int enable_service_discovery;
+  int manage_roster;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -238,6 +248,8 @@ struct rexmpp
   /* Stream-related state. */
   char *assigned_jid;
   xmlNodePtr stream_features;
+  xmlNodePtr roster_items;
+  char *roster_ver;
 
   /* IQs we're waiting for responses to. */
   rexmpp_iq_t *active_iq;

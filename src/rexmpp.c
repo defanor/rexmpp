@@ -81,6 +81,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->server_host = NULL;
   s->enable_carbons = 1;
   s->enable_service_discovery = 1;
+  s->manage_roster = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -91,6 +92,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->current_element_root = NULL;
   s->current_element = NULL;
   s->stream_features = NULL;
+  s->roster_items = NULL;
+  s->roster_ver = NULL;
   s->stanza_queue = NULL;
   s->stream_id = NULL;
   s->active_iq = NULL;
@@ -240,6 +243,14 @@ void rexmpp_done (rexmpp_t *s) {
   if (s->stream_id != NULL) {
     free(s->stream_id);
     s->stream_id = NULL;
+  }
+  if (s->roster_items != NULL) {
+    xmlFreeNodeList(s->roster_items);
+    s->roster_items = NULL;
+  }
+  if (s->roster_ver != NULL) {
+    free(s->roster_ver);
+    s->roster_ver = NULL;
   }
   while (s->stanza_queue != NULL) {
     xmlNodePtr next = xmlNextElementSibling(s->stanza_queue);
@@ -550,6 +561,32 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
   return ret;
 }
 
+void rexmpp_iq_reply (rexmpp_t *s,
+                      xmlNodePtr req,
+                      const char *type,
+                      xmlNodePtr payload)
+{
+  xmlNodePtr iq_stanza = xmlNewNode(NULL, "iq");
+  xmlNewNs(iq_stanza, "jabber:client", NULL);
+  xmlNewProp(iq_stanza, "type", type);
+  char *id = xmlGetProp(req, "id");
+  if (id != NULL) {
+    xmlNewProp(iq_stanza, "id", id);
+    free(id);
+  }
+  char *to = xmlGetProp(req, "from");
+  if (to != NULL) {
+    xmlNewProp(iq_stanza, "to", to);
+    free(to);
+  }
+  if (s->assigned_jid != NULL) {
+    xmlNewProp(iq_stanza, "from", s->assigned_jid);
+  }
+  if (payload != NULL) {
+    xmlAddChild(iq_stanza, payload);
+  }
+  rexmpp_send(s, iq_stanza);
+}
 
 void rexmpp_iq_new (rexmpp_t *s,
                     const char *type,
@@ -568,7 +605,7 @@ void rexmpp_iq_new (rexmpp_t *s,
                "The IQ queue limit is reached, giving up on the oldest IQ.");
     prev->next = NULL;
     if (last->cb != NULL) {
-      last->cb(s, last->request, NULL);
+      last->cb(s, last->request, NULL, 0);
     }
     xmlFreeNode(last->request);
     free(last);
@@ -996,19 +1033,29 @@ void rexmpp_sm_handle_ack (rexmpp_t *s, xmlNodePtr elem) {
   }
 }
 
-void rexmpp_carbons_enabled (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response) {
-  char *type = xmlGetProp(response, "type");
-  if (strcmp(type, "result") == 0) {
+void rexmpp_carbons_enabled (rexmpp_t *s,
+                             xmlNodePtr req,
+                             xmlNodePtr response,
+                             int success)
+{
+  if (success) {
     rexmpp_log(s, LOG_INFO, "carbons enabled");
     s->carbons_state = REXMPP_CARBONS_ACTIVE;
   } else {
     rexmpp_log(s, LOG_WARNING, "failed to enable carbons");
     s->carbons_state = REXMPP_CARBONS_INACTIVE;
   }
-  free(type);
 }
 
-void rexmpp_discovery_info (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response) {
+void rexmpp_iq_discovery_info (rexmpp_t *s,
+                               xmlNodePtr req,
+                               xmlNodePtr response,
+                               int success)
+{
+  if (! success) {
+    rexmpp_log(s, LOG_ERR, "Failed to discover features");
+    return;
+  }
   xmlNodePtr query = xmlFirstElementChild(response);
   if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info",
                        "query")) {
@@ -1034,6 +1081,102 @@ void rexmpp_discovery_info (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response) {
   }
 }
 
+xmlNodePtr rexmpp_roster_find_item (rexmpp_t *s,
+                                    const char *jid,
+                                    xmlNodePtr *prev_item)
+{
+  xmlNodePtr prev = NULL, cur = s->roster_items;
+  while (cur != NULL) {
+    char *cur_jid = xmlGetProp(cur, "jid");
+    if (cur_jid == NULL) {
+      rexmpp_log(s, LOG_ALERT, "No jid found in a roster item.");
+      return NULL;
+    }
+    int match = (strcmp(cur_jid, jid) == 0);
+    free(cur_jid);
+    if (match) {
+      if (prev_item != NULL) {
+        *prev_item = prev;
+      }
+      return cur;
+    }
+    prev = cur;
+    cur = cur->next;
+  }
+  return NULL;
+}
+
+rexmpp_err_t rexmpp_modify_roster (rexmpp_t *s, xmlNodePtr item) {
+  rexmpp_err_t ret = REXMPP_SUCCESS;
+  if (! rexmpp_xml_match(item, "jabber:iq:roster", "item")) {
+    rexmpp_log(s, LOG_ERR, "No roster item.");
+    return REXMPP_E_PARAM;
+  }
+  char *subscription = xmlGetProp(item, "subscription");
+  char *jid = xmlGetProp(item, "jid");
+  if (subscription != NULL && strcmp(subscription, "remove") == 0) {
+    /* Delete the item. */
+    xmlNodePtr prev, cur;
+    cur = rexmpp_roster_find_item(s, jid, &prev);
+    if (cur != NULL) {
+      if (prev != NULL) {
+        prev->next = cur->next;
+      } else {
+        s->roster_items = cur->next;
+      }
+      xmlFreeNode(cur);
+    } else {
+      ret = REXMPP_E_ROSTER_ITEM_NOT_FOUND;
+    }
+  } else {
+    /* Add or modify the item. */
+    xmlNodePtr cur, prev;
+    cur = rexmpp_roster_find_item(s, jid, &prev);
+    /* Remove the item if it was in the roster before. */
+    if (cur != NULL) {
+      if (prev != NULL) {
+        prev->next = cur->next;
+      } else {
+        s->roster_items = cur->next;
+      }
+      xmlFreeNode(cur);
+    }
+    /* Add the new item. */
+    xmlNodePtr new_item = xmlCopyNode(item, 1);
+    new_item->next = s->roster_items;
+    s->roster_items = new_item;
+  }
+  free(jid);
+  if (subscription != NULL) {
+    free(subscription);
+  }
+  return ret;
+}
+
+void rexmpp_iq_roster_get (rexmpp_t *s,
+                           xmlNodePtr req,
+                           xmlNodePtr response,
+                           int success)
+{
+  if (! success) {
+    rexmpp_log(s, LOG_ERR, "Roster loading failed.");
+    return;
+  }
+  xmlNodePtr query = xmlFirstElementChild(response);
+  if (! rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
+    rexmpp_log(s, LOG_WARNING, "No roster query found.");
+    return;
+  }
+  if (s->roster_items != NULL) {
+    xmlFreeNodeList(s->roster_items);
+  }
+  if (s->roster_ver != NULL) {
+    free(s->roster_ver);
+  }
+  s->roster_ver = xmlGetProp(query, "ver");
+  s->roster_items = xmlFirstElementChild(query);
+}
+
 void rexmpp_stream_is_ready(rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_READY;
   rexmpp_resend_stanzas(s);
@@ -1042,13 +1185,29 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
     xmlNodePtr disco_query = xmlNewNode(NULL, "query");
     xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
     rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
-                  disco_query, rexmpp_discovery_info);
+                  disco_query, rexmpp_iq_discovery_info);
+  }
+  if (s->manage_roster) {
+    xmlNodePtr roster_query = xmlNewNode(NULL, "query");
+    xmlNewNs(roster_query, "jabber:iq:roster", NULL);
+    if (s->roster_ver != NULL) {
+      xmlNewProp(roster_query, "ver", s->roster_ver);
+    } else {
+      xmlNewProp(roster_query, "ver", "");
+    }
+    rexmpp_iq_new(s, "get", NULL,
+                  roster_query, rexmpp_iq_roster_get);
   }
 }
 
 /* Resource binding,
    https://tools.ietf.org/html/rfc6120#section-7 */
-void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response) {
+void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response, int success) {
+  if (! success) {
+    /* todo: reconnect here? */
+    rexmpp_log(s, LOG_ERR, "Resource binding failed.");
+    return;
+  }
   /* todo: handle errors */
   xmlNodePtr child = xmlFirstElementChild(response);
   if (rexmpp_xml_match(child, "urn:ietf:params:xml:ns:xmpp-bind", "bind")) {
@@ -1089,9 +1248,10 @@ void rexmpp_stream_bind (rexmpp_t *s) {
 void rexmpp_process_element(rexmpp_t *s) {
   xmlNodePtr elem = s->current_element;
 
-  /* IQ responses */
+  /* IQs */
   if (rexmpp_xml_match(elem, "jabber:client", "iq")) {
     char *type = xmlGetProp(elem, "type");
+    /* IQ responses. */
     if (strcmp(type, "result") == 0 || strcmp(type, "error") == 0) {
       char *id = xmlGetProp(elem, "id");
       rexmpp_iq_t *req = s->active_iq;
@@ -1101,7 +1261,13 @@ void rexmpp_process_element(rexmpp_t *s) {
         if (strcmp(id, req_id) == 0) {
           found = 1;
           if (req->cb != NULL) {
-            req->cb(s, req->request, elem);
+            char *iq_type = xmlGetProp(elem, "type");
+            int success = 0;
+            if (strcmp(type, "result") == 0) {
+              success = 1;
+            }
+            free(iq_type);
+            req->cb(s, req->request, elem, success);
           }
           /* Remove the callback from the list, but keep in mind that
              it could have added more entries. */
@@ -1126,6 +1292,17 @@ void rexmpp_process_element(rexmpp_t *s) {
         req = req->next;
       }
       free(id);
+    }
+    /* IQ "set" requests. */
+    if (strcmp(type, "set") == 0) {
+      xmlNodePtr query = xmlFirstElementChild(elem);
+      if (s->manage_roster &&
+          rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
+        /* Roster push. */
+        rexmpp_modify_roster(s, xmlFirstElementChild(query));
+        /* todo: check for errors */
+        rexmpp_iq_reply(s, elem, "result", NULL);
+      }
     }
     free(type);
   }

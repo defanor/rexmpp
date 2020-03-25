@@ -31,9 +31,7 @@ A rough roadmap:
 [+] XEP-0198: Stream Management. Implemented (both acknowledgements
     and resumption, making use of XEP-0203: Delayed Delivery).
 
-[+] XEP-0280: Message Carbons. Enables them in case if they are
-    supported by the server (discovering it using XEP-0030: Service
-    Discovery). Though maybe it shouldn't be done by the library.
+[+] XEP-0280: Message Carbons.
 
 
 - Better connectivity:
@@ -58,9 +56,9 @@ A rough roadmap:
 
 - Primary IM features (?):
 
-[ ] XMPP IM (RFC 6121): loading and managing of the roster and
-    presence subscriptions? Maybe it'd be better done by a client. Or
-    just some utility functions can be provided.
+[.] XMPP IM (RFC 6121): loading and managing of the roster and
+    presence subscriptions. Optional roster management (loading and
+    updates on roster push, with versioning) is implemented.
 
 
 - Common and reliable IM features (?):
