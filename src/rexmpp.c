@@ -82,6 +82,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->enable_carbons = 1;
   s->enable_service_discovery = 1;
   s->manage_roster = 1;
+  s->roster_cache_file = NULL;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -1153,6 +1154,47 @@ rexmpp_err_t rexmpp_modify_roster (rexmpp_t *s, xmlNodePtr item) {
   return ret;
 }
 
+void rexmpp_roster_set (rexmpp_t *s, xmlNodePtr query) {
+  if (s->roster_items != NULL) {
+    xmlFreeNodeList(s->roster_items);
+  }
+  if (s->roster_ver != NULL) {
+    free(s->roster_ver);
+  }
+  s->roster_ver = xmlGetProp(query, "ver");
+  s->roster_items = xmlCopyNodeList(xmlFirstElementChild(query));
+}
+
+void rexmpp_roster_cache_read (rexmpp_t *s) {
+  if (s->roster_cache_file == NULL) {
+    rexmpp_log(s, LOG_WARNING, "No roster cache file path is set.");
+    return;
+  }
+  xmlDocPtr doc = xmlReadFile(s->roster_cache_file, "utf-8", XML_PARSE_NONET);
+  xmlNodePtr query = xmlDocGetRootElement(doc);
+  rexmpp_roster_set(s, query);
+  xmlFreeDoc(doc);
+}
+
+void rexmpp_roster_cache_write (rexmpp_t *s) {
+  if (s->roster_cache_file == NULL) {
+    rexmpp_log(s, LOG_WARNING, "No roster cache file path is set.");
+    return;
+  }
+  xmlDocPtr doc = xmlNewDoc("1.0");
+  xmlNodePtr query = xmlNewDocNode(doc, NULL, "query", NULL);
+  xmlDocSetRootElement(doc, query);
+  xmlNewNs(query, "jabber:iq:roster", NULL);
+  if (s->roster_ver != NULL) {
+    xmlNewProp(query, "ver", s->roster_ver);
+  }
+  if (s->roster_items != NULL) {
+    xmlAddChild(query, xmlDocCopyNodeList(doc, s->roster_items));
+  }
+  xmlSaveFileEnc(s->roster_cache_file, doc, "utf-8");
+  xmlFreeDoc(doc);
+}
+
 void rexmpp_iq_roster_get (rexmpp_t *s,
                            xmlNodePtr req,
                            xmlNodePtr response,
@@ -1164,17 +1206,13 @@ void rexmpp_iq_roster_get (rexmpp_t *s,
   }
   xmlNodePtr query = xmlFirstElementChild(response);
   if (! rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
-    rexmpp_log(s, LOG_WARNING, "No roster query found.");
+    rexmpp_log(s, LOG_DEBUG, "No roster query in reply.");
     return;
   }
-  if (s->roster_items != NULL) {
-    xmlFreeNodeList(s->roster_items);
+  rexmpp_roster_set(s, query);
+  if (s->roster_cache_file != NULL) {
+    rexmpp_roster_cache_write(s);
   }
-  if (s->roster_ver != NULL) {
-    free(s->roster_ver);
-  }
-  s->roster_ver = xmlGetProp(query, "ver");
-  s->roster_items = xmlFirstElementChild(query);
 }
 
 void rexmpp_stream_is_ready(rexmpp_t *s) {
@@ -1188,6 +1226,9 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
                   disco_query, rexmpp_iq_discovery_info);
   }
   if (s->manage_roster) {
+    if (s->roster_cache_file != NULL) {
+      rexmpp_roster_cache_read(s);
+    }
     xmlNodePtr roster_query = xmlNewNode(NULL, "query");
     xmlNewNs(roster_query, "jabber:iq:roster", NULL);
     if (s->roster_ver != NULL) {
@@ -1245,7 +1286,7 @@ void rexmpp_stream_bind (rexmpp_t *s) {
   rexmpp_iq_new(s, "set", NULL, bind_cmd, rexmpp_bound);
 }
 
-void rexmpp_process_element(rexmpp_t *s) {
+void rexmpp_process_element (rexmpp_t *s) {
   xmlNodePtr elem = s->current_element;
 
   /* IQs */
@@ -1299,9 +1340,16 @@ void rexmpp_process_element(rexmpp_t *s) {
       if (s->manage_roster &&
           rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
         /* Roster push. */
+        if (s->roster_ver != NULL) {
+          free(s->roster_ver);
+        }
+        s->roster_ver = xmlGetProp(query, "ver");
         rexmpp_modify_roster(s, xmlFirstElementChild(query));
         /* todo: check for errors */
         rexmpp_iq_reply(s, elem, "result", NULL);
+        if (s->roster_cache_file != NULL) {
+          rexmpp_roster_cache_write(s);
+        }
       }
     }
     free(type);

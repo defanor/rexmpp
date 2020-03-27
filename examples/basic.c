@@ -84,6 +84,8 @@ main () {
   /*                                        "foo.custom.crt", */
   /*                                        GNUTLS_X509_FMT_PEM); */
 
+  s.roster_cache_file = "roster.xml";
+
   do {
 
     if (n > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {

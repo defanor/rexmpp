@@ -233,6 +233,7 @@ struct rexmpp
   int enable_carbons;
   int enable_service_discovery;
   int manage_roster;
+  const char *roster_cache_file;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
