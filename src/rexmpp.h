@@ -390,4 +390,8 @@ int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 char *rexmpp_xml_serialize (xmlNodePtr node);
 xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node);
 
+void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
+int rexmpp_xml_match (xmlNodePtr node,
+                      const char *namespace,
+                      const char *name);
 #endif
