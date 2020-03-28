@@ -1204,7 +1204,18 @@ void rexmpp_process_element (rexmpp_t *s) {
     /* IQ "set" requests. */
     if (strcmp(type, "set") == 0) {
       xmlNodePtr query = xmlFirstElementChild(elem);
-      if (s->manage_roster &&
+      int from_server = 0;
+      char *from = xmlGetProp(elem, "from");
+      if (from == NULL) {
+        from_server = 1;
+      } else {
+        if (strcmp(from, jid_bare_to_host(s->assigned_jid)) == 0) {
+          from_server = 1;
+        }
+        free(from);
+      }
+      if (from_server &&
+          s->manage_roster &&
           rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
         /* Roster push. */
         if (s->roster_ver != NULL) {

@@ -54,14 +54,15 @@ A rough roadmap:
 [ ] Separate states for server-to-client and client-to-server streams?
 
 
-- Primary IM features (?):
+- Primary IM features:
 
-[.] XMPP IM (RFC 6121): loading and managing of the roster and
-    presence subscriptions. Optional roster management (loading and
-    updates on roster push, with versioning) is implemented.
+[.] XMPP IM (RFC 6121): loading and managing of the roster, possibly
+    keeping track of contact presences. Optional roster management
+    (loading and updates on roster push, with versioning) is
+    implemented.
 
 
-- Common and reliable IM features (?):
+- Common and reliable IM features:
 
 [.] XEP-0030: Service Discovery (implemented partially, just to
     discover server features)
