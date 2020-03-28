@@ -52,6 +52,34 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
   }
 }
 
+xmlNodePtr rexmpp_xml_feature (const char *var) {
+  xmlNodePtr feature = xmlNewNode(NULL, "feature");
+  xmlNewProp(feature, "var", var);
+  return feature;
+}
+
+xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
+  xmlNodePtr error = xmlNewNode(NULL, "error");
+  xmlNewProp(error, "type", type);
+  xmlNodePtr cond = xmlNewNode(NULL, condition);
+  xmlNewNs(cond, "urn:ietf:params:xml:ns:xmpp-stanzas", NULL);
+  xmlAddChild(error, cond);
+  return error;
+}
+
+xmlNodePtr rexmpp_xml_default_disco_info () {
+  /* There must be at least one identity, so filling in somewhat
+     sensible defaults. A basic client may leave them be, while an
+     advanced one would adjust and/or extend them. */
+  xmlNodePtr identity = xmlNewNode(NULL, "identity");
+  xmlNewProp(identity, "category", "client");
+  xmlNewProp(identity, "type", "console");
+  xmlNewProp(identity, "name", "rexmpp");
+  xmlNodePtr disco_feature = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
+  identity->next = disco_feature;
+  return identity;
+}
+
 rexmpp_err_t rexmpp_init (rexmpp_t *s,
                           const char *jid,
                           log_function_t log_function,
@@ -174,6 +202,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   }
   gsasl_callback_set(s->sasl_ctx, s->sasl_property_cb);
 
+  s->disco_info = rexmpp_xml_default_disco_info();
+
   return REXMPP_SUCCESS;
 }
 
@@ -252,6 +282,10 @@ void rexmpp_done (rexmpp_t *s) {
   if (s->roster_ver != NULL) {
     free(s->roster_ver);
     s->roster_ver = NULL;
+  }
+  if (s->disco_info != NULL) {
+    xmlFreeNodeList(s->disco_info);
+    s->disco_info = NULL;
   }
   while (s->stanza_queue != NULL) {
     xmlNodePtr next = xmlNextElementSibling(s->stanza_queue);
@@ -1156,7 +1190,10 @@ void rexmpp_stream_bind (rexmpp_t *s) {
 void rexmpp_process_element (rexmpp_t *s) {
   xmlNodePtr elem = s->current_element;
 
-  /* IQs */
+  /* IQs. These are the ones that should be processed by the library;
+     if a user-facing application wants to handle them on its own, it
+     should cancel further processing by the library (so we can send
+     errors for unhandled IQs here). */
   if (rexmpp_xml_match(elem, "jabber:client", "iq")) {
     char *type = xmlGetProp(elem, "type");
     /* IQ responses. */
@@ -1228,6 +1265,24 @@ void rexmpp_process_element (rexmpp_t *s) {
         if (s->roster_cache_file != NULL) {
           rexmpp_roster_cache_write(s);
         }
+      } else {
+        /* An unknown request. */
+        rexmpp_iq_reply(s, elem, "error",
+                        rexmpp_xml_error("cancel", "service-unavailable"));
+      }
+    }
+    /* IQ "get" requests. */
+    if (strcmp(type, "get") == 0) {
+      xmlNodePtr query = xmlFirstElementChild(elem);
+      if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info", "query")) {
+        xmlNodePtr result = xmlNewNode(NULL, "query");
+        xmlNewNs(result, "http://jabber.org/protocol/disco#info", NULL);
+        xmlAddChild(result, xmlCopyNodeList(s->disco_info));
+        rexmpp_iq_reply(s, elem, "result", result);
+      } else {
+        /* An unknown request. */
+        rexmpp_iq_reply(s, elem, "error",
+                        rexmpp_xml_error("cancel", "service-unavailable"));
       }
     }
     free(type);

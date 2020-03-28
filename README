@@ -56,16 +56,14 @@ A rough roadmap:
 
 - Primary IM features:
 
-[.] XMPP IM (RFC 6121): loading and managing of the roster, possibly
-    keeping track of contact presences. Optional roster management
-    (loading and updates on roster push, with versioning) is
-    implemented.
+[.] XMPP IM (RFC 6121): roster management is implemented, but not keeping
+    track of contact presences yet.
 
 
 - Common and reliable IM features:
 
-[.] XEP-0030: Service Discovery (implemented partially, just to
-    discover server features)
+[.] XEP-0030: Service Discovery: implemented, but without tracking of
+    features provided by known entities yet.
 [ ] XEP-0115: Entity Capabilities
 [ ] XEP-0045: Multi-User Chat
 [ ] XEP-0166: Jingle

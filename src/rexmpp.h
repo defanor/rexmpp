@@ -252,6 +252,9 @@ struct rexmpp
   xmlNodePtr roster_items;
   char *roster_ver;
 
+  /* Other dynamic data. */
+  xmlNodePtr disco_info;
+
   /* IQs we're waiting for responses to. */
   rexmpp_iq_t *active_iq;
 
