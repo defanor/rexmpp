@@ -60,11 +60,12 @@ A rough roadmap:
     track of contact presences yet.
 
 
-- Common and reliable IM features:
+- Common and mostly reliable IM features:
 
 [.] XEP-0030: Service Discovery: implemented, but without tracking of
     features provided by known entities yet.
-[ ] XEP-0115: Entity Capabilities
+[.] XEP-0115: Entity Capabilities: including them into <presence>, but
+    not managing a capabilities database yet.
 [ ] XEP-0045: Multi-User Chat
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer

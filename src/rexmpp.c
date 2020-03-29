@@ -52,6 +52,126 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
   }
 }
 
+char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
+  /* Assuming the info is sorted already. Would be better to sort it
+     here (todo). */
+  xmlNodePtr cur;
+  int buf_len = 1024, str_len = 0;
+  char *str = malloc(buf_len);
+  for (cur = info; cur; cur = cur->next) {
+    if (strcmp(cur->name, "identity") == 0) {
+      int cur_len = 5;          /* ///< for an empty identity */
+
+      /* Collect the properties we'll need. */
+      char *category = xmlGetProp(cur, "category");
+      char *type = xmlGetProp(cur, "type");
+      char *lang = xmlGetProp(cur, "xml:lang");
+      char *name = xmlGetProp(cur, "name");
+
+      /* Calculate the length needed. */
+      if (category != NULL) {
+        cur_len += strlen(category);
+      }
+      if (type != NULL) {
+        cur_len += strlen(type);
+      }
+      if (lang != NULL) {
+        cur_len += strlen(lang);
+      }
+      if (name != NULL) {
+        cur_len += strlen(name);
+      }
+
+      /* Reallocate the buffer if necessary. */
+      if (cur_len > buf_len - str_len) {
+        while (cur_len > buf_len - str_len) {
+          buf_len *= 2;
+        }
+        str = realloc(str, buf_len);
+      }
+
+      /* Fill the data. */
+      if (category != NULL) {
+        strcpy(str + str_len, category);
+        str_len += strlen(category);
+      }
+      str[str_len] = '/';
+      str_len++;
+      if (type != NULL) {
+        strcpy(str + str_len, type);
+        str_len += strlen(type);
+      }
+      str[str_len] = '/';
+      str_len++;
+      if (lang != NULL) {
+        strcpy(str + str_len, lang);
+        str_len += strlen(lang);
+      }
+      str[str_len] = '/';
+      str_len++;
+      if (name != NULL) {
+        strcpy(str + str_len, name);
+        str_len += strlen(name);
+      }
+      str[str_len] = '<';
+      str_len++;
+
+      /* Free the values. */
+      if (category != NULL) {
+        free(category);
+      }
+      if (type != NULL) {
+        free(type);
+      }
+      if (lang != NULL) {
+        free(lang);
+      }
+      if (name != NULL) {
+        free(name);
+      }
+    } else if (strcmp(cur->name, "feature") == 0) {
+      char *var = xmlGetProp(cur, "var");
+      int cur_len = 2 + strlen(var);
+      if (cur_len > buf_len - str_len) {
+        while (cur_len > buf_len - str_len) {
+          buf_len *= 2;
+        }
+        str = realloc(str, buf_len);
+      }
+      strcpy(str + str_len, var);
+      str_len += strlen(var);
+      str[str_len] = '<';
+      str_len++;
+      free(var);
+    } else {
+      rexmpp_log(s, LOG_ERR,
+                 "Unsupported node type in disco info: %s", cur->name);
+    }
+  }
+  str[str_len] = '\0';
+  return str;
+}
+
+char *rexmpp_capabilities_hash (rexmpp_t *s,
+                                xmlNodePtr info)
+{
+  int err;
+  char *hash;
+  char *str = rexmpp_capabilities_string(s, info);
+  err = gsasl_sha1(str, strlen(str), &hash);
+  free(str);
+  if (err) {
+    rexmpp_log(s, LOG_ERR, "Hashing failure: %s",
+               gsasl_strerror(err));
+    return NULL;
+  }
+  char *out = NULL;
+  size_t out_len = 0;
+  gsasl_base64_to(hash, 20, &out, &out_len);
+  free(hash);
+  return out;
+}
+
 xmlNodePtr rexmpp_xml_feature (const char *var) {
   xmlNodePtr feature = xmlNewNode(NULL, "feature");
   xmlNewProp(feature, "var", var);
@@ -75,7 +195,8 @@ xmlNodePtr rexmpp_xml_default_disco_info () {
   xmlNewProp(identity, "category", "client");
   xmlNewProp(identity, "type", "console");
   xmlNewProp(identity, "name", "rexmpp");
-  xmlNodePtr disco_feature = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
+  xmlNodePtr disco_feature =
+    rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   identity->next = disco_feature;
   return identity;
 }
@@ -105,6 +226,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->manual_host = NULL;
   s->manual_port = 5222;
   s->manual_direct_tls = 0;
+  s->disco_node = "rexmpp";
   s->socks_host = NULL;
   s->server_host = NULL;
   s->enable_carbons = 1;
@@ -1119,7 +1241,19 @@ void rexmpp_iq_discovery_info (rexmpp_t *s,
 void rexmpp_stream_is_ready(rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_READY;
   rexmpp_resend_stanzas(s);
-  rexmpp_send(s, xmlNewNode(NULL, "presence"));
+
+  xmlNodePtr presence = xmlNewNode(NULL, "presence");
+  char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
+  if (caps_hash != NULL) {
+    xmlNodePtr c = xmlNewNode(NULL, "c");
+    xmlNewNs(c, "http://jabber.org/protocol/caps", NULL);
+    xmlNewProp(c, "hash", "sha-1");
+    xmlNewProp(c, "node", s->disco_node);
+    xmlNewProp(c, "ver", caps_hash);
+    xmlAddChild(presence, c);
+    free(caps_hash);
+  }
+  rexmpp_send(s, presence);
   if (s->enable_service_discovery) {
     xmlNodePtr disco_query = xmlNewNode(NULL, "query");
     xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
@@ -1275,8 +1409,13 @@ void rexmpp_process_element (rexmpp_t *s) {
     if (strcmp(type, "get") == 0) {
       xmlNodePtr query = xmlFirstElementChild(elem);
       if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info", "query")) {
+        char *node = xmlGetProp(query, "node");
         xmlNodePtr result = xmlNewNode(NULL, "query");
         xmlNewNs(result, "http://jabber.org/protocol/disco#info", NULL);
+        if (node != NULL) {
+          xmlNewProp(result, "node", node);
+          free(node);
+        }
         xmlAddChild(result, xmlCopyNodeList(s->disco_info));
         rexmpp_iq_reply(s, elem, "result", result);
       } else {

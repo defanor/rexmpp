@@ -225,6 +225,9 @@ struct rexmpp
   uint16_t manual_port;
   int manual_direct_tls;
 
+  /* Miscellaneous settings */
+  const char *disco_node;
+
   /* Socks settings. */
   const char *socks_host;
   uint16_t socks_port;
