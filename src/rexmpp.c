@@ -1242,18 +1242,6 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_READY;
   rexmpp_resend_stanzas(s);
 
-  xmlNodePtr presence = xmlNewNode(NULL, "presence");
-  char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
-  if (caps_hash != NULL) {
-    xmlNodePtr c = xmlNewNode(NULL, "c");
-    xmlNewNs(c, "http://jabber.org/protocol/caps", NULL);
-    xmlNewProp(c, "hash", "sha-1");
-    xmlNewProp(c, "node", s->disco_node);
-    xmlNewProp(c, "ver", caps_hash);
-    xmlAddChild(presence, c);
-    free(caps_hash);
-  }
-  rexmpp_send(s, presence);
   if (s->enable_service_discovery) {
     xmlNodePtr disco_query = xmlNewNode(NULL, "query");
     xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
@@ -1274,6 +1262,18 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
     rexmpp_iq_new(s, "get", NULL,
                   roster_query, rexmpp_iq_roster_get);
   }
+  xmlNodePtr presence = xmlNewNode(NULL, "presence");
+  char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
+  if (caps_hash != NULL) {
+    xmlNodePtr c = xmlNewNode(NULL, "c");
+    xmlNewNs(c, "http://jabber.org/protocol/caps", NULL);
+    xmlNewProp(c, "hash", "sha-1");
+    xmlNewProp(c, "node", s->disco_node);
+    xmlNewProp(c, "ver", caps_hash);
+    xmlAddChild(presence, c);
+    free(caps_hash);
+  }
+  rexmpp_send(s, presence);
 }
 
 /* Resource binding,
@@ -1774,6 +1774,11 @@ rexmpp_err_t rexmpp_close (rexmpp_t *s) {
 }
 
 rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
+  if (s->stream_state == REXMPP_STREAM_READY) {
+    xmlNodePtr presence = xmlNewNode(NULL, "presence");
+    xmlNewProp(presence, "type", "unavailable");
+    rexmpp_send(s, presence);
+  }
   if (s->sm_state == REXMPP_SM_ACTIVE) {
     int ret = rexmpp_sm_ack(s);
     if (ret != REXMPP_SUCCESS && ret != REXMPP_E_AGAIN) {
