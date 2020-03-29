@@ -89,7 +89,7 @@ main () {
   do {
 
     if (n > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
-      char input[4096];
+      char input[4097];
       ssize_t input_len;
       input_len = read(STDIN_FILENO, input, 4096);
       if (input_len == -1) {
