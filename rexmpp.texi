@@ -1,0 +1,55 @@
+\input texinfo   @c -*-texinfo-*-
+@setfilename rexmpp.info
+@settitle rexmpp
+
+@direntry
+* rexmpp: (rexmpp). A reusable XMPP library.
+@end direntry
+
+@include version.texi
+
+@copying
+@quotation
+@verbatiminclude COPYING
+@end quotation
+@end copying
+
+@contents
+
+@node Top
+@top rexmpp
+@menu
+* Copying Conditions:: License information.
+* Introduction:: The basics.
+@end menu
+
+@node Copying Conditions
+@chapter Copying Conditions
+@insertcopying
+
+@node Introduction
+@chapter Introduciton
+
+The library is intended to be reusable: that is, usable on different
+systems, from different languages, and together with different other
+libraries (including UI toolkits), so it is in C, asynchronous, and has
+a relatively simple API. The usage boils down to setting a few callbacks
+and other configuration, regularly asking the library which file
+descriptors it is interested in and when to run it again, running it
+when the time comes or the file descriptors are available for reading or
+writing, and asking it to send messages when needed.
+
+In addition to establishing and maintaining a connection, by default the
+library handles some requests (e.g., roster push, service discovery),
+sends presence stanzas (with item capabilities), etc. These features can
+be implemented in a user-facing application instead, and then disabled
+in the library, but the aim is to make it fairly complete even if a
+program doesn't implement them.
+
+A library user is expected to both handle and compose XML as specified
+in relevant standards: the intent is to keep the library flexible and
+simple, only handling (or assisting with) more complex and routine parts
+of the protocol.
+
+
+@bye

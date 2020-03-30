@@ -43,41 +43,40 @@ A rough roadmap:
 
 - Library refinement:
 
-[.] Documentation. Partial Doxygen documentation is added, but
-    planning a texinfo manual as well.
+[.] Doxygen documentation.
+[.] Texinfo manual.
 [ ] Proper JID handling (RFC 7622).
 [ ] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
     optional usage of alternative ones. Though maybe shouldn't
     abstract out XML functions and structures: could reuse existing
     libxml2 bindings that way.
 [ ] Automated testing.
-[ ] Separate states for server-to-client and client-to-server streams?
 
 
-- Primary IM features:
+- IM features:
 
-[.] XMPP IM (RFC 6121): roster management is implemented, but not keeping
-    track of contact presences yet.
-
-
-- Common and mostly reliable IM features:
-
-[.] XEP-0030: Service Discovery: implemented, but without tracking of
-    features provided by known entities yet.
-[.] XEP-0115: Entity Capabilities: including them into <presence>, but
-    not managing a capabilities database yet.
-[ ] XEP-0045: Multi-User Chat
+[+] XMPP IM (RFC 6121): roster management (loading and pushes, with
+    versioning and caching)
+[+] XEP-0030: Service Discovery (replying to queries)
+[+] XEP-0115: Entity Capabilities (including into initial presence)
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer
 [ ] XEP-0261: Jingle In-Band Bytestreams Transport Method
-
-
-- Other features (?):
-
-[ ] XEP-0313: Message Archive Management
-[ ] XEP-0163: Personal Eventing Protocol
+[ ] XEP-0363: HTTP File Upload
 [ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method
 [ ] XEP-0391: Jingle Encrypted Transports
-[ ] XEP-0363: HTTP File Upload
-[ ] XEP-0384: OMEMO Encryption
-[ ] XEP-0184: Message Delivery Receipts
+[ ] XEP-0184: Message Delivery Receipts?
+[ ] OpenPGP/OTR/OMEMO/MLT encryption?
+
+
+- Additional state tracking:
+
+[ ] XMPP IM (RFC 6121): track presences of contacts.
+[ ] XEP-0030: Service Discovery: track features provided by known
+    entities.
+[ ] XEP-0115: Entity Capabilities: maintain a capability database,
+    track capabilities of known entities.
+[ ] XEP-0045: Multi-User Chat: tracking of related states/presences.
+
+
+- Various utility functions?
