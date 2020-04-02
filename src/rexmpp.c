@@ -1337,7 +1337,16 @@ void rexmpp_process_element (rexmpp_t *s) {
       int found = 0;
       while (req != NULL && found == 0) {
         char *req_id = xmlGetProp(req->request, "id");
-        if (strcmp(id, req_id) == 0) {
+        char *req_to = xmlGetProp(req->request, "to");
+        char *rep_from = xmlGetProp(elem, "from");
+        int id_matches = (strcmp(id, req_id) == 0);
+        int jid_matches = 0;
+        if (req_to == NULL && rep_from == NULL) {
+          jid_matches = 1;
+        } else if (req_to != NULL && rep_from != NULL) {
+          jid_matches = (strcmp(req_to, rep_from) == 0);
+        }
+        if (id_matches && jid_matches) {
           found = 1;
           if (req->cb != NULL) {
             char *iq_type = xmlGetProp(elem, "type");
@@ -1366,6 +1375,12 @@ void rexmpp_process_element (rexmpp_t *s) {
           }
           xmlFreeNode(req->request);
           free(req);
+        }
+        if (req_to != NULL) {
+          free(req_to);
+        }
+        if (rep_from != NULL) {
+          free(rep_from);
         }
         free(req_id);
         req = req->next;
