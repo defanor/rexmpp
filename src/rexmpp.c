@@ -1425,14 +1425,33 @@ void rexmpp_process_element (rexmpp_t *s) {
       xmlNodePtr query = xmlFirstElementChild(elem);
       if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info", "query")) {
         char *node = xmlGetProp(query, "node");
-        xmlNodePtr result = xmlNewNode(NULL, "query");
-        xmlNewNs(result, "http://jabber.org/protocol/disco#info", NULL);
+        char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
+        if (node == NULL ||
+            (caps_hash != NULL &&
+             s->disco_node != NULL &&
+             strlen(node) == strlen(s->disco_node) + 1 + strlen(caps_hash) &&
+             strncmp(node, s->disco_node, strlen(s->disco_node)) == 0 &&
+             node[strlen(s->disco_node)] == '#' &&
+             strcmp(node + strlen(s->disco_node) + 1, caps_hash) == 0)) {
+          xmlNodePtr result = xmlNewNode(NULL, "query");
+          xmlNewNs(result, "http://jabber.org/protocol/disco#info", NULL);
+          if (node != NULL) {
+            xmlNewProp(result, "node", node);
+          }
+          xmlAddChild(result, xmlCopyNodeList(s->disco_info));
+          rexmpp_iq_reply(s, elem, "result", result);
+        } else {
+          rexmpp_log(s, LOG_WARNING,
+                     "Service discovery request for an unknown node: %s", node);
+          rexmpp_iq_reply(s, elem, "error",
+                          rexmpp_xml_error("cancel", "item-not-found"));
+        }
+        if (caps_hash != NULL) {
+          free(caps_hash);
+        }
         if (node != NULL) {
-          xmlNewProp(result, "node", node);
           free(node);
         }
-        xmlAddChild(result, xmlCopyNodeList(s->disco_info));
-        rexmpp_iq_reply(s, elem, "result", result);
       } else {
         /* An unknown request. */
         rexmpp_iq_reply(s, elem, "error",
