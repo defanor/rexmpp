@@ -24,16 +24,16 @@ void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
   fprintf(stderr, "\n");
 }
 
-int my_sasl_property_cb (Gsasl * ctx, Gsasl_session * sctx, Gsasl_property prop) {
+int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
   if (prop == GSASL_PASSWORD) {
     char buf[4096];
     printf("password: ");
     gets(buf);
-    gsasl_property_set (sctx, GSASL_PASSWORD, buf);
+    gsasl_property_set (s->sasl_session, GSASL_PASSWORD, buf);
     return GSASL_OK;
   }
   if (prop == GSASL_AUTHID) {
-    gsasl_property_set (sctx, GSASL_AUTHID, "test");
+    gsasl_property_set (s->sasl_session, GSASL_AUTHID, "test");
     return GSASL_OK;
   }
   printf("unhandled gsasl property: %d\n", prop);

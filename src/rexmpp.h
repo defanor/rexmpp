@@ -199,7 +199,7 @@ enum rexmpp_err {
 typedef enum rexmpp_err rexmpp_err_t;
 
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
-typedef int (*sasl_property_cb_t) (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop);
+typedef int (*sasl_property_cb_t) (rexmpp_t *s, Gsasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
 typedef int (*xml_out_cb_t) (rexmpp_t *s, xmlNodePtr node);
 

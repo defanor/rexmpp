@@ -201,6 +201,14 @@ xmlNodePtr rexmpp_xml_default_disco_info () {
   return identity;
 }
 
+int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
+  rexmpp_t *s = gsasl_callback_hook_get(ctx);
+  if (s == NULL) {
+    return GSASL_NO_CALLBACK;
+  }
+  return s->sasl_property_cb(s, prop);
+}
+
 rexmpp_err_t rexmpp_init (rexmpp_t *s,
                           const char *jid,
                           log_function_t log_function,
@@ -322,7 +330,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
   }
-  gsasl_callback_set(s->sasl_ctx, s->sasl_property_cb);
+  gsasl_callback_hook_set(s->sasl_ctx, s);
+  gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
 
   s->disco_info = rexmpp_xml_default_disco_info();
 
