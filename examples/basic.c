@@ -6,7 +6,6 @@
 
 #include <rexmpp.h>
 
-
 void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
   char *priority_str = "unknown";
   switch (priority) {
@@ -33,8 +32,16 @@ int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
     return GSASL_OK;
   }
   if (prop == GSASL_AUTHID) {
-    gsasl_property_set (s->sasl_session, GSASL_AUTHID, "test");
-    return GSASL_OK;
+    char *domainpart = strchr(s->initial_jid, '@');
+    if (domainpart != NULL) {
+      int localpart_len = domainpart - s->initial_jid;
+      char *localpart = malloc(localpart_len + 1);
+      localpart[localpart_len] = 0;
+      strncpy(localpart, s->initial_jid, localpart_len);
+      gsasl_property_set (s->sasl_session, GSASL_AUTHID, localpart);
+      free(localpart);
+      return GSASL_OK;
+    }
   }
   printf("unhandled gsasl property: %d\n", prop);
   return GSASL_NO_CALLBACK;
@@ -54,11 +61,16 @@ int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
   return 0;
 }
 
-main () {
+main (int argc, char **argv) {
   rexmpp_t s;
   rexmpp_err_t err;
+  if (argc != 2) {
+    printf("Usage: %s <jid>", argv[0]);
+    return -1;
+  }
+
   err = rexmpp_init(&s,
-                    "test@foo.custom",
+                    argv[1],
                     my_logger,
                     my_sasl_property_cb,
                     my_xml_in_cb,
@@ -97,7 +109,21 @@ main () {
       } else {
         input[input_len - 1] = '\0';
         if (strlen(input) != 0) {
-          if (strcmp(input, ".") == 0) {
+          if (input[0] == '<') {
+            xmlDocPtr doc = xmlReadMemory(input, input_len, "", "utf-8", 0);
+            if (doc != NULL) {
+              xmlNodePtr node = xmlDocGetRootElement(doc);
+              if (node != NULL) {
+                xmlUnlinkNode(node);
+                rexmpp_send(&s, node);
+              } else {
+                puts("No root node");
+              }
+              xmlFreeDoc(doc);
+            } else {
+              puts("Failed to read a document");
+            }
+          } else if (strcmp(input, ".") == 0) {
             rexmpp_stop(&s);
           } else if (strcmp(input, "connerr") == 0) {
             close(s.server_socket);
