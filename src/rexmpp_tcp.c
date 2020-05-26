@@ -336,7 +336,7 @@ int rexmpp_tcp_conn_fds (rexmpp_tcp_conn_t *conn,
 {
   int max_fd = 0, i;
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
-      conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING) {
+      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
     max_fd = ares_fds(conn->resolver_channel, read_fds, write_fds);
   }
   for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
@@ -357,7 +357,7 @@ struct timeval *rexmpp_tcp_conn_timeout (rexmpp_tcp_conn_t *conn,
   struct timeval now;
   struct timeval *ret = max_tv;
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
-      conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING) {
+      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
     ret = ares_timeout(conn->resolver_channel, max_tv, tv);
   }
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_SUCCESS ||
