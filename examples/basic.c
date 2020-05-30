@@ -69,12 +69,11 @@ main (int argc, char **argv) {
     return -1;
   }
 
-  err = rexmpp_init(&s,
-                    argv[1],
-                    my_logger,
-                    my_sasl_property_cb,
-                    my_xml_in_cb,
-                    my_xml_out_cb);
+  err = rexmpp_init(&s, argv[1]);
+  s.log_function = my_logger;
+  s.sasl_property_cb = my_sasl_property_cb;
+  s.xml_in_cb = my_xml_in_cb;
+  s.xml_out_cb = my_xml_out_cb;
   if (err != REXMPP_SUCCESS) {
     puts("error");
     return -1;

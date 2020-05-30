@@ -218,7 +218,7 @@ struct rexmpp
   enum carbons_st carbons_state;
 
   /* Basic configuration. */
-  const char *initial_jid;
+  char *initial_jid;
 
   /* Manual host/port configuration. */
   const char *manual_host;
@@ -322,23 +322,10 @@ struct rexmpp
    @brief ::rexmpp structure initialisation.
    @param[out] s An allocated structure.
    @param[in] jid Initial bare JID.
-   @param[in] log_function A user-provided logging function, can be
-   NULL.
-   @param[in] sasl_property_cb A callback to ask for SASL properties
-   (such as password).
-   @param[in] xml_in_cb A function to handle incoming XML elements. It
-   is called before other processing, so it can alter the elements, or
-   interrupt processing by returning a non-zero value. Optional.
-   @param[in] xml_out_cb Akin to the previous one, but for outbound
-   elements.
    @returns ::REXMPP_SUCCESS or some ::rexmpp_err error.
  */
-rexmpp_err_t rexmpp_init (rexmpp_t *s,
-                          const char *jid,
-                          log_function_t log_function,
-                          sasl_property_cb_t sasl_property_cb,
-                          xml_in_cb_t xml_in_cb,
-                          xml_out_cb_t xml_out_cb);
+rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid);
+
 /**
    @brief ::rexmpp structure deinitialisation. This will free all the
    allocated resources.

@@ -203,18 +203,13 @@ xmlNodePtr rexmpp_xml_default_disco_info () {
 
 int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
   rexmpp_t *s = gsasl_callback_hook_get(ctx);
-  if (s == NULL) {
+  if (s == NULL || s->sasl_property_cb == NULL) {
     return GSASL_NO_CALLBACK;
   }
   return s->sasl_property_cb(s, prop);
 }
 
-rexmpp_err_t rexmpp_init (rexmpp_t *s,
-                          const char *jid,
-                          log_function_t log_function,
-                          sasl_property_cb_t sasl_property_cb,
-                          xml_in_cb_t xml_in_cb,
-                          xml_out_cb_t xml_out_cb)
+rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
 {
   int err;
   xmlSAXHandler sax = {
@@ -262,20 +257,22 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
-  s->initial_jid = jid;
+  s->initial_jid = NULL;
   s->assigned_jid = NULL;
   s->stanza_queue_size = 1024;
   s->send_queue_size = 1024;
   s->iq_queue_size = 1024;
-  s->log_function = log_function;
-  s->sasl_property_cb = sasl_property_cb;
-  s->xml_in_cb = xml_in_cb;
-  s->xml_out_cb = xml_out_cb;
+  s->log_function = NULL;
+  s->sasl_property_cb = NULL;
+  s->xml_in_cb = NULL;
+  s->xml_out_cb = NULL;
 
   if (jid == NULL) {
     rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
     return REXMPP_E_JID;
   }
+
+  s->initial_jid = strdup(jid);
 
   s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
 
@@ -402,6 +399,10 @@ void rexmpp_done (rexmpp_t *s) {
   ares_destroy(s->resolver_channel);
   ares_library_cleanup();
   xmlFreeParserCtxt(s->xml_parser);
+  if (s->initial_jid != NULL) {
+    free(s->initial_jid);
+    s->initial_jid = NULL;
+  }
   if (s->stream_id != NULL) {
     free(s->stream_id);
     s->stream_id = NULL;
