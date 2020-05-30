@@ -387,4 +387,7 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
 int rexmpp_xml_match (xmlNodePtr node,
                       const char *namespace,
                       const char *name);
+xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
+                                  const char *namespace,
+                                  const char *name);
 #endif

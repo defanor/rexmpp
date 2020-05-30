@@ -30,7 +30,6 @@ A rough roadmap:
 
 [+] XEP-0198: Stream Management. Implemented (both acknowledgements
     and resumption, making use of XEP-0203: Delayed Delivery).
-
 [+] XEP-0280: Message Carbons.
 
 
@@ -80,3 +79,9 @@ A rough roadmap:
 
 
 - Various utility functions?
+
+
+- Examples and application:
+
+[+] Basic usage example.
+[.] WeeChat plugin.
