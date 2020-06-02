@@ -67,9 +67,8 @@ int my_sasl_property_cb (const struct weechat_rexmpp *wr, Gsasl_property prop) {
   return GSASL_NO_CALLBACK;
 }
 
-int
-query_input_cb (const struct weechat_rexmpp *wr, void *data,
-             struct t_gui_buffer *buffer, const char *input_data)
+int query_input_cb (const struct weechat_rexmpp *wr, void *data,
+                    struct t_gui_buffer *buffer, const char *input_data)
 {
   rexmpp_t *s = &wr->rexmpp_state;
   char *to = weechat_buffer_get_string(buffer, "name");
@@ -78,12 +77,31 @@ query_input_cb (const struct weechat_rexmpp *wr, void *data,
   xmlNewProp(msg, "type", "chat");
   xmlNewTextChild(msg, NULL, "body", input_data);
   rexmpp_send(s, msg);
-  weechat_printf(buffer, "%s: %s\n", s->initial_jid, input_data);
+  weechat_printf_date_tags(buffer, 0, "self_msg", "%s\t%s\n", s->assigned_jid, input_data);
   return WEECHAT_RC_OK;
 }
 
-int
-query_close_cb (struct weechat_rexmpp *wr, void *data, struct t_gui_buffer *buffer)
+int query_close_cb (struct weechat_rexmpp *wr, void *data,
+                    struct t_gui_buffer *buffer)
+{
+  return WEECHAT_RC_OK;
+}
+
+int muc_input_cb (const struct weechat_rexmpp *wr, void *data,
+                  struct t_gui_buffer *buffer, const char *input_data)
+{
+  rexmpp_t *s = &wr->rexmpp_state;
+  char *to = weechat_buffer_get_string(buffer, "name");
+  xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+  xmlNewProp(msg, "to", to);
+  xmlNewProp(msg, "type", "groupchat");
+  xmlNewTextChild(msg, NULL, "body", input_data);
+  rexmpp_send(s, msg);
+  return WEECHAT_RC_OK;
+}
+
+int muc_close_cb (struct weechat_rexmpp *wr, void *data,
+                    struct t_gui_buffer *buffer)
 {
   return WEECHAT_RC_OK;
 }
@@ -94,10 +112,11 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
   /* free(xml_buf); */
   if (rexmpp_xml_match(node, "jabber:client", "message")) {
     char *from = xmlGetProp(node, "from");
-    int i;
+    int i, resource_removed = 0;
     for (i = 0; i < strlen(from); i++) {
       if (from[i] == '/') {
         from[i] = 0;
+        resource_removed = 1;
         break;
       }
     }
@@ -108,11 +127,16 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
                                   &query_input_cb, wr, NULL,
                                   &query_close_cb, wr, NULL);
       }
+      if (resource_removed) {
+        from[i] = '/';            /* restore */
+      }
       xmlNodePtr body = rexmpp_xml_find_child(node, "jabber:client", "body");
       if (body != NULL) {
         xmlChar *str = xmlNodeGetContent(body);
         if (str != NULL) {
-          weechat_printf(buf, "%s: %s\n", from, str);
+          char tags[4096];
+          snprintf(tags, 4096, "nick_%s", from);
+          weechat_printf_date_tags(buf, 0, tags, "%s\t%s\n", from, str);
           xmlFree(str);
         }
       }
@@ -156,6 +180,28 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
       buf = weechat_buffer_new (jid,
                                 &query_input_cb, wr, NULL,
                                 &query_close_cb, wr, NULL);
+    }
+  } else if (input_data[0] == 'j' && input_data[1] == ' ') {
+    char *jid = input_data + 2;
+    xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+    xmlNewProp(presence, "from", s->assigned_jid);
+    xmlNewProp(presence, "to", jid);
+    xmlNodePtr x = xmlNewNode(NULL, "x");
+    xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
+    xmlAddChild(presence, x);
+    rexmpp_send(s, presence);
+    int i;
+    for (i = 0; i < strlen(jid); i++) {
+      if (jid[i] == '/') {
+        jid[i] = 0;
+        break;
+      }
+    }
+    struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
+    if (buf == NULL) {
+      buf = weechat_buffer_new (jid,
+                                &muc_input_cb, wr, NULL,
+                                &muc_close_cb, wr, NULL);
     }
   }
   return WEECHAT_RC_OK;
