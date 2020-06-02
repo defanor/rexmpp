@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <gnutls/gnutls.h>
+#include <gsasl.h>
 
 #include <rexmpp.h>
 
