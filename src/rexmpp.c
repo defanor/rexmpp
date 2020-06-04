@@ -1027,9 +1027,11 @@ rexmpp_err_t rexmpp_tls_start (rexmpp_t *s) {
                                       s->tls_session_data,
                                       s->tls_session_data_size);
     if (ret != GNUTLS_E_SUCCESS) {
-      rexmpp_log(s, LOG_ERR, "Failed to set TLS session data: %s",
+      rexmpp_log(s, LOG_WARNING, "Failed to set TLS session data: %s",
                  gnutls_strerror(ret));
-      return REXMPP_E_TLS;
+      free(s->tls_session_data);
+      s->tls_session_data = NULL;
+      s->tls_session_data_size = 0;
     }
   }
   s->tls_state = REXMPP_TLS_HANDSHAKE;
