@@ -198,6 +198,8 @@ xmlNodePtr rexmpp_xml_default_disco_info () {
   xmlNodePtr disco_feature =
     rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   identity->next = disco_feature;
+  xmlNodePtr ping_feature = rexmpp_xml_feature("urn:xmpp:ping");
+  disco_feature->next = ping_feature;
   return identity;
 }
 
@@ -266,6 +268,9 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->sasl_property_cb = NULL;
   s->xml_in_cb = NULL;
   s->xml_out_cb = NULL;
+  s->ping_delay = 600;
+  s->ping_requested = 0;
+  s->last_network_activity = 0;
 
   if (jid == NULL) {
     rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
@@ -389,6 +394,7 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->server_srv_tls_cur = NULL;
   }
   s->sm_state = REXMPP_SM_INACTIVE;
+  s->ping_requested = 0;
 }
 
 /* Frees the things that persist through reconnects. */
@@ -606,6 +612,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
                   0);
     }
     if (ret > 0) {
+      s->last_network_activity = time(NULL);
       s->send_buffer_sent += ret;
       if (s->send_buffer_sent == s->send_buffer_len) {
         free(s->send_buffer);
@@ -824,6 +831,7 @@ void rexmpp_recv (rexmpp_t *s) {
       chunk_raw_len = recv(s->server_socket, chunk_raw, 4096, 0);
     }
     if (chunk_raw_len > 0) {
+      s->last_network_activity = time(NULL);
       if (s->sasl_state == REXMPP_SASL_ACTIVE) {
         sasl_err = gsasl_decode(s->sasl_session, chunk_raw, chunk_raw_len,
                                 &chunk, &chunk_len);
@@ -1216,6 +1224,14 @@ void rexmpp_carbons_enabled (rexmpp_t *s,
   }
 }
 
+void rexmpp_pong (rexmpp_t *s,
+                  xmlNodePtr req,
+                  xmlNodePtr response,
+                  int success)
+{
+  s->ping_requested = 0;
+}
+
 void rexmpp_iq_discovery_info (rexmpp_t *s,
                                xmlNodePtr req,
                                xmlNodePtr response,
@@ -1464,6 +1480,8 @@ void rexmpp_process_element (rexmpp_t *s) {
         if (node != NULL) {
           free(node);
         }
+      } else if (rexmpp_xml_match(query, "urn:xmpp:ping", "ping")) {
+        rexmpp_iq_reply(s, elem, "result", NULL);
       } else {
         /* An unknown request. */
         rexmpp_iq_reply(s, elem, "error",
@@ -1917,6 +1935,22 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     rexmpp_send_continue(s);
   }
 
+  /* Pinging the server. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->last_network_activity + s->ping_delay <= time(NULL)) {
+    if (s->ping_requested == 0) {
+      s->ping_requested = 1;
+      xmlNodePtr ping_cmd = xmlNewNode(NULL, "ping");
+      xmlNewNs(ping_cmd, "urn:xmpp:ping", NULL);
+      rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
+                    ping_cmd, rexmpp_pong);
+    } else {
+      rexmpp_log(s, LOG_WARNING, "Ping timeout, reconnecting.");
+      rexmpp_cleanup(s);
+      rexmpp_schedule_reconnect(s);
+    }
+  }
+
   /* Receiving data. Leads to all kinds of things. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       FD_ISSET(s->server_socket, read_fds) &&
@@ -2046,6 +2080,16 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
     tv->tv_sec = s->next_reconnect_time.tv_sec - now.tv_sec;
     tv->tv_usec = 0;
     ret = tv;
+  }
+
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->last_network_activity + s->ping_delay > now.tv_sec) {
+    time_t next_ping = s->last_network_activity + s->ping_delay - now.tv_sec;
+    if (ret == NULL || next_ping < ret->tv_sec) {
+      tv->tv_sec = next_ping;
+      tv->tv_usec = 0;
+      ret = tv;
+    }
   }
 
   return ret;

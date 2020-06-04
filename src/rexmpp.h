@@ -272,6 +272,11 @@ struct rexmpp
   uint32_t stanzas_in_count;
   char *stream_id;
 
+  /* Server ping configuration and state. */
+  int ping_delay;
+  int ping_requested;
+  time_t last_network_activity;
+
   /* DNS-related structures. */
   ares_channel resolver_channel;
   struct ares_srv_reply *server_srv;
