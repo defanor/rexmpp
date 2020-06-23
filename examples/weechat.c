@@ -20,6 +20,11 @@ struct weechat_rexmpp {
   struct t_arraylist *hooks;
 };
 
+struct weechat_rexmpp_muc {
+  struct weechat_rexmpp *wr;
+  char *jid;
+};
+
 struct t_weechat_plugin *weechat_plugin = NULL;
 
 void my_logger (const struct weechat_rexmpp *wr,
@@ -87,10 +92,10 @@ int query_close_cb (struct weechat_rexmpp *wr, void *data,
   return WEECHAT_RC_OK;
 }
 
-int muc_input_cb (const struct weechat_rexmpp *wr, void *data,
+int muc_input_cb (const struct weechat_rexmpp_muc *wrm, void *data,
                   struct t_gui_buffer *buffer, const char *input_data)
 {
-  rexmpp_t *s = &wr->rexmpp_state;
+  rexmpp_t *s = &wrm->wr->rexmpp_state;
   char *to = weechat_buffer_get_string(buffer, "name");
   xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
   xmlNewProp(msg, "to", to);
@@ -100,9 +105,16 @@ int muc_input_cb (const struct weechat_rexmpp *wr, void *data,
   return WEECHAT_RC_OK;
 }
 
-int muc_close_cb (struct weechat_rexmpp *wr, void *data,
+int muc_close_cb (struct weechat_rexmpp_muc *wrm, void *data,
                     struct t_gui_buffer *buffer)
 {
+  rexmpp_t *s = &wrm->wr->rexmpp_state;
+  xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+  xmlNewProp(presence, "from", s->assigned_jid);
+  xmlNewProp(presence, "to", wrm->jid);
+  xmlNewProp(presence, "type", "unavailable");
+  rexmpp_send(s, presence);
+  free(wrm);
   return WEECHAT_RC_OK;
 }
 
@@ -112,10 +124,12 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
   /* free(xml_buf); */
   if (rexmpp_xml_match(node, "jabber:client", "message")) {
     char *from = xmlGetProp(node, "from");
+    char *display_name = from;
     int i, resource_removed = 0;
     for (i = 0; i < strlen(from); i++) {
       if (from[i] == '/') {
         from[i] = 0;
+        display_name = from + i + 1;
         resource_removed = 1;
         break;
       }
@@ -135,8 +149,8 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
         xmlChar *str = xmlNodeGetContent(body);
         if (str != NULL) {
           char tags[4096];
-          snprintf(tags, 4096, "nick_%s", from);
-          weechat_printf_date_tags(buf, 0, tags, "%s\t%s\n", from, str);
+          snprintf(tags, 4096, "nick_%s", display_name);
+          weechat_printf_date_tags(buf, 0, tags, "%s\t%s\n", display_name, str);
           xmlFree(str);
         }
       }
@@ -191,6 +205,9 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
     xmlAddChild(presence, x);
     rexmpp_send(s, presence);
     int i;
+    struct weechat_rexmpp_muc *wrm = malloc(sizeof(struct weechat_rexmpp_muc));
+    wrm->wr = wr;
+    wrm->jid = strdup(jid);
     for (i = 0; i < strlen(jid); i++) {
       if (jid[i] == '/') {
         jid[i] = 0;
@@ -200,8 +217,8 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
     struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
     if (buf == NULL) {
       buf = weechat_buffer_new (jid,
-                                &muc_input_cb, wr, NULL,
-                                &muc_close_cb, wr, NULL);
+                                &muc_input_cb, wrm, NULL,
+                                &muc_close_cb, wrm, NULL);
     }
   }
   return WEECHAT_RC_OK;
