@@ -344,10 +344,11 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
    structures), but keeps others (e.g., stanza queue and stream ID,
    since we may resume the stream afterwards). */
 void rexmpp_cleanup (rexmpp_t *s) {
-  if (s->tls_state != REXMPP_TLS_INACTIVE) {
+  if (s->tls_state != REXMPP_TLS_INACTIVE &&
+      s->tls_state != REXMPP_TLS_AWAITING_DIRECT) {
     gnutls_deinit(s->gnutls_session);
-    s->tls_state = REXMPP_TLS_INACTIVE;
   }
+  s->tls_state = REXMPP_TLS_INACTIVE;
   if (s->sasl_state != REXMPP_SASL_INACTIVE) {
     gsasl_finish(s->sasl_session);
     s->sasl_session = NULL;
