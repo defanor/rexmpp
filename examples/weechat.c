@@ -140,6 +140,7 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
         buf = weechat_buffer_new (from,
                                   &query_input_cb, wr, NULL,
                                   &query_close_cb, wr, NULL);
+        weechat_buffer_set(buf, "nicklist", "1");
       }
       if (resource_removed) {
         from[i] = '/';            /* restore */
@@ -155,6 +156,39 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
         }
       }
       xmlFree(from);
+    }
+  }
+  if (rexmpp_xml_match(node, "jabber:client", "presence")) {
+    char *presence_type = xmlGetProp(node, "type");
+    char *jid = xmlGetProp(node, "from");
+    int i;
+    char *resource = "";
+    for (i = 0; i < strlen(jid); i++) {
+      if (jid[i] == '/') {
+        jid[i] = 0;
+        resource = jid + i + 1;
+        break;
+      }
+    }
+    if (rexmpp_xml_find_child(node, "http://jabber.org/protocol/muc#user", "x")) {
+      /* Update MUC nicklist */
+      struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
+      if (buf != NULL) {
+        if (presence_type != NULL && strcmp(presence_type, "unavailable") == 0) {
+          struct t_gui_nick *nick =
+            weechat_nicklist_search_nick(buf, NULL, resource);
+          if (nick != NULL) {
+            weechat_nicklist_remove_nick(buf, nick);
+          }
+        } else {
+          weechat_nicklist_add_nick(buf, NULL, resource,
+                                    "bar_fg", "", "lightgreen", 1);
+        }
+      }
+    }
+    free(jid);
+    if (presence_type != NULL) {
+      free(presence_type);
     }
   }
   free(xml_buf);
@@ -194,6 +228,7 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
       buf = weechat_buffer_new (jid,
                                 &query_input_cb, wr, NULL,
                                 &query_close_cb, wr, NULL);
+      weechat_buffer_set(buf, "nicklist", "1");
     }
   } else if (input_data[0] == 'j' && input_data[1] == ' ') {
     char *jid = input_data + 2;
@@ -219,14 +254,35 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
       buf = weechat_buffer_new (jid,
                                 &muc_input_cb, wrm, NULL,
                                 &muc_close_cb, wrm, NULL);
+      weechat_buffer_set(buf, "nicklist", "1");
     }
   }
   return WEECHAT_RC_OK;
 }
 
+void my_roster_modify_cb (struct weechat_rexmpp *wr, xmlNodePtr item) {
+  char *subscription = xmlGetProp(item, "subscription");
+  char *jid = xmlGetProp(item, "jid");
+  if (subscription != NULL && strcmp(subscription, "remove") == 0) {
+    /* delete */
+    weechat_nicklist_remove_nick(wr->server_buffer, jid);
+  } else {
+    /* add or modify */
+    weechat_nicklist_add_nick(wr->server_buffer, NULL, jid,
+                              "bar_fg", "", "lightgreen", 1);
+  }
+  free(jid);
+  if (subscription != NULL) {
+    free(subscription);
+  }
+}
+
 int
 my_close_cb (struct weechat_rexmpp *wr, void *data, struct t_gui_buffer *buffer)
 {
+  /* todo: close MUC buffers first? or at least mark them somehow, so
+     that they won't attempt to send "unavailable" presence on
+     closing. */
   wr->server_buffer = NULL;
   rexmpp_stop(&wr->rexmpp_state);
   return WEECHAT_RC_OK;
@@ -331,6 +387,7 @@ command_xmpp_cb (const void *pointer, void *data,
     wr->server_buffer = weechat_buffer_new (argv[1],
                                             &my_input_cb, wr, NULL,
                                             &my_close_cb, wr, NULL);
+    weechat_buffer_set(wr->server_buffer, "nicklist", "1");
     wr->password = strdup(argv[2]);
     wr->hooks = weechat_arraylist_new(42, 0, 0, NULL, NULL, hook_free_cb, NULL);
     rexmpp_t *s = &wr->rexmpp_state;
@@ -339,6 +396,7 @@ command_xmpp_cb (const void *pointer, void *data,
     s->sasl_property_cb = my_sasl_property_cb;
     s->xml_in_cb = my_xml_in_cb;
     s->xml_out_cb = my_xml_out_cb;
+    s->roster_modify_cb = my_roster_modify_cb;
     fd_set read_fds, write_fds;
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);

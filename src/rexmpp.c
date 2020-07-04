@@ -268,6 +268,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->sasl_property_cb = NULL;
   s->xml_in_cb = NULL;
   s->xml_out_cb = NULL;
+  s->roster_modify_cb = NULL;
   s->ping_delay = 600;
   s->ping_requested = 0;
   s->last_network_activity = 0;

@@ -202,6 +202,7 @@ typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, v
 typedef int (*sasl_property_cb_t) (rexmpp_t *s, Gsasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
 typedef int (*xml_out_cb_t) (rexmpp_t *s, xmlNodePtr node);
+typedef void (*roster_modify_cb_t) (rexmpp_t *s, xmlNodePtr item);
 
 /** @brief Complete connection state */
 struct rexmpp
@@ -248,6 +249,7 @@ struct rexmpp
   sasl_property_cb_t sasl_property_cb;
   xml_in_cb_t xml_in_cb;
   xml_out_cb_t xml_out_cb;
+  roster_modify_cb_t roster_modify_cb;
 
   /* Stream-related state. */
   char *assigned_jid;

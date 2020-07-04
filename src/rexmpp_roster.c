@@ -81,6 +81,9 @@ rexmpp_err_t rexmpp_modify_roster (rexmpp_t *s, xmlNodePtr item) {
   if (subscription != NULL) {
     free(subscription);
   }
+  if (s->roster_modify_cb != NULL) {
+    s->roster_modify_cb(s, item);
+  }
   return ret;
 }
 
@@ -93,6 +96,15 @@ void rexmpp_roster_set (rexmpp_t *s, xmlNodePtr query) {
   }
   s->roster_ver = xmlGetProp(query, "ver");
   s->roster_items = xmlCopyNodeList(xmlFirstElementChild(query));
+  if (s->roster_modify_cb != NULL) {
+    xmlNodePtr item;
+    for (item = xmlFirstElementChild(query);
+         item != NULL;
+         item = xmlNextElementSibling(item))
+      {
+        s->roster_modify_cb(s, item);
+      }
+  }
 }
 
 void rexmpp_roster_cache_read (rexmpp_t *s) {
