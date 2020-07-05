@@ -71,7 +71,7 @@ A rough roadmap:
 
 - Additional state tracking:
 
-[ ] XMPP IM (RFC 6121): track presences of contacts.
+[+] XMPP IM (RFC 6121): track presences of contacts.
 [ ] XEP-0030: Service Discovery: track features provided by known
     entities.
 [ ] XEP-0115: Entity Capabilities: maintain a capability database,

@@ -238,6 +238,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->enable_service_discovery = 1;
   s->manage_roster = 1;
   s->roster_cache_file = NULL;
+  s->track_roster_presence = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -250,6 +251,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->stream_features = NULL;
   s->roster_items = NULL;
   s->roster_ver = NULL;
+  s->roster_presence = NULL;
   s->stanza_queue = NULL;
   s->stream_id = NULL;
   s->active_iq = NULL;
@@ -418,6 +420,10 @@ void rexmpp_done (rexmpp_t *s) {
   if (s->roster_items != NULL) {
     xmlFreeNodeList(s->roster_items);
     s->roster_items = NULL;
+  }
+  if (s->roster_presence != NULL) {
+    xmlFreeNodeList(s->roster_presence);
+    s->roster_presence = NULL;
   }
   if (s->roster_ver != NULL) {
     free(s->roster_ver);
@@ -1491,6 +1497,62 @@ void rexmpp_process_element (rexmpp_t *s) {
       }
     }
     free(type);
+  }
+
+  /* Incoming presence information. */
+  if (rexmpp_xml_match(elem, "jabber:client", "presence") &&
+      s->manage_roster &&
+      s->track_roster_presence) {
+    char *from = xmlGetProp(elem, "from");
+    if (from != NULL) {
+      size_t i;
+      int resource_removed = 0;
+      for (i = 0; i < strlen(from); i++) {
+        if (from[i] == '/') {
+          from[i] = '\0';
+          resource_removed = i;
+          break;
+        }
+      }
+      if (rexmpp_roster_find_item(s, from, NULL) != NULL) {
+        /* The bare JID is in the roster. */
+        if (resource_removed) {
+          /* Restore full JID. */
+          from[resource_removed] = '/';
+        }
+        char *type = xmlGetProp(elem, "type");
+        xmlNodePtr cur, prev;
+        if (type == NULL || strcmp(type, "unavailable") == 0) {
+          /* Either a new "available" presence or an "unavailable"
+             one: remove the previously stored presence for this
+             JID. */
+          for (prev = NULL, cur = s->roster_presence;
+               cur != NULL;
+               prev = cur, cur = xmlNextElementSibling(cur)) {
+            char *cur_from = xmlGetProp(cur, "from");
+            if (strcmp(cur_from, from) == 0) {
+              if (prev == NULL) {
+                s->roster_presence = cur->next;
+              } else {
+                prev->next = cur->next;
+              }
+              xmlFreeNode(cur);
+              cur = NULL;
+            }
+            free(cur_from);
+          }
+        }
+        if (type == NULL) {
+          /* An "available" presence: add it. */
+          xmlNodePtr presence = xmlCopyNode(elem, 1);
+          presence->next = s->roster_presence;
+          s->roster_presence = presence;
+        } else {
+          free(type);
+        }
+      }
+      free(from);
+    }
   }
 
   /* Stream negotiation,

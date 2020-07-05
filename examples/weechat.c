@@ -119,6 +119,7 @@ int muc_close_cb (struct weechat_rexmpp_muc *wrm, void *data,
 }
 
 int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
+  rexmpp_t *s = &wr->rexmpp_state;
   char *xml_buf = rexmpp_xml_serialize(node);
   weechat_printf(wr->server_buffer, "recv: %s\n", xml_buf);
   /* free(xml_buf); */
@@ -161,6 +162,7 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
   if (rexmpp_xml_match(node, "jabber:client", "presence")) {
     char *presence_type = xmlGetProp(node, "type");
     char *jid = xmlGetProp(node, "from");
+    char *full_jid = strdup(jid);
     int i;
     char *resource = "";
     for (i = 0; i < strlen(jid); i++) {
@@ -185,8 +187,39 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
                                     "bar_fg", "", "lightgreen", 1);
         }
       }
+    } else if (rexmpp_roster_find_item(s, jid, NULL) != NULL) {
+      /* A roster item. */
+      struct t_gui_nick *nick = weechat_nicklist_search_nick(wr->server_buffer, NULL, jid);
+      if (presence_type == NULL) {
+        /* An "available" presence: just ensure that it's shown as
+           online. */
+        weechat_nicklist_nick_set(wr->server_buffer, nick, "prefix", "+");
+      } else if (strcmp(presence_type, "unavailable") == 0) {
+        /* An "unavailable" presence: set it to "offline" if there's
+           no remaining online resources (i.e., if we can find an
+           online resource for this bare JID other than the one that
+           just went offline). */
+        xmlNodePtr cur;
+        int found = 0;
+        for (cur = s->roster_presence;
+             cur != NULL;
+             cur = xmlNextElementSibling(cur)) {
+          char *cur_from = xmlGetProp(cur, "from");
+          if (strcmp(cur_from, full_jid) != 0 &&
+              strncmp(cur_from, jid, strlen(jid)) == 0 &&
+              strlen(cur_from) > strlen(jid) &&
+              cur_from[strlen(jid)] == '/') {
+            found = 1;
+          }
+          free(cur_from);
+        }
+        if (! found) {
+          weechat_nicklist_nick_set(wr->server_buffer, nick, "prefix", "");
+        }
+      }
     }
     free(jid);
+    free(full_jid);
     if (presence_type != NULL) {
       free(presence_type);
     }

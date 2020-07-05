@@ -238,6 +238,7 @@ struct rexmpp
   int enable_service_discovery;
   int manage_roster;
   const char *roster_cache_file;
+  int track_roster_presence;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -256,6 +257,7 @@ struct rexmpp
   xmlNodePtr stream_features;
   xmlNodePtr roster_items;
   char *roster_ver;
+  xmlNodePtr roster_presence;
 
   /* Other dynamic data. */
   xmlNodePtr disco_info;
