@@ -1,5 +1,26 @@
-/* This is quite messy and should be refactored, but good enough for
-   testing. */
+/*
+   This is quite messy and should be refactored, but good enough for
+   testing.
+
+   Building:
+
+   gcc -fPIC -Wall -c `pkg-config --cflags --libs weechat libgsasl libxml-2.0 gnutls rexmpp` examples/weechat.c
+   gcc `pkg-config --cflags --libs weechat libgsasl libxml-2.0 gnutls rexmpp` -shared -fPIC -o weechat.so weechat.o
+   mv weechat.so ~/.weechat/plugins/rexmpp.so
+
+   Usage:
+
+   Connect: /xmpp <jid> <password>
+   Open a chat buffer (from the server buffer): q <jid>
+   Join a conference (from the server buffer): j <room>@<server>/<nick>
+
+   TODO:
+
+   - Refine/rethink control/commands.
+   - Add settings (SASL parameters and regular rexmpp configuration).
+   - Add commands for roster management and other functionality.
+   - Refactor the hacky bits of this plugin.
+*/
 
 #include <stdlib.h>
 #include <string.h>

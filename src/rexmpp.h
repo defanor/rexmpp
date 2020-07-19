@@ -344,8 +344,8 @@ void rexmpp_done (rexmpp_t *s);
 
 /**
    @brief Runs a single iteration.
-   @param[in,out] s An initialised :rexmpp structure.
-   @param[in] File descriptors available for reading from.
+   @param[in,out] s An initialised ::rexmpp structure.
+   @param[in] read_fds File descriptors available for reading from.
    @param[in] write_fds File descriptors available for writing to.
 
    \callergraph
@@ -385,17 +385,80 @@ void rexmpp_iq_new (rexmpp_t *s,
                     xmlNodePtr payload,
                     rexmpp_iq_callback_t cb);
 
-struct timeval *rexmpp_timeout (rexmpp_t *s, struct timeval *max_tv, struct timeval *tv);
+/**
+   @brief Determines the maximum time to wait before the next
+   ::rexmpp_run call.
+   @param[in] s ::rexmpp
+   @param[in] max_tv An existing timeout (can be NULL), to return if
+   there's no more urgent timeouts.
+   @param[in,out] tv An allocated timeval structure, to store the time
+   in.
+   @returns A pointer to either max_tv or tv.
+*/
+struct timeval *rexmpp_timeout (rexmpp_t *s,
+                                struct timeval *max_tv,
+                                struct timeval *tv);
+
+/**
+   @brief Sets file descriptors to watch.
+   @param[in] s ::rexmpp
+   @param[out] read_fds File descriptor set to monitor for read
+   events.
+   @param[out] write_fds File descriptor set to monitor for write
+   events.
+   @returns The highest-numbered file descriptor, plus 1. Suitable for
+   select(2) calls.
+*/
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
-
+/**
+   @brief A helper function for XML serialisation.
+   @param[in] node An XML node.
+   @returns A string (must be freed by the caller).
+*/
 char *rexmpp_xml_serialize (xmlNodePtr node);
+
+/**
+   @brief Adds an "id" attribute to an XML stanza.
+   @param[in,out] s ::rexmpp
+   @param[in] node A pointer to an XML stanza.
+   @returns The same pointer as on input, for more convenient
+   composition.
+*/
 xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node);
 
+/**
+   @brief The logging function.
+   @param[in] s ::rexmpp
+   @param[in] priority A syslog priority.
+   @param[in] format
+*/
+
 void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
+
+/**
+   @brief Matches an XML node against a namespace and an element name.
+   @param[in] node An XML node to match.
+   @param[in] namespace An XML namespace. Can be NULL (matches
+   anything), and it is assumed that the default namespace is
+   "jabber:client" (so if it is "jabber:client" and an element doesn't
+   have a namespace defined, this function counts that as a match).
+   @param[in] name Element name. Can be NULL (matches anything).
+   @returns 1 on a successful match, 0 otherwise.
+*/
 int rexmpp_xml_match (xmlNodePtr node,
                       const char *namespace,
                       const char *name);
+
+/**
+   @brief Finds a child element of an XML node, which matches the
+   given namespace and name.
+   @param[in] node The node containing child nodes.
+   @param[in] namespace The namespace to look for.
+   @param[in] name The element name to look for.
+   @returns A pointer to the first matching child node, or NULL if no
+   matching child elements found.
+*/
 xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
                                   const char *namespace,
                                   const char *name);
