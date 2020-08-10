@@ -4,7 +4,7 @@
 
    Building:
 
-   gcc -fPIC -Wall -c `pkg-config --cflags --libs weechat libgsasl libxml-2.0 gnutls rexmpp` examples/weechat.c
+   gcc -fPIC -Wall -Wno-pointer-sign -c `pkg-config --cflags --libs weechat libgsasl libxml-2.0 gnutls rexmpp` examples/weechat.c
    gcc `pkg-config --cflags --libs weechat libgsasl libxml-2.0 gnutls rexmpp` -shared -fPIC -o weechat.so weechat.o
    mv weechat.so ~/.weechat/plugins/rexmpp.so
 
@@ -27,6 +27,7 @@
 #include <syslog.h>
 #include "weechat-plugin.h"
 #include "rexmpp.h"
+#include "rexmpp_roster.h"
 
 WEECHAT_PLUGIN_NAME("rexmpp");
 WEECHAT_PLUGIN_DESCRIPTION("XMPP plugin using librexmpp");
@@ -48,11 +49,12 @@ struct weechat_rexmpp_muc {
 
 struct t_weechat_plugin *weechat_plugin = NULL;
 
-void my_logger (const struct weechat_rexmpp *wr,
+void my_logger (rexmpp_t *s,
                 int priority,
                 const char *fmt,
                 va_list args)
 {
+  struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   char *priority_str = "unknown";
   switch (priority) {
   case LOG_EMERG: priority_str = "emerg"; break;
@@ -71,8 +73,8 @@ void my_logger (const struct weechat_rexmpp *wr,
   weechat_printf(wr->server_buffer, "%s\n", buf);
 }
 
-int my_sasl_property_cb (const struct weechat_rexmpp *wr, Gsasl_property prop) {
-  rexmpp_t *s = &wr->rexmpp_state;
+int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
+  struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   if (prop == GSASL_PASSWORD) {
     gsasl_property_set (s->sasl_session, GSASL_PASSWORD, wr->password);
     return GSASL_OK;
@@ -93,11 +95,12 @@ int my_sasl_property_cb (const struct weechat_rexmpp *wr, Gsasl_property prop) {
   return GSASL_NO_CALLBACK;
 }
 
-int query_input_cb (const struct weechat_rexmpp *wr, void *data,
+int query_input_cb (const void *ptr, void *data,
                     struct t_gui_buffer *buffer, const char *input_data)
 {
+  struct weechat_rexmpp *wr = (void*)ptr;
   rexmpp_t *s = &wr->rexmpp_state;
-  char *to = weechat_buffer_get_string(buffer, "name");
+  const char *to = weechat_buffer_get_string(buffer, "name");
   xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
   xmlNewProp(msg, "to", to);
   xmlNewProp(msg, "type", "chat");
@@ -107,17 +110,19 @@ int query_input_cb (const struct weechat_rexmpp *wr, void *data,
   return WEECHAT_RC_OK;
 }
 
-int query_close_cb (struct weechat_rexmpp *wr, void *data,
+int query_close_cb (const void *ptr, void *data,
                     struct t_gui_buffer *buffer)
 {
+  /* struct weechat_rexmpp *wr = (void*)ptr; */
   return WEECHAT_RC_OK;
 }
 
-int muc_input_cb (const struct weechat_rexmpp_muc *wrm, void *data,
+int muc_input_cb (const void *ptr, void *data,
                   struct t_gui_buffer *buffer, const char *input_data)
 {
+  struct weechat_rexmpp_muc *wrm = (void*)ptr;
   rexmpp_t *s = &wrm->wr->rexmpp_state;
-  char *to = weechat_buffer_get_string(buffer, "name");
+  const char *to = weechat_buffer_get_string(buffer, "name");
   xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
   xmlNewProp(msg, "to", to);
   xmlNewProp(msg, "type", "groupchat");
@@ -126,9 +131,10 @@ int muc_input_cb (const struct weechat_rexmpp_muc *wrm, void *data,
   return WEECHAT_RC_OK;
 }
 
-int muc_close_cb (struct weechat_rexmpp_muc *wrm, void *data,
+int muc_close_cb (const void *ptr, void *data,
                     struct t_gui_buffer *buffer)
 {
+  struct weechat_rexmpp_muc *wrm = (void*)ptr;
   rexmpp_t *s = &wrm->wr->rexmpp_state;
   xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
   xmlNewProp(presence, "from", s->assigned_jid);
@@ -139,8 +145,8 @@ int muc_close_cb (struct weechat_rexmpp_muc *wrm, void *data,
   return WEECHAT_RC_OK;
 }
 
-int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
-  rexmpp_t *s = &wr->rexmpp_state;
+int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
+  struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   char *xml_buf = rexmpp_xml_serialize(node);
   weechat_printf(wr->server_buffer, "recv: %s\n", xml_buf);
   /* free(xml_buf); */
@@ -249,7 +255,8 @@ int my_xml_in_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
   return 0;
 }
 
-int my_xml_out_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
+int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
+  struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   char *xml_buf = rexmpp_xml_serialize(node);
   weechat_printf(wr->server_buffer, "send: %s\n", xml_buf);
   free(xml_buf);
@@ -257,9 +264,10 @@ int my_xml_out_cb (struct weechat_rexmpp *wr, xmlNodePtr node) {
 }
 
 int
-my_input_cb (const struct weechat_rexmpp *wr, void *data,
+my_input_cb (const void *ptr, void *data,
              struct t_gui_buffer *buffer, const char *input_data)
 {
+  struct weechat_rexmpp *wr = (void*)ptr;
   rexmpp_t *s = &wr->rexmpp_state;
   if (input_data[0] == '<') {
     xmlDocPtr doc = xmlReadMemory(input_data, strlen(input_data), "", "utf-8", 0);
@@ -276,7 +284,7 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
       weechat_printf(buffer, "Failed to read a document\n");
     }
   } else if (input_data[0] == 'q' && input_data[1] == ' ') {
-    char *jid = input_data + 2;
+    const char *jid = input_data + 2;
     struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
     if (buf == NULL) {
       buf = weechat_buffer_new (jid,
@@ -285,7 +293,7 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
       weechat_buffer_set(buf, "nicklist", "1");
     }
   } else if (input_data[0] == 'j' && input_data[1] == ' ') {
-    char *jid = input_data + 2;
+    char *jid = strdup(input_data + 2);
     xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
     xmlNewProp(presence, "from", s->assigned_jid);
     xmlNewProp(presence, "to", jid);
@@ -310,16 +318,21 @@ my_input_cb (const struct weechat_rexmpp *wr, void *data,
                                 &muc_close_cb, wrm, NULL);
       weechat_buffer_set(buf, "nicklist", "1");
     }
+    free(jid);
   }
   return WEECHAT_RC_OK;
 }
 
-void my_roster_modify_cb (struct weechat_rexmpp *wr, xmlNodePtr item) {
+void my_roster_modify_cb (rexmpp_t *s, xmlNodePtr item) {
+  struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   char *subscription = xmlGetProp(item, "subscription");
   char *jid = xmlGetProp(item, "jid");
   if (subscription != NULL && strcmp(subscription, "remove") == 0) {
     /* delete */
-    weechat_nicklist_remove_nick(wr->server_buffer, jid);
+    struct t_gui_nick *nick = weechat_nicklist_search_nick(wr->server_buffer, NULL, jid);
+    if (nick != NULL) {
+      weechat_nicklist_remove_nick(wr->server_buffer, nick);
+    }
   } else {
     /* add or modify */
     weechat_nicklist_add_nick(wr->server_buffer, NULL, jid,
@@ -332,11 +345,12 @@ void my_roster_modify_cb (struct weechat_rexmpp *wr, xmlNodePtr item) {
 }
 
 int
-my_close_cb (struct weechat_rexmpp *wr, void *data, struct t_gui_buffer *buffer)
+my_close_cb (const void *ptr, void *data, struct t_gui_buffer *buffer)
 {
   /* todo: close MUC buffers first? or at least mark them somehow, so
      that they won't attempt to send "unavailable" presence on
      closing. */
+  struct weechat_rexmpp *wr = (void*)ptr;
   wr->server_buffer = NULL;
   rexmpp_stop(&wr->rexmpp_state);
   return WEECHAT_RC_OK;
@@ -344,7 +358,8 @@ my_close_cb (struct weechat_rexmpp *wr, void *data, struct t_gui_buffer *buffer)
 
 void iter (struct weechat_rexmpp *wr, fd_set *rfds, fd_set *wfds);
 
-int fd_read_cb (const struct weechat_rexmpp *wr, void *data, int fd) {
+int fd_read_cb (const void *ptr, void *data, int fd) {
+  struct weechat_rexmpp *wr = (void*)ptr;
   /* weechat_printf(wr->server_buffer, "read hook fired"); */
   fd_set read_fds, write_fds;
   FD_ZERO(&read_fds);
@@ -354,7 +369,8 @@ int fd_read_cb (const struct weechat_rexmpp *wr, void *data, int fd) {
   return 0;
 }
 
-int fd_write_cb (const struct weechat_rexmpp *wr, void *data, int fd) {
+int fd_write_cb (const void *ptr, void *data, int fd) {
+  struct weechat_rexmpp *wr = (void*)ptr;
   /* weechat_printf(wr->server_buffer, "write hook fired"); */
   fd_set read_fds, write_fds;
   FD_ZERO(&read_fds);
@@ -364,7 +380,8 @@ int fd_write_cb (const struct weechat_rexmpp *wr, void *data, int fd) {
   return 0;
 }
 
-int timer_cb (const struct weechat_rexmpp *wr, void *data, int remaining_calls) {
+int timer_cb (const void *ptr, void *data, int remaining_calls) {
+  struct weechat_rexmpp *wr = (void*)ptr;
   /* weechat_printf(wr->server_buffer, "timer hook fired"); */
   fd_set read_fds, write_fds;
   FD_ZERO(&read_fds);
@@ -373,8 +390,8 @@ int timer_cb (const struct weechat_rexmpp *wr, void *data, int remaining_calls) 
   return 0;
 }
 
-void hook_free_cb (void *data, struct t_arraylist *arraylist, struct t_hook *hook) {
-  weechat_unhook(hook);
+void hook_free_cb (void *data, struct t_arraylist *arraylist, void *hook) {
+  weechat_unhook((struct t_hook *)hook);
 }
 
 void iter (struct weechat_rexmpp *wr, fd_set *rfds, fd_set *wfds) {
