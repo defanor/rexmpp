@@ -21,6 +21,7 @@
 @menu
 * Copying Conditions:: License information.
 * Introduction:: The basics.
+* Examples:: usage examples.
 @end menu
 
 @node Copying Conditions
@@ -51,5 +52,9 @@ in relevant standards: the intent is to keep the library flexible and
 simple, only handling (or assisting with) more complex and routine parts
 of the protocol.
 
+@node Examples
+@chapter Examples
+@section A basic example
+@verbatiminclude examples/basic.c
 
 @bye
