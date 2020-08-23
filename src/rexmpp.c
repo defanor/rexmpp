@@ -949,6 +949,8 @@ void rexmpp_try_next_host (rexmpp_t *s) {
     s->server_port = s->server_srv_cur->port;
   } else {
     /* No candidate records left to try. Schedule a reconnect. */
+    rexmpp_log(s, LOG_DEBUG,
+               "No candidate hosts left to try, scheduling a reconnect");
     rexmpp_cleanup(s);
     rexmpp_schedule_reconnect(s);
     return;
