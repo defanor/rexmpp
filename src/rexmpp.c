@@ -457,7 +457,10 @@ void rexmpp_schedule_reconnect (rexmpp_t *s) {
     }
     s->reconnect_seconds %= 60;
   }
-  time_t seconds = s->reconnect_seconds << s->reconnect_number;
+  time_t seconds = 3600;
+  if (s->reconnect_number <= 12) {
+    seconds = s->reconnect_seconds << s->reconnect_number;
+  }
   if (seconds > 3600) {
     seconds = 3600;
   }
