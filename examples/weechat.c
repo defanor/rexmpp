@@ -106,7 +106,7 @@ int query_input_cb (const void *ptr, void *data,
   xmlNewProp(msg, "type", "chat");
   xmlNewTextChild(msg, NULL, "body", input_data);
   rexmpp_send(s, msg);
-  weechat_printf_date_tags(buffer, 0, "self_msg", "%s\t%s\n", s->assigned_jid, input_data);
+  weechat_printf_date_tags(buffer, 0, "self_msg", "%s\t%s\n", ">", input_data);
   return WEECHAT_RC_OK;
 }
 
