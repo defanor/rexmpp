@@ -96,8 +96,6 @@ enum stream_st {
   REXMPP_STREAM_SM_ACKS,
   /** Resuming a stream. */
   REXMPP_STREAM_SM_RESUME,
-  /** Restarting a stream. */
-  REXMPP_STREAM_RESTART,
   /** The streams are ready for use: messaging and other higher-level
       things not covered here. */
   REXMPP_STREAM_READY,
@@ -194,7 +192,9 @@ enum rexmpp_err {
   /** A roster item is not found. */
   REXMPP_E_ROSTER_ITEM_NOT_FOUND,
   /** An erroneous parameter is supplied. */
-  REXMPP_E_PARAM
+  REXMPP_E_PARAM,
+  /** A stream error. */
+  REXMPP_E_STREAM
 };
 typedef enum rexmpp_err rexmpp_err_t;
 
@@ -315,6 +315,8 @@ struct rexmpp
   xmlParserCtxtPtr xml_parser;
   xmlNodePtr current_element_root;
   xmlNodePtr current_element;
+  xmlNodePtr input_queue;
+  xmlNodePtr input_queue_last;
 
   /* TLS structures. */
   void *tls_session_data;
@@ -379,11 +381,11 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node);
    library. If an application wants to track replies on its own, it
    should use ::rexmpp_send.
 */
-void rexmpp_iq_new (rexmpp_t *s,
-                    const char *type,
-                    const char *to,
-                    xmlNodePtr payload,
-                    rexmpp_iq_callback_t cb);
+rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
+                            const char *type,
+                            const char *to,
+                            xmlNodePtr payload,
+                            rexmpp_iq_callback_t cb);
 
 /**
    @brief Determines the maximum time to wait before the next
