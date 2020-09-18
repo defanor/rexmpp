@@ -571,6 +571,7 @@ char *rexmpp_xml_serialize(xmlNodePtr node) {
   xmlSaveCtxtPtr ctx = xmlSaveToBuffer(buf, "utf-8", 0);
   xmlSaveTree(ctx, node);
   xmlSaveFlush(ctx);
+  xmlSaveClose(ctx);
   unsigned char *out = xmlBufferDetach(buf);
   xmlBufferFree(buf);
   return out;
