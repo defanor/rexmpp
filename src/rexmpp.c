@@ -609,7 +609,7 @@ rexmpp_err_t rexmpp_send_start (rexmpp_t *s, const void *data, size_t data_len)
     s->send_buffer_len = data_len;
   }
   s->send_buffer_sent = 0;
-  return REXMPP_E_AGAIN;
+  return REXMPP_SUCCESS;
 }
 
 rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
@@ -641,7 +641,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
           unsigned char *buf = rexmpp_xml_serialize(node);
           ret = rexmpp_send_start(s, buf, strlen(buf));
           free(buf);
-          if (ret != REXMPP_E_AGAIN) {
+          if (ret != REXMPP_SUCCESS) {
             return ret;
           }
           s->send_queue = xmlNextElementSibling(s->send_queue);
@@ -678,10 +678,10 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
 rexmpp_err_t rexmpp_send_raw (rexmpp_t *s, const void *data, size_t data_len)
 {
   int ret = rexmpp_send_start(s, data, data_len);
-  if (ret != REXMPP_E_AGAIN) {
-    return ret;
+  if (ret == REXMPP_SUCCESS) {
+    ret = rexmpp_send_continue(s);
   }
-  return rexmpp_send_continue(s);
+  return ret;
 }
 
 rexmpp_err_t rexmpp_sm_send_req (rexmpp_t *s);
