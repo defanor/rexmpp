@@ -379,10 +379,9 @@ void rexmpp_cleanup (rexmpp_t *s) {
     xmlFreeNode(s->stream_features);
     s->stream_features = NULL;
   }
-  while (s->send_queue != NULL) {
-    xmlNodePtr next = xmlNextElementSibling(s->send_queue);
-    xmlFreeNode(s->send_queue);
-    s->send_queue = next;
+  if (s->send_queue != NULL) {
+    xmlFreeNodeList(s->send_queue);
+    s->send_queue = NULL;
   }
   if (s->current_element_root != NULL) {
     xmlFreeNode(s->current_element_root);
@@ -440,10 +439,9 @@ void rexmpp_done (rexmpp_t *s) {
     xmlFreeNodeList(s->disco_info);
     s->disco_info = NULL;
   }
-  while (s->stanza_queue != NULL) {
-    xmlNodePtr next = xmlNextElementSibling(s->stanza_queue);
-    xmlFreeNode(s->send_queue);
-    s->send_queue = next;
+  if (s->stanza_queue != NULL) {
+    xmlFreeNodeList(s->stanza_queue);
+    s->stanza_queue = NULL;
   }
   while (s->active_iq != NULL) {
     rexmpp_iq_t *next = s->active_iq->next;
