@@ -59,12 +59,13 @@ A rough roadmap:
     versioning and caching)
 [+] XEP-0030: Service Discovery (replying to queries)
 [+] XEP-0115: Entity Capabilities (including into initial presence)
+[ ] XEP-0402: PEP Native Bookmarks (autojoin conferences)
+[ ] XEP-0363: HTTP File Upload
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer
 [ ] XEP-0261: Jingle In-Band Bytestreams Transport Method
-[ ] XEP-0363: HTTP File Upload
-[ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method
-[ ] XEP-0391: Jingle Encrypted Transports
+[ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method?
+[ ] XEP-0391: Jingle Encrypted Transports?
 [ ] XEP-0184: Message Delivery Receipts?
 [ ] OpenPGP/OTR/OMEMO/MLS encryption?
 
