@@ -14,7 +14,7 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: c-ares, libxml2, gnutls, gsasl.
+Current dependencies: c-ares, libxml2, gnutls, gnutls-dane, gsasl.
 
 
 A rough roadmap:
@@ -39,6 +39,7 @@ A rough roadmap:
 [+] XEP-0368: SRV records for XMPP over TLS.
 [+] SOCKS5 (RFC 1928) support. Implemented, though can be improved.
 [+] XEP-0199: XMPP Ping.
+[.] Certificate verification using DANE (experimental).
 
 
 - Library refinement:

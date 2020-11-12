@@ -18,6 +18,7 @@
 #include <gnutls/gnutls.h>
 #include <gnutls/crypto.h>
 #include <gnutls/x509.h>
+#include <gnutls/dane.h>
 #include <gsasl.h>
 
 #include "rexmpp.h"
@@ -1001,6 +1002,29 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
     return REXMPP_E_AGAIN;
   } else if (ret == 0) {
     int status;
+    /* Check DANE TLSA records; experimental and purely informative
+       now, but may be nice to (optionally) rely on it in the
+       future. */
+    ret = dane_verify_session_crt(NULL, s->gnutls_session, s->server_host,
+                                  "tcp", s->server_port, 0, 0, &status);
+    if (ret) {
+      rexmpp_log(s, LOG_WARNING, "DANE verification error: %s",
+                 dane_strerror(ret));
+    } else if (status) {
+      if (status & DANE_VERIFY_CA_CONSTRAINTS_VIOLATED) {
+        rexmpp_log(s, LOG_WARNING, "The CA constraints were violated");
+      }
+      if (status & DANE_VERIFY_CERT_DIFFERS) {
+        rexmpp_log(s, LOG_WARNING, "The certificate obtained via DNS differs");
+      }
+      if (status & DANE_VERIFY_UNKNOWN_DANE_INFO) {
+        rexmpp_log(s, LOG_WARNING,
+                   "No known DANE data was found in the DNS record");
+      }
+    } else {
+      rexmpp_log(s, LOG_INFO,
+                 "DANE verification did not reject the certificate");
+    }
     ret = gnutls_certificate_verify_peers3(s->gnutls_session,
                                            jid_bare_to_host(s->initial_jid),
                                            &status);
