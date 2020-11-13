@@ -10,6 +10,7 @@
 #define REXMPP_H
 
 #include <ares.h>
+#include <unbound.h>
 #include <gnutls/gnutls.h>
 #include <gsasl.h>
 #include <libxml/tree.h>
@@ -282,11 +283,11 @@ struct rexmpp
   time_t last_network_activity;
 
   /* DNS-related structures. */
-  ares_channel resolver_channel;
-  struct ares_srv_reply *server_srv;
-  struct ares_srv_reply *server_srv_cur;
-  struct ares_srv_reply *server_srv_tls;
-  struct ares_srv_reply *server_srv_tls_cur;
+  struct ub_ctx *resolver_ctx;
+  struct ub_result *server_srv;
+  int server_srv_cur;
+  struct ub_result *server_srv_tls;
+  int server_srv_tls_cur;
 
   /* The XMPP server we are connecting to. */
   const char *server_host;
@@ -294,6 +295,9 @@ struct rexmpp
 
   /* The primary socket used for communication with the server. */
   int server_socket;
+  /* Whether the address it's connected to was verified with
+     DNSSEC. */
+  int server_socket_dns_secure;
 
   /* A structure used to establish a TCP connection. */
   rexmpp_tcp_conn_t server_connection;

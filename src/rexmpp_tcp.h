@@ -68,8 +68,8 @@ struct rexmpp_tcp_connection {
   /** @brief A port we are connecting to. */
   uint16_t port;
 
-  /** @brief Resolver channel. */
-  ares_channel resolver_channel;
+  /** @brief Resolver context. */
+  struct ub_ctx *resolver_ctx;
   /** @brief Resolver error is stored here when
       ::REXMPP_CONN_RESOLVER_ERROR is returned. */
   int resolver_error;
@@ -79,8 +79,8 @@ struct rexmpp_tcp_connection {
   /** @brief Status of A record resolution, as returned by the
       resolver. */
   int resolver_status_v4;
-  /** @brief AF_INET (IPv4) hostent structure. */
-  struct hostent *addr_v4;
+  /** @brief Resolved A records. */
+  struct ub_result *resolved_v4;
   /** @brief The AF_INET address number we are currently at. */
   int addr_cur_v4;
 
@@ -89,8 +89,8 @@ struct rexmpp_tcp_connection {
   /** @brief Status of AAAA record resolution, as returned by the
       resolver. */
   int resolver_status_v6;
-  /** @brief AF_INET6 (IPv6) hostent structure. */
-  struct hostent *addr_v6;
+  /** @brief Resolved AAAA records. */
+  struct ub_result *resolved_v6;
   /** @brief The AF_INET6 address number we are currently at. */
   int addr_cur_v6;
 
@@ -103,11 +103,15 @@ struct rexmpp_tcp_connection {
   struct timeval next_connection_time;
   /** @brief File descriptor of a connected socket. */
   int fd;
+  /** @brief Whether the A or AAAA records used to establish the final
+      connection were verified with DNSSEC. */
+  int dns_secure;
 };
 
 /**
     @brief Initiates a connection.
     @param[out] conn An allocated connection structure.
+    @param[in] resolver_ctx Resolver context to use.
     @param[in] host A host to connect to. This could be a domain name,
     or a textual representation of an IPv4 or an IPv6 address.
     @param[in] port A port to connect to.
@@ -115,6 +119,7 @@ struct rexmpp_tcp_connection {
 */
 rexmpp_tcp_conn_error_t
 rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
+                      struct ub_ctx *resolver_ctx,
                       const char *host,
                       uint16_t port);
 

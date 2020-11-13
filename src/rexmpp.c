@@ -20,6 +20,7 @@
 #include <gnutls/x509.h>
 #include <gnutls/dane.h>
 #include <gsasl.h>
+#include <unbound.h>
 
 #include "rexmpp.h"
 #include "rexmpp_tcp.h"
@@ -242,10 +243,11 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->track_roster_presence = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
+  s->resolver_ctx = NULL;
   s->server_srv = NULL;
-  s->server_srv_cur = NULL;
+  s->server_srv_cur = -1;
   s->server_srv_tls = NULL;
-  s->server_srv_tls_cur = NULL;
+  s->server_srv_tls_cur = -1;
   s->server_socket = -1;
   s->current_element_root = NULL;
   s->current_element = NULL;
@@ -292,6 +294,29 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     return REXMPP_E_XML;
   }
 
+  s->resolver_ctx = ub_ctx_create();
+  if (s->resolver_ctx == NULL) {
+    rexmpp_log(s, LOG_CRIT, "Failed to create resolver context");
+    xmlFreeParserCtxt(s->xml_parser);
+    return REXMPP_E_DNS;
+  }
+  err = ub_ctx_resolvconf(s->resolver_ctx, NULL);
+  if (err != 0) {
+    rexmpp_log(s, LOG_WARNING, "Failed to read resolv.conf: %s",
+               ub_strerror(err));
+  }
+  err = ub_ctx_hosts(s->resolver_ctx, NULL);
+  if (err != 0) {
+    rexmpp_log(s, LOG_WARNING, "Failed to read hosts file: %s",
+               ub_strerror(err));
+  }
+  /* todo: better to make this path configurable, not to hardcode it */
+  err = ub_ctx_trustedkeys(s->resolver_ctx, "/etc/unbound/root.key");
+  if (err != 0) {
+    rexmpp_log(s, LOG_WARNING, "Failed to set root key file for DNSSEC: %s",
+               ub_strerror(err));
+  }
+
   err = ares_library_init(ARES_LIB_INIT_ALL);
   if (err != 0) {
     rexmpp_log(s, LOG_CRIT, "ares library initialisation error: %s",
@@ -300,20 +325,10 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     return REXMPP_E_DNS;
   }
 
-  err = ares_init(&(s->resolver_channel));
-  if (err) {
-    rexmpp_log(s, LOG_CRIT, "ares channel initialisation error: %s",
-               ares_strerror(err));
-    ares_library_cleanup();
-    xmlFreeParserCtxt(s->xml_parser);
-    return REXMPP_E_DNS;
-  }
-
   err = gnutls_certificate_allocate_credentials(&(s->gnutls_cred));
   if (err) {
     rexmpp_log(s, LOG_CRIT, "gnutls credentials allocation error: %s",
                gnutls_strerror(err));
-    ares_destroy(s->resolver_channel);
     ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
@@ -322,7 +337,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   if (err < 0) {
     rexmpp_log(s, LOG_CRIT, "Certificates loading error: %s",
                gnutls_strerror(err));
-    ares_destroy(s->resolver_channel);
     ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
@@ -333,7 +347,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     rexmpp_log(s, LOG_CRIT, "gsasl initialisation error: %s",
                gsasl_strerror(err));
     gnutls_certificate_free_credentials(s->gnutls_cred);
-    ares_destroy(s->resolver_channel);
     ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
@@ -395,14 +408,14 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->input_queue_last = NULL;
   }
   if (s->server_srv != NULL) {
-    ares_free_data(s->server_srv);
+    ub_resolve_free(s->server_srv);
     s->server_srv = NULL;
-    s->server_srv_cur = NULL;
+    s->server_srv_cur = -1;
   }
   if (s->server_srv_tls != NULL) {
-    ares_free_data(s->server_srv_tls);
+    ub_resolve_free(s->server_srv_tls);
     s->server_srv_tls = NULL;
-    s->server_srv_tls_cur = NULL;
+    s->server_srv_tls_cur = -1;
   }
   s->sm_state = REXMPP_SM_INACTIVE;
   s->ping_requested = 0;
@@ -413,7 +426,10 @@ void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
   gsasl_done(s->sasl_ctx);
   gnutls_certificate_free_credentials(s->gnutls_cred);
-  ares_destroy(s->resolver_channel);
+  if (s->resolver_ctx != NULL) {
+    ub_ctx_delete(s->resolver_ctx);
+    s->resolver_ctx = NULL;
+  }
   ares_library_cleanup();
   xmlFreeParserCtxt(s->xml_parser);
   if (s->initial_jid != NULL) {
@@ -942,6 +958,7 @@ void rexmpp_start_connecting (rexmpp_t *s) {
                s->server_host, s->server_port);
     rexmpp_process_conn_err(s,
                             rexmpp_tcp_conn_init(&s->server_connection,
+                                                 s->resolver_ctx,
                                                  s->server_host,
                                                  s->server_port));
   } else {
@@ -950,39 +967,44 @@ void rexmpp_start_connecting (rexmpp_t *s) {
                s->socks_host, s->socks_port);
     rexmpp_process_conn_err(s,
                             rexmpp_tcp_conn_init(&s->server_connection,
+                                                 s->resolver_ctx,
                                                  s->socks_host,
                                                  s->socks_port));
   }
 }
 
 void rexmpp_try_next_host (rexmpp_t *s) {
+  long enclen;
+  char *cur_data;
+  struct ub_result *cur_result;
+  int cur_number;
   /* todo: check priorities and weights */
   s->tls_state = REXMPP_TLS_INACTIVE;
-  if (s->server_srv_tls != NULL && s->server_srv_tls_cur == NULL) {
+  if (s->server_srv_tls != NULL && s->server_srv_tls_cur == -1) {
     /* We have xmpps-client records available, but haven't tried any
        of them yet. */
-    s->server_srv_tls_cur = s->server_srv_tls;
-    s->server_host = s->server_srv_tls_cur->host;
-    s->server_port = s->server_srv_tls_cur->port;
+    s->server_srv_tls_cur = 0;
+    cur_result = s->server_srv_tls;
+    cur_number = s->server_srv_tls_cur;
     s->tls_state = REXMPP_TLS_AWAITING_DIRECT;
-  } else if (s->server_srv_tls_cur != NULL &&
-             s->server_srv_tls_cur->next != NULL) {
+  } else if (s->server_srv_tls_cur != -1 &&
+             s->server_srv_tls->data[s->server_srv_tls_cur + 1] != NULL) {
     /* We have tried some xmpps-client records, but there is more. */
-    s->server_srv_tls_cur = s->server_srv_tls_cur->next;
-    s->server_host = s->server_srv_tls_cur->host;
-    s->server_port = s->server_srv_tls_cur->port;
+    s->server_srv_tls_cur++;
+    cur_result = s->server_srv_tls;
+    cur_number = s->server_srv_tls_cur;
     s->tls_state = REXMPP_TLS_AWAITING_DIRECT;
-  } else if (s->server_srv != NULL && s->server_srv_cur == NULL) {
+  } else if (s->server_srv != NULL && s->server_srv_cur == -1) {
     /* Starting with xmpp-client records. */
-    s->server_srv_cur = s->server_srv;
-    s->server_host = s->server_srv_cur->host;
-    s->server_port = s->server_srv_cur->port;
-  } else if (s->server_srv_tls_cur != NULL &&
-             s->server_srv_tls_cur->next != NULL) {
+    s->server_srv_cur = 0;
+    cur_result = s->server_srv;
+    cur_number = s->server_srv_cur;
+  } else if (s->server_srv_cur != -1 &&
+             s->server_srv->data[s->server_srv_cur + 1] != NULL) {
     /* Advancing in xmpp-client records. */
-    s->server_srv_cur = s->server_srv_cur->next;
-    s->server_host = s->server_srv_cur->host;
-    s->server_port = s->server_srv_cur->port;
+    s->server_srv_cur++;
+    cur_result = s->server_srv;
+    cur_number = s->server_srv_cur;
   } else {
     /* No candidate records left to try. Schedule a reconnect. */
     rexmpp_log(s, LOG_DEBUG,
@@ -991,6 +1013,21 @@ void rexmpp_try_next_host (rexmpp_t *s) {
     rexmpp_schedule_reconnect(s);
     return;
   }
+  if (cur_result->len[cur_number] < 7) {
+    rexmpp_log(s, LOG_ERR, "An SRV record is too short.");
+    rexmpp_cleanup(s);
+    rexmpp_schedule_reconnect(s);
+    return;
+  }
+  cur_data = cur_result->data[cur_number];
+  /* TODO: replace the following with a custom function, to remove the
+     c-ares dependency. */
+  ares_expand_name(cur_data + 6,
+                   cur_data,
+                   cur_result->len[cur_number],
+                   (char**)&(s->server_host),
+                   &enclen);
+  s->server_port = cur_data[4] * 0x100 + cur_data[5];
   rexmpp_start_connecting(s);
 }
 
@@ -1002,29 +1039,48 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
     return REXMPP_E_AGAIN;
   } else if (ret == 0) {
     int status;
+
+    int srv_is_secure = 0;
+    if (s->stream_state == REXMPP_STREAM_NONE &&
+        s->server_srv_tls != NULL) { /* Direct TLS */
+      srv_is_secure = s->server_srv_tls->secure;
+    } else if (s->stream_state != REXMPP_STREAM_NONE &&
+               s->server_srv != NULL) { /* STARTTLS connection */
+      srv_is_secure = s->server_srv->secure;
+    }
+
     /* Check DANE TLSA records; experimental and purely informative
        now, but may be nice to (optionally) rely on it in the
        future. */
-    ret = dane_verify_session_crt(NULL, s->gnutls_session, s->server_host,
-                                  "tcp", s->server_port, 0, 0, &status);
-    if (ret) {
-      rexmpp_log(s, LOG_WARNING, "DANE verification error: %s",
-                 dane_strerror(ret));
-    } else if (status) {
-      if (status & DANE_VERIFY_CA_CONSTRAINTS_VIOLATED) {
-        rexmpp_log(s, LOG_WARNING, "The CA constraints were violated");
+    if ((srv_is_secure || s->manual_host != NULL) &&
+        s->server_socket_dns_secure) {
+      /* Apparently GnuTLS only checks against the target
+         server/derived host, while another possibility is a
+         service/source host
+         (<https://tools.ietf.org/html/rfc7712#section-5.1>,
+         <https://tools.ietf.org/html/rfc7673#section-6>). */
+      ret = dane_verify_session_crt(NULL, s->gnutls_session, s->server_host,
+                                    "tcp", s->server_port, 0, 0, &status);
+      if (ret) {
+        rexmpp_log(s, LOG_WARNING, "DANE verification error: %s",
+                   dane_strerror(ret));
+      } else if (status) {
+        if (status & DANE_VERIFY_CA_CONSTRAINTS_VIOLATED) {
+          rexmpp_log(s, LOG_WARNING, "The CA constraints were violated");
+        }
+        if (status & DANE_VERIFY_CERT_DIFFERS) {
+          rexmpp_log(s, LOG_WARNING, "The certificate obtained via DNS differs");
+        }
+        if (status & DANE_VERIFY_UNKNOWN_DANE_INFO) {
+          rexmpp_log(s, LOG_WARNING,
+                     "No known DANE data was found in the DNS record");
+        }
+      } else {
+        rexmpp_log(s, LOG_INFO,
+                   "DANE verification did not reject the certificate");
       }
-      if (status & DANE_VERIFY_CERT_DIFFERS) {
-        rexmpp_log(s, LOG_WARNING, "The certificate obtained via DNS differs");
-      }
-      if (status & DANE_VERIFY_UNKNOWN_DANE_INFO) {
-        rexmpp_log(s, LOG_WARNING,
-                   "No known DANE data was found in the DNS record");
-      }
-    } else {
-      rexmpp_log(s, LOG_INFO,
-                 "DANE verification did not reject the certificate");
     }
+
     ret = gnutls_certificate_verify_peers3(s->gnutls_session,
                                            jid_bare_to_host(s->initial_jid),
                                            &status);
@@ -1117,7 +1173,9 @@ rexmpp_err_t rexmpp_tls_start (rexmpp_t *s) {
 
 rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
   s->tcp_state = REXMPP_TCP_CONNECTED;
-  rexmpp_log(s, LOG_INFO, "Connected to the server");
+  rexmpp_log(s, LOG_INFO,
+             "Connected to the server, the used address record was %s",
+             s->server_socket_dns_secure ? "secure" : "not secure");
   s->reconnect_number = 0;
   xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
   if (s->tls_state == REXMPP_TLS_AWAITING_DIRECT) {
@@ -1142,6 +1200,7 @@ void rexmpp_process_socks_err (rexmpp_t *s, enum socks_err err) {
 void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err) {
   s->tcp_state = REXMPP_TCP_CONNECTING;
   if (err == REXMPP_CONN_DONE) {
+    s->server_socket_dns_secure = s->server_connection.dns_secure;
     s->server_socket = rexmpp_tcp_conn_finish(&s->server_connection);
     if (s->socks_host == NULL) {
       rexmpp_connected_to_server(s);
@@ -1163,7 +1222,34 @@ void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err) {
   }
 }
 
-void rexmpp_after_srv (rexmpp_t *s) {
+void rexmpp_srv_cb (void *s_ptr,
+                    int err,
+                    struct ub_result *result)
+{
+  rexmpp_t *s = s_ptr;
+  if (err == 0) {
+    if (result->bogus) {
+      rexmpp_log(s, LOG_WARNING,
+                 "Received a bogus SRV resolution result for %s",
+                 result->qname);
+    } else if (result->havedata) {
+      rexmpp_log(s,
+                 result->secure ? LOG_DEBUG : LOG_WARNING,
+                 "Resolved %s SRV record (%s)",
+                 result->qname, result->secure ? "secure" : "not secure");
+      if (strncmp("_xmpp-", result->qname, 6) == 0) {
+        s->server_srv = result;
+      } else {
+        s->server_srv_tls = result;
+      }
+    } else {
+      rexmpp_log(s, LOG_DEBUG, "No data in the %s SRV result", result->qname);
+    }
+  } else {
+    rexmpp_log(s, LOG_WARNING, "Failed to query %s SRV records: %s",
+               result->qname, ub_strerror(err));
+  }
+
   if (s->resolver_state == REXMPP_RESOLVER_SRV) {
     s->resolver_state = REXMPP_RESOLVER_SRV_2;
   } else if (s->resolver_state == REXMPP_RESOLVER_SRV_2) {
@@ -1184,43 +1270,6 @@ void rexmpp_after_srv (rexmpp_t *s) {
     rexmpp_try_next_host(s);
   }
 }
-
-void rexmpp_srv_tls_cb (void *s_ptr,
-                        int status,
-                        int timeouts,
-                        unsigned char *abuf,
-                        int alen)
-{
-  rexmpp_t *s = s_ptr;
-  if (status == ARES_SUCCESS) {
-    ares_parse_srv_reply(abuf, alen, &(s->server_srv_tls));
-  } else {
-    rexmpp_log(s, LOG_WARNING, "Failed to query an xmpps-client SRV record: %s",
-               ares_strerror(status));
-  }
-  if (status != ARES_EDESTRUCTION) {
-    rexmpp_after_srv(s);
-  }
-}
-
-void rexmpp_srv_cb (void *s_ptr,
-                    int status,
-                    int timeouts,
-                    unsigned char *abuf,
-                    int alen)
-{
-  rexmpp_t *s = s_ptr;
-  if (status == ARES_SUCCESS) {
-    ares_parse_srv_reply(abuf, alen, &(s->server_srv));
-  } else {
-    rexmpp_log(s, LOG_WARNING, "Failed to query an xmpp-client SRV record: %s",
-               ares_strerror(status));
-  }
-  if (status != ARES_EDESTRUCTION) {
-    rexmpp_after_srv(s);
-  }
-}
-
 
 /* Should be called after reconnect, and after rexmpp_sm_handle_ack in
    case of resumption. */
@@ -1996,12 +2045,21 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       char *srv_query = malloc(srv_query_buf_len);
       snprintf(srv_query, srv_query_buf_len,
                "_xmpps-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
-      ares_query(s->resolver_channel, srv_query,
-                 ns_c_in, ns_t_srv, rexmpp_srv_tls_cb, s);
+      int err;
+      err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
+                             s, rexmpp_srv_cb, NULL);
+      if (err) {
+        rexmpp_log(s, LOG_ERR, "Failed to query %s SRV record: %s",
+                   srv_query, ub_strerror(err));
+      }
       snprintf(srv_query, srv_query_buf_len,
                "_xmpp-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
-      ares_query(s->resolver_channel, srv_query,
-                 ns_c_in, ns_t_srv, rexmpp_srv_cb, s);
+      err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
+                             s, rexmpp_srv_cb, NULL);
+      if (err) {
+        rexmpp_log(s, LOG_ERR, "Failed to query %s SRV record: %s",
+                   srv_query, ub_strerror(err));
+      }
       s->resolver_state = REXMPP_RESOLVER_SRV;
       free(srv_query);
     } else {
@@ -2022,7 +2080,9 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
      connection initiation. */
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
-    ares_process(s->resolver_channel, read_fds, write_fds);
+    if (ub_poll(s->resolver_ctx)) {
+      ub_process(s->resolver_ctx);
+    }
   }
 
   /* Connecting. Continues in rexmpp_process_conn_err, possibly
@@ -2121,7 +2181,10 @@ int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
-    max_fd = ares_fds(s->resolver_channel, read_fds, write_fds);
+    max_fd = ub_fd(s->resolver_ctx) + 1;
+    if (max_fd != 0) {
+      FD_SET(max_fd - 1, read_fds);
+    }
   }
 
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
@@ -2174,7 +2237,7 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
-    ret = ares_timeout(s->resolver_channel, max_tv, tv);
+
   } else if (s->tcp_state == REXMPP_TCP_CONNECTING) {
     ret = rexmpp_tcp_conn_timeout(&s->server_connection, max_tv, tv);
   }

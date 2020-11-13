@@ -14,7 +14,8 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: c-ares, libxml2, gnutls, gnutls-dane, gsasl.
+Current dependencies: libunbound, c-ares, libxml2, gnutls,
+gnutls-dane, gsasl.
 
 
 A rough roadmap:
