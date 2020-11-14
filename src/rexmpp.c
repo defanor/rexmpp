@@ -26,6 +26,7 @@
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_roster.h"
+#include "rexmpp_dns.h"
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                const char *localname,
@@ -317,19 +318,10 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
                ub_strerror(err));
   }
 
-  err = ares_library_init(ARES_LIB_INIT_ALL);
-  if (err != 0) {
-    rexmpp_log(s, LOG_CRIT, "ares library initialisation error: %s",
-               ares_strerror(err));
-    xmlFreeParserCtxt(s->xml_parser);
-    return REXMPP_E_DNS;
-  }
-
   err = gnutls_certificate_allocate_credentials(&(s->gnutls_cred));
   if (err) {
     rexmpp_log(s, LOG_CRIT, "gnutls credentials allocation error: %s",
                gnutls_strerror(err));
-    ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
   }
@@ -337,7 +329,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   if (err < 0) {
     rexmpp_log(s, LOG_CRIT, "Certificates loading error: %s",
                gnutls_strerror(err));
-    ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
   }
@@ -347,7 +338,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     rexmpp_log(s, LOG_CRIT, "gsasl initialisation error: %s",
                gsasl_strerror(err));
     gnutls_certificate_free_credentials(s->gnutls_cred);
-    ares_library_cleanup();
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
   }
@@ -430,7 +420,6 @@ void rexmpp_done (rexmpp_t *s) {
     ub_ctx_delete(s->resolver_ctx);
     s->resolver_ctx = NULL;
   }
-  ares_library_cleanup();
   xmlFreeParserCtxt(s->xml_parser);
   if (s->initial_jid != NULL) {
     free(s->initial_jid);
@@ -974,8 +963,6 @@ void rexmpp_start_connecting (rexmpp_t *s) {
 }
 
 void rexmpp_try_next_host (rexmpp_t *s) {
-  long enclen;
-  char *cur_data;
   struct ub_result *cur_result;
   int cur_number;
   /* todo: check priorities and weights */
@@ -1013,21 +1000,17 @@ void rexmpp_try_next_host (rexmpp_t *s) {
     rexmpp_schedule_reconnect(s);
     return;
   }
-  if (cur_result->len[cur_number] < 7) {
-    rexmpp_log(s, LOG_ERR, "An SRV record is too short.");
+
+  if (rexmpp_parse_srv(cur_result->data[cur_number],
+                       cur_result->len[cur_number],
+                       &(s->server_active_srv))) {
+    rexmpp_log(s, LOG_DEBUG, "Failed to parse an SRV record");
     rexmpp_cleanup(s);
     rexmpp_schedule_reconnect(s);
     return;
   }
-  cur_data = cur_result->data[cur_number];
-  /* TODO: replace the following with a custom function, to remove the
-     c-ares dependency. */
-  ares_expand_name(cur_data + 6,
-                   cur_data,
-                   cur_result->len[cur_number],
-                   (char**)&(s->server_host),
-                   &enclen);
-  s->server_port = cur_data[4] * 0x100 + cur_data[5];
+  s->server_host = s->server_active_srv.target;
+  s->server_port = s->server_active_srv.port;
   rexmpp_start_connecting(s);
 }
 

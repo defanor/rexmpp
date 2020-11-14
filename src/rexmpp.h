@@ -16,6 +16,7 @@
 #include <libxml/tree.h>
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
+#include "rexmpp_dns.h"
 
 
 typedef struct rexmpp rexmpp_t;
@@ -288,6 +289,7 @@ struct rexmpp
   int server_srv_cur;
   struct ub_result *server_srv_tls;
   int server_srv_tls_cur;
+  struct rexmpp_dns_srv server_active_srv;
 
   /* The XMPP server we are connecting to. */
   const char *server_host;
