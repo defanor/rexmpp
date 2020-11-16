@@ -11,8 +11,9 @@
 #include <errno.h>
 #include <syslog.h>
 #include <arpa/nameser.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
-#include <ares.h>
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include <gnutls/gnutls.h>

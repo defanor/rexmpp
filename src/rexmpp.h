@@ -9,7 +9,7 @@
 #ifndef REXMPP_H
 #define REXMPP_H
 
-#include <ares.h>
+#include <stdint.h>
 #include <unbound.h>
 #include <gnutls/gnutls.h>
 #include <gsasl.h>

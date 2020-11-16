@@ -14,5 +14,7 @@ librexmpp_la_SOURCES = rexmpp_roster.h rexmpp_roster.c \
 	rexmpp.h rexmpp.c \
 	rexmpp_dns.h rexmpp_dns.c
 include_HEADERS = rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h rexmpp_dns.h
-librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) $(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(GSASL_CFLAGS) $(UNBOUND_CFLAGS)
-librexmpp_la_LIBADD = $(LIBXML_LIBS) $(GNUTLS_LIBS) $(LIBDANE_LIBS) $(GSASL_LIBS) $(UNBOUND_LIBS)
+librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) $(GNUTLS_CFLAGS) \
+	$(LIBDANE_CFLAGS) $(GSASL_CFLAGS) $(UNBOUND_CFLAGS)
+librexmpp_la_LIBADD = $(LIBXML_LIBS) $(GNUTLS_LIBS) $(LIBDANE_LIBS) \
+	$(GSASL_LIBS) $(UNBOUND_LIBS)
