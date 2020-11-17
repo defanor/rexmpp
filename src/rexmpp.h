@@ -17,7 +17,7 @@
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
-
+#include "rexmpp_jid.h"
 
 typedef struct rexmpp rexmpp_t;
 
@@ -221,7 +221,7 @@ struct rexmpp
   enum carbons_st carbons_state;
 
   /* Basic configuration. */
-  char *initial_jid;
+  struct rexmpp_jid initial_jid;
 
   /* Manual host/port configuration. */
   const char *manual_host;
@@ -255,7 +255,7 @@ struct rexmpp
   roster_modify_cb_t roster_modify_cb;
 
   /* Stream-related state. */
-  char *assigned_jid;
+  struct rexmpp_jid assigned_jid;
   xmlNodePtr stream_features;
   xmlNodePtr roster_items;
   char *roster_ver;

@@ -28,6 +28,7 @@
 #include "weechat-plugin.h"
 #include "rexmpp.h"
 #include "rexmpp_roster.h"
+#include "rexmpp_jid.h"
 
 WEECHAT_PLUGIN_NAME("rexmpp");
 WEECHAT_PLUGIN_DESCRIPTION("XMPP plugin using librexmpp");
@@ -80,16 +81,8 @@ int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
     return GSASL_OK;
   }
   if (prop == GSASL_AUTHID) {
-    char *domainpart = strchr(s->initial_jid, '@');
-    if (domainpart != NULL) {
-      int localpart_len = domainpart - s->initial_jid;
-      char *localpart = malloc(localpart_len + 1);
-      localpart[localpart_len] = 0;
-      strncpy(localpart, s->initial_jid, localpart_len);
-      gsasl_property_set (s->sasl_session, GSASL_AUTHID, localpart);
-      free(localpart);
-      return GSASL_OK;
-    }
+    gsasl_property_set (s->sasl_session, GSASL_AUTHID, s->initial_jid.local);
+    return GSASL_OK;
   }
   weechat_printf(wr->server_buffer, "unhandled gsasl property: %d\n", prop);
   return GSASL_NO_CALLBACK;
@@ -137,7 +130,7 @@ int muc_close_cb (const void *ptr, void *data,
   struct weechat_rexmpp_muc *wrm = (void*)ptr;
   rexmpp_t *s = &wrm->wr->rexmpp_state;
   xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-  xmlNewProp(presence, "from", s->assigned_jid);
+  xmlNewProp(presence, "from", s->assigned_jid.full);
   xmlNewProp(presence, "to", wrm->jid);
   xmlNewProp(presence, "type", "unavailable");
   rexmpp_send(s, presence);
@@ -152,26 +145,20 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
   /* free(xml_buf); */
   if (rexmpp_xml_match(node, "jabber:client", "message")) {
     char *from = xmlGetProp(node, "from");
-    char *display_name = from;
-    int i, resource_removed = 0;
-    for (i = 0; i < strlen(from); i++) {
-      if (from[i] == '/') {
-        from[i] = 0;
-        display_name = from + i + 1;
-        resource_removed = 1;
-        break;
-      }
-    }
     if (from != NULL) {
-      struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", from);
+      struct rexmpp_jid from_jid;
+      rexmpp_jid_parse(from, &from_jid);
+      xmlFree(from);
+      char *display_name = from_jid.full;
+      if (from_jid.resource[0]) {
+        display_name = from_jid.resource;
+      }
+      struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", from_jid.bare);
       if (buf == NULL) {
-        buf = weechat_buffer_new (from,
+        buf = weechat_buffer_new (from_jid.bare,
                                   &query_input_cb, wr, NULL,
                                   &query_close_cb, wr, NULL);
         weechat_buffer_set(buf, "nicklist", "1");
-      }
-      if (resource_removed) {
-        from[i] = '/';            /* restore */
       }
       xmlNodePtr body = rexmpp_xml_find_child(node, "jabber:client", "body");
       if (body != NULL) {
@@ -183,40 +170,33 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
           xmlFree(str);
         }
       }
-      xmlFree(from);
     }
   }
   if (rexmpp_xml_match(node, "jabber:client", "presence")) {
     char *presence_type = xmlGetProp(node, "type");
-    char *jid = xmlGetProp(node, "from");
-    char *full_jid = strdup(jid);
-    int i;
-    char *resource = "";
-    for (i = 0; i < strlen(jid); i++) {
-      if (jid[i] == '/') {
-        jid[i] = 0;
-        resource = jid + i + 1;
-        break;
-      }
-    }
+    char *from = xmlGetProp(node, "from");
+    struct rexmpp_jid from_jid;
+    rexmpp_jid_parse(from, &from_jid);
+    xmlFree(from);
+
     if (rexmpp_xml_find_child(node, "http://jabber.org/protocol/muc#user", "x")) {
       /* Update MUC nicklist */
-      struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
+      struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", from_jid.bare);
       if (buf != NULL) {
         if (presence_type != NULL && strcmp(presence_type, "unavailable") == 0) {
           struct t_gui_nick *nick =
-            weechat_nicklist_search_nick(buf, NULL, resource);
+            weechat_nicklist_search_nick(buf, NULL, from_jid.resource);
           if (nick != NULL) {
             weechat_nicklist_remove_nick(buf, nick);
           }
         } else {
-          weechat_nicklist_add_nick(buf, NULL, resource,
+          weechat_nicklist_add_nick(buf, NULL, from_jid.resource,
                                     "bar_fg", "", "lightgreen", 1);
         }
       }
-    } else if (rexmpp_roster_find_item(s, jid, NULL) != NULL) {
+    } else if (rexmpp_roster_find_item(s, from_jid.bare, NULL) != NULL) {
       /* A roster item. */
-      struct t_gui_nick *nick = weechat_nicklist_search_nick(wr->server_buffer, NULL, jid);
+      struct t_gui_nick *nick = weechat_nicklist_search_nick(wr->server_buffer, NULL, from_jid.bare);
       if (presence_type == NULL) {
         /* An "available" presence: just ensure that it's shown as
            online. */
@@ -228,25 +208,23 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
            just went offline). */
         xmlNodePtr cur;
         int found = 0;
+        struct rexmpp_jid cur_from_jid;
         for (cur = s->roster_presence;
              cur != NULL;
              cur = xmlNextElementSibling(cur)) {
           char *cur_from = xmlGetProp(cur, "from");
-          if (strcmp(cur_from, full_jid) != 0 &&
-              strncmp(cur_from, jid, strlen(jid)) == 0 &&
-              strlen(cur_from) > strlen(jid) &&
-              cur_from[strlen(jid)] == '/') {
+          rexmpp_jid_parse(cur_from, &cur_from_jid);
+          xmlFree(cur_from);
+          if (strcmp(cur_from_jid.bare, from_jid.bare) == 0 &&
+              strcmp(cur_from_jid.resource, from_jid.resource) != 0) {
             found = 1;
           }
-          free(cur_from);
         }
         if (! found) {
           weechat_nicklist_nick_set(wr->server_buffer, nick, "prefix", "");
         }
       }
     }
-    free(jid);
-    free(full_jid);
     if (presence_type != NULL) {
       free(presence_type);
     }
@@ -295,7 +273,7 @@ my_input_cb (const void *ptr, void *data,
   } else if (input_data[0] == 'j' && input_data[1] == ' ') {
     char *jid = strdup(input_data + 2);
     xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-    xmlNewProp(presence, "from", s->assigned_jid);
+    xmlNewProp(presence, "from", s->assigned_jid.full);
     xmlNewProp(presence, "to", jid);
     xmlNodePtr x = xmlNewNode(NULL, "x");
     xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);

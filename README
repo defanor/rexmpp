@@ -46,7 +46,7 @@ A rough roadmap:
 
 [.] Doxygen documentation.
 [.] Texinfo manual.
-[ ] Proper JID handling (RFC 7622).
+[.] Proper JID handling (RFC 7622).
 [ ] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
     optional usage of alternative ones. Though maybe shouldn't
     abstract out XML functions and structures: could reuse existing

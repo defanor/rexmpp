@@ -37,16 +37,8 @@ int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
     return GSASL_OK;
   }
   if (prop == GSASL_AUTHID) {
-    char *domainpart = strchr(s->initial_jid, '@');
-    if (domainpart != NULL) {
-      int localpart_len = domainpart - s->initial_jid;
-      char *localpart = malloc(localpart_len + 1);
-      localpart[localpart_len] = 0;
-      strncpy(localpart, s->initial_jid, localpart_len);
-      gsasl_property_set (s->sasl_session, GSASL_AUTHID, localpart);
-      free(localpart);
-      return GSASL_OK;
-    }
+    gsasl_property_set (s->sasl_session, GSASL_AUTHID, s->initial_jid.local);
+    return GSASL_OK;
   }
   printf("unhandled gsasl property: %d\n", prop);
   return GSASL_NO_CALLBACK;

@@ -28,6 +28,7 @@
 #include "rexmpp_socks.h"
 #include "rexmpp_roster.h"
 #include "rexmpp_dns.h"
+#include "rexmpp_jid.h"
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                const char *localname,
@@ -268,8 +269,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
-  s->initial_jid = NULL;
-  s->assigned_jid = NULL;
+  s->initial_jid.full[0] = '\0';
+  s->assigned_jid.full[0] = '\0';
   s->stanza_queue_size = 1024;
   s->send_queue_size = 1024;
   s->iq_queue_size = 1024;
@@ -287,7 +288,10 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     return REXMPP_E_JID;
   }
 
-  s->initial_jid = strdup(jid);
+  if (rexmpp_jid_parse(jid, &(s->initial_jid))) {
+    rexmpp_log(s, LOG_CRIT, "Failed to parse the initial JID.");
+    return REXMPP_E_JID;
+  }
 
   s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
 
@@ -422,10 +426,6 @@ void rexmpp_done (rexmpp_t *s) {
     s->resolver_ctx = NULL;
   }
   xmlFreeParserCtxt(s->xml_parser);
-  if (s->initial_jid != NULL) {
-    free(s->initial_jid);
-    s->initial_jid = NULL;
-  }
   if (s->stream_id != NULL) {
     free(s->stream_id);
     s->stream_id = NULL;
@@ -565,8 +565,8 @@ xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
   strftime(buf, 42, "%FT%T%z", local_time);
   xmlNodePtr delay = xmlNewChild(node, NULL, "delay", NULL);
   xmlNewProp(delay, "stamp", buf);
-  if (s != NULL && s->assigned_jid != NULL) {
-    xmlNewProp(delay, "from", s->assigned_jid);
+  if (s != NULL && s->assigned_jid.full[0]) {
+    xmlNewProp(delay, "from", s->assigned_jid.full);
   }
   return node;
 }
@@ -777,8 +777,8 @@ void rexmpp_iq_reply (rexmpp_t *s,
     xmlNewProp(iq_stanza, "to", to);
     free(to);
   }
-  if (s->assigned_jid != NULL) {
-    xmlNewProp(iq_stanza, "from", s->assigned_jid);
+  if (s->assigned_jid.full[0]) {
+    xmlNewProp(iq_stanza, "from", s->assigned_jid.full);
   }
   if (payload != NULL) {
     xmlAddChild(iq_stanza, payload);
@@ -815,8 +815,8 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
   if (to != NULL) {
     xmlNewProp(iq_stanza, "to", to);
   }
-  if (s->assigned_jid != NULL) {
-    xmlNewProp(iq_stanza, "from", s->assigned_jid);
+  if (s->assigned_jid.full[0]) {
+    xmlNewProp(iq_stanza, "from", s->assigned_jid.full);
   }
   xmlAddChild(iq_stanza, payload);
   rexmpp_iq_t *iq = malloc(sizeof(rexmpp_iq_t));
@@ -935,7 +935,7 @@ rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
            "<stream:stream to='%s' version='1.0' "
            "xml:lang='en' xmlns='jabber:client' "
            "xmlns:stream='http://etherx.jabber.org/streams'>",
-           jid_bare_to_host(s->initial_jid));
+           s->initial_jid.domain);
   s->stream_state = REXMPP_STREAM_OPENING;
   return rexmpp_send_raw(s, buf, strlen(buf));
 }
@@ -1066,7 +1066,7 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
     }
 
     ret = gnutls_certificate_verify_peers3(s->gnutls_session,
-                                           jid_bare_to_host(s->initial_jid),
+                                           s->initial_jid.domain,
                                            &status);
     if (ret || status) {
       s->tls_state = REXMPP_TLS_ERROR;
@@ -1131,8 +1131,8 @@ rexmpp_err_t rexmpp_tls_start (rexmpp_t *s) {
   gnutls_session_set_ptr(s->gnutls_session, s);
   gnutls_alpn_set_protocols(s->gnutls_session, &xmpp_client_protocol, 1, 0);
   gnutls_server_name_set(s->gnutls_session, GNUTLS_NAME_DNS,
-                         jid_bare_to_host(s->initial_jid),
-                         strlen(jid_bare_to_host(s->initial_jid)));
+                         s->initial_jid.domain,
+                         strlen(s->initial_jid.domain));
   gnutls_set_default_priority(s->gnutls_session);
   gnutls_credentials_set(s->gnutls_session, GNUTLS_CRD_CERTIFICATE,
                          s->gnutls_cred);
@@ -1247,7 +1247,7 @@ void rexmpp_srv_cb (void *s_ptr,
 
   if (s->server_srv == NULL && s->server_srv_tls == NULL) {
     /* Failed to resolve anything: a fallback. */
-    s->server_host = jid_bare_to_host(s->initial_jid);
+    s->server_host = s->initial_jid.domain;
     s->server_port = 5222;
     rexmpp_start_connecting(s);
   } else {
@@ -1375,7 +1375,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
   if (s->enable_service_discovery) {
     xmlNodePtr disco_query = xmlNewNode(NULL, "query");
     xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
-    rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
+    rexmpp_iq_new(s, "get", s->initial_jid.domain,
                   disco_query, rexmpp_iq_discovery_info);
   }
   if (s->manage_roster) {
@@ -1420,8 +1420,7 @@ void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response, int success
     xmlNodePtr jid = xmlFirstElementChild(child);
     if (rexmpp_xml_match(jid, "urn:ietf:params:xml:ns:xmpp-bind", "jid")) {
       rexmpp_log(s, LOG_INFO, "jid: %s", xmlNodeGetContent(jid));
-      s->assigned_jid = malloc(strlen(xmlNodeGetContent(jid)) + 1);
-      strcpy(s->assigned_jid, xmlNodeGetContent(jid));
+      rexmpp_jid_parse(xmlNodeGetContent(jid), &(s->assigned_jid));
     }
     if (s->stream_id == NULL &&
         (child = rexmpp_xml_find_child(s->stream_features, "urn:xmpp:sm:3",
@@ -1523,7 +1522,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       if (from == NULL) {
         from_server = 1;
       } else {
-        if (strcmp(from, jid_bare_to_host(s->assigned_jid)) == 0) {
+        if (strcmp(from, s->initial_jid.domain) == 0) {
           from_server = 1;
         }
         free(from);
@@ -1597,21 +1596,11 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       s->track_roster_presence) {
     char *from = xmlGetProp(elem, "from");
     if (from != NULL) {
-      size_t i;
-      int resource_removed = 0;
-      for (i = 0; i < strlen(from); i++) {
-        if (from[i] == '/') {
-          from[i] = '\0';
-          resource_removed = i;
-          break;
-        }
-      }
-      if (rexmpp_roster_find_item(s, from, NULL) != NULL) {
+      struct rexmpp_jid from_jid;
+      rexmpp_jid_parse(from, &from_jid);
+      xmlFree(from);
+      if (rexmpp_roster_find_item(s, from_jid.bare, NULL) != NULL) {
         /* The bare JID is in the roster. */
-        if (resource_removed) {
-          /* Restore full JID. */
-          from[resource_removed] = '/';
-        }
         char *type = xmlGetProp(elem, "type");
         xmlNodePtr cur, prev;
         if (type == NULL || strcmp(type, "unavailable") == 0) {
@@ -1622,7 +1611,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                cur != NULL;
                prev = cur, cur = xmlNextElementSibling(cur)) {
             char *cur_from = xmlGetProp(cur, "from");
-            if (strcmp(cur_from, from) == 0) {
+            if (strcmp(cur_from, from_jid.full) == 0) {
               if (prev == NULL) {
                 s->roster_presence = cur->next;
               } else {
@@ -1643,7 +1632,6 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           free(type);
         }
       }
-      free(from);
     }
   }
 
@@ -2023,12 +2011,12 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     if (s->manual_host == NULL) {
       /* Start by querying SRV records. */
       rexmpp_log(s, LOG_DEBUG, "start (or reconnect)");
-      size_t srv_query_buf_len = strlen(jid_bare_to_host(s->initial_jid)) +
+      size_t srv_query_buf_len = strlen(s->initial_jid.domain) +
         strlen("_xmpps-client._tcp..") +
         1;
       char *srv_query = malloc(srv_query_buf_len);
       snprintf(srv_query, srv_query_buf_len,
-               "_xmpps-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
+               "_xmpps-client._tcp.%s.", s->initial_jid.domain);
       int err;
       err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
                              s, rexmpp_srv_cb, NULL);
@@ -2037,7 +2025,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
                    srv_query, ub_strerror(err));
       }
       snprintf(srv_query, srv_query_buf_len,
-               "_xmpp-client._tcp.%s.", jid_bare_to_host(s->initial_jid));
+               "_xmpp-client._tcp.%s.", s->initial_jid.domain);
       err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
                              s, rexmpp_srv_cb, NULL);
       if (err) {
@@ -2104,7 +2092,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       s->ping_requested = 1;
       xmlNodePtr ping_cmd = xmlNewNode(NULL, "ping");
       xmlNewNs(ping_cmd, "urn:xmpp:ping", NULL);
-      rexmpp_iq_new(s, "get", jid_bare_to_host(s->initial_jid),
+      rexmpp_iq_new(s, "get", s->initial_jid.domain,
                     ping_cmd, rexmpp_pong);
     } else {
       rexmpp_log(s, LOG_WARNING, "Ping timeout, reconnecting.");
