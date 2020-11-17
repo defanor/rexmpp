@@ -241,6 +241,8 @@ struct rexmpp
   int manage_roster;
   const char *roster_cache_file;
   int track_roster_presence;
+  int track_roster_events;
+  int nick_notifications;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -260,6 +262,7 @@ struct rexmpp
   xmlNodePtr roster_items;
   char *roster_ver;
   xmlNodePtr roster_presence;
+  xmlNodePtr roster_events;
 
   /* Other dynamic data. */
   xmlNodePtr disco_info;
@@ -443,6 +446,15 @@ xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node);
 */
 
 void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
+
+/**
+   @brief Gets an appropriate display name for a JID.
+   @param[in] s ::rexmpp
+   @param[in] jid_str A JID string.
+   @returns A newly allocated null-terminated string, or NULL on
+   error.
+*/
+char *rexmpp_get_name (rexmpp_t *s, const char *jid_str);
 
 /**
    @brief Matches an XML node against a namespace and an element name.

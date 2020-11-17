@@ -177,6 +177,82 @@ char *rexmpp_capabilities_hash (rexmpp_t *s,
   return out;
 }
 
+xmlNodePtr rexmpp_find_event (rexmpp_t *s,
+                              const char *from,
+                              const char *node,
+                              xmlNodePtr *prev_event)
+{
+  xmlNodePtr prev, cur;
+  for (prev = NULL, cur = s->roster_events;
+       cur != NULL;
+       prev = cur, cur = xmlNextElementSibling(cur)) {
+    char *cur_from = xmlGetProp(cur, "from");
+    xmlNodePtr cur_event =
+      rexmpp_xml_find_child(cur,
+                            "http://jabber.org/protocol/pubsub#event",
+                            "event");
+    xmlNodePtr cur_items =
+      rexmpp_xml_find_child(cur_event,
+                            "http://jabber.org/protocol/pubsub#event",
+                            "items");
+    char *cur_node = xmlGetProp(cur_items, "node");
+    int match = (strcmp(cur_from, from) == 0 && strcmp(cur_node, node) == 0);
+    free(cur_node);
+    free(cur_from);
+    if (match) {
+      if (prev_event != NULL) {
+        *prev_event = prev;
+      }
+      return cur;
+    }
+  }
+  return NULL;
+}
+
+char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
+  struct rexmpp_jid jid;
+  if (rexmpp_jid_parse(jid_str, &jid) != 0) {
+    return NULL;
+  }
+  if (s->manage_roster) {
+    xmlNodePtr roster_item = rexmpp_roster_find_item(s, jid.bare, NULL);
+    if (roster_item) {
+      char *name = xmlGetProp(roster_item, "name");
+      if (name != NULL) {
+        return name;
+      }
+    }
+    if (s->track_roster_events) {
+      xmlNodePtr elem =
+        rexmpp_find_event(s, jid.bare, "http://jabber.org/protocol/nick", NULL);
+      if (elem != NULL) {
+        xmlNodePtr event =
+          rexmpp_xml_find_child(elem,
+                                "http://jabber.org/protocol/pubsub#event",
+                                "event");
+        xmlNodePtr items =
+          rexmpp_xml_find_child(event,
+                                "http://jabber.org/protocol/pubsub#event",
+                                "items");
+        xmlNodePtr item =
+          rexmpp_xml_find_child(items,
+                                "http://jabber.org/protocol/pubsub#event",
+                                "item");
+        if (item != NULL) {
+          xmlNodePtr nick =
+            rexmpp_xml_find_child(item,
+                                  "http://jabber.org/protocol/nick",
+                                  "nick");
+          if (nick != NULL) {
+            return strdup(xmlNodeGetContent(nick));
+          }
+        }
+      }
+    }
+  }
+  return strdup(jid.bare);
+}
+
 xmlNodePtr rexmpp_xml_feature (const char *var) {
   xmlNodePtr feature = xmlNewNode(NULL, "feature");
   xmlNewProp(feature, "var", var);
@@ -192,20 +268,28 @@ xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
   return error;
 }
 
-xmlNodePtr rexmpp_xml_default_disco_info () {
+xmlNodePtr rexmpp_xml_disco_info (rexmpp_t *s) {
+  xmlNodePtr first, prev = NULL, cur;
   /* There must be at least one identity, so filling in somewhat
      sensible defaults. A basic client may leave them be, while an
      advanced one would adjust and/or extend them. */
-  xmlNodePtr identity = xmlNewNode(NULL, "identity");
-  xmlNewProp(identity, "category", "client");
-  xmlNewProp(identity, "type", "console");
-  xmlNewProp(identity, "name", "rexmpp");
-  xmlNodePtr disco_feature =
-    rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
-  identity->next = disco_feature;
-  xmlNodePtr ping_feature = rexmpp_xml_feature("urn:xmpp:ping");
-  disco_feature->next = ping_feature;
-  return identity;
+  first = xmlNewNode(NULL, "identity");
+  xmlNewProp(first, "category", "client");
+  xmlNewProp(first, "type", "console");
+  xmlNewProp(first, "name", "rexmpp2");
+  prev = first;
+  cur = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
+  prev->next = cur;
+  prev = cur;
+  if (s->nick_notifications) {
+    cur = rexmpp_xml_feature("http://jabber.org/protocol/nick+notify");
+    prev->next = cur;
+    prev = cur;
+  }
+  cur = rexmpp_xml_feature("urn:xmpp:ping");
+  prev->next = cur;
+  prev = cur;
+  return first;
 }
 
 int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
@@ -244,6 +328,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->manage_roster = 1;
   s->roster_cache_file = NULL;
   s->track_roster_presence = 1;
+  s->track_roster_events = 1;
+  s->nick_notifications = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->resolver_ctx = NULL;
@@ -260,6 +346,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->roster_items = NULL;
   s->roster_ver = NULL;
   s->roster_presence = NULL;
+  s->roster_events = NULL;
   s->stanza_queue = NULL;
   s->stream_id = NULL;
   s->active_iq = NULL;
@@ -349,7 +436,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   gsasl_callback_hook_set(s->sasl_ctx, s);
   gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
 
-  s->disco_info = rexmpp_xml_default_disco_info();
+  s->disco_info = rexmpp_xml_disco_info(s);
 
   return REXMPP_SUCCESS;
 }
@@ -437,6 +524,10 @@ void rexmpp_done (rexmpp_t *s) {
   if (s->roster_presence != NULL) {
     xmlFreeNodeList(s->roster_presence);
     s->roster_presence = NULL;
+  }
+  if (s->roster_events != NULL) {
+    xmlFreeNodeList(s->roster_events);
+    s->roster_events = NULL;
   }
   if (s->roster_ver != NULL) {
     free(s->roster_ver);
@@ -1630,6 +1721,51 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           s->roster_presence = presence;
         } else {
           free(type);
+        }
+      }
+    }
+  }
+
+  /* Incoming messages. */
+  if (rexmpp_xml_match(elem, "jabber:client", "message")) {
+    char *from = xmlGetProp(elem, "from");
+    if (from != NULL) {
+      struct rexmpp_jid from_jid;
+      rexmpp_jid_parse(from, &from_jid);
+      xmlFree(from);
+      if (rexmpp_roster_find_item(s, from_jid.bare, NULL) != NULL ||
+          strcmp(from_jid.bare, s->assigned_jid.bare) == 0) {
+        xmlNodePtr event =
+          rexmpp_xml_find_child(elem,
+                                "http://jabber.org/protocol/pubsub#event",
+                                "event");
+        if (event != NULL && s->manage_roster && s->track_roster_events) {
+          xmlNodePtr items =
+            rexmpp_xml_find_child(event,
+                                  "http://jabber.org/protocol/pubsub#event",
+                                  "items");
+          if (items != NULL) {
+            char *node = xmlGetProp(items, "node");
+            if (node != NULL) {
+              /* Remove the previously stored items for the same sender
+                 and node, if any. */
+              xmlNodePtr prev, cur;
+              cur = rexmpp_find_event(s, from_jid.bare, node, &prev);
+              if (cur) {
+                if (prev == NULL) {
+                  s->roster_events = cur->next;
+                } else {
+                  prev->next = cur->next;
+                }
+              }
+              free(node);
+
+              /* Add the new message. */
+              xmlNodePtr message = xmlCopyNode(elem, 1);
+              message->next = s->roster_events;
+              s->roster_events = message;
+            }
+          }
         }
       }
     }
