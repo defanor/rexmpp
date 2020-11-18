@@ -268,16 +268,19 @@ xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
   return error;
 }
 
-xmlNodePtr rexmpp_xml_disco_info (rexmpp_t *s) {
-  xmlNodePtr first, prev = NULL, cur;
+xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
+  if (s->disco_info != NULL) {
+    return s->disco_info;
+  }
+  xmlNodePtr prev = NULL, cur;
   /* There must be at least one identity, so filling in somewhat
      sensible defaults. A basic client may leave them be, while an
      advanced one would adjust and/or extend them. */
-  first = xmlNewNode(NULL, "identity");
-  xmlNewProp(first, "category", "client");
-  xmlNewProp(first, "type", "console");
-  xmlNewProp(first, "name", "rexmpp2");
-  prev = first;
+  s->disco_info = xmlNewNode(NULL, "identity");
+  xmlNewProp(s->disco_info, "category", "client");
+  xmlNewProp(s->disco_info, "type", "console");
+  xmlNewProp(s->disco_info, "name", "rexmpp2");
+  prev = s->disco_info;
   cur = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   prev->next = cur;
   prev = cur;
@@ -289,7 +292,7 @@ xmlNodePtr rexmpp_xml_disco_info (rexmpp_t *s) {
   cur = rexmpp_xml_feature("urn:xmpp:ping");
   prev->next = cur;
   prev = cur;
-  return first;
+  return s->disco_info;
 }
 
 int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
@@ -369,6 +372,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->ping_delay = 600;
   s->ping_requested = 0;
   s->last_network_activity = 0;
+  s->disco_info = NULL;
 
   if (jid == NULL) {
     rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
@@ -435,8 +439,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   }
   gsasl_callback_hook_set(s->sasl_ctx, s);
   gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
-
-  s->disco_info = rexmpp_xml_disco_info(s);
 
   return REXMPP_SUCCESS;
 }
@@ -1484,7 +1486,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
                   roster_query, rexmpp_iq_roster_get);
   }
   xmlNodePtr presence = xmlNewNode(NULL, "presence");
-  char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
+  char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
   if (caps_hash != NULL) {
     xmlNodePtr c = xmlNewNode(NULL, "c");
     xmlNewNs(c, "http://jabber.org/protocol/caps", NULL);
@@ -1643,7 +1645,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       xmlNodePtr query = xmlFirstElementChild(elem);
       if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info", "query")) {
         char *node = xmlGetProp(query, "node");
-        char *caps_hash = rexmpp_capabilities_hash(s, s->disco_info);
+        char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
         if (node == NULL ||
             (caps_hash != NULL &&
              s->disco_node != NULL &&
@@ -1656,7 +1658,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           if (node != NULL) {
             xmlNewProp(result, "node", node);
           }
-          xmlAddChild(result, xmlCopyNodeList(s->disco_info));
+          xmlAddChild(result, xmlCopyNodeList(rexmpp_disco_info(s)));
           rexmpp_iq_reply(s, elem, "result", result);
         } else {
           rexmpp_log(s, LOG_WARNING,
