@@ -375,6 +375,10 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
       char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
       err = gpgme_get_key(s->pgp_ctx, fingerprint, &keys[nkeys], 0);
       if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+        if (strcmp(recipients[i], s->initial_jid.bare) == 0) {
+          /* Own keys: also add them for signing. */
+          gpgme_signers_add(s->pgp_ctx, keys[nkeys]);
+        }
         nkeys++;
         if (nkeys == allocated) {
           allocated *= 2;
@@ -442,7 +446,8 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   gpgme_data_t cipher_dh, plain_dh;
   gpgme_data_new(&cipher_dh);
   gpgme_data_new_from_mem(&plain_dh, plaintext, strlen(plaintext), 0);
-  err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, 0, plain_dh, cipher_dh);
+  err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
+                              plain_dh, cipher_dh);
   for (i = 0; i < nkeys; i++) {
     gpgme_key_release(keys[i]);
   }
