@@ -36,6 +36,8 @@ PKG_CHECK_MODULES([UNBOUND], [libunbound])
 AC_SUBST(UNBOUND_CFLAGS)
 AC_SUBST(UNBOUND_LIBS)
 
+AM_PATH_GPGME
+
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h netdb.h netinet/in.h sys/socket.h syslog.h])
 

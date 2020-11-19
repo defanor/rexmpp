@@ -14,7 +14,8 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libunbound, libxml2, gnutls, gnutls-dane, gsasl.
+Current dependencies: libunbound, libxml2, gnutls, gnutls-dane, gsasl,
+gpgme.
 
 
 A rough roadmap:
@@ -61,7 +62,7 @@ A rough roadmap:
 [+] XEP-0030: Service Discovery (replying to queries)
 [+] XEP-0115: Entity Capabilities (including into initial presence)
 [+] XEP-0172: User Nickname
-[ ] XEP-0373: OpenPGP for XMPP
+[+] XEP-0373: OpenPGP for XMPP
 [ ] XEP-0402: PEP Native Bookmarks (autojoin conferences)
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer

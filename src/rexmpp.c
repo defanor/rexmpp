@@ -22,6 +22,7 @@
 #include <gnutls/dane.h>
 #include <gsasl.h>
 #include <unbound.h>
+#include <gpgme.h>
 
 #include "rexmpp.h"
 #include "rexmpp_tcp.h"
@@ -29,6 +30,7 @@
 #include "rexmpp_roster.h"
 #include "rexmpp_dns.h"
 #include "rexmpp_jid.h"
+#include "rexmpp_openpgp.h"
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                const char *localname,
@@ -187,6 +189,9 @@ xmlNodePtr rexmpp_find_event (rexmpp_t *s,
        cur != NULL;
        prev = cur, cur = xmlNextElementSibling(cur)) {
     char *cur_from = xmlGetProp(cur, "from");
+    if (cur_from == NULL) {
+      continue;
+    }
     xmlNodePtr cur_event =
       rexmpp_xml_find_child(cur,
                             "http://jabber.org/protocol/pubsub#event",
@@ -195,7 +200,14 @@ xmlNodePtr rexmpp_find_event (rexmpp_t *s,
       rexmpp_xml_find_child(cur_event,
                             "http://jabber.org/protocol/pubsub#event",
                             "items");
+    if (cur_items == NULL) {
+      free(cur_from);
+      continue;
+    }
     char *cur_node = xmlGetProp(cur_items, "node");
+    if (cur_node == NULL) {
+      continue;
+    }
     int match = (strcmp(cur_from, from) == 0 && strcmp(cur_node, node) == 0);
     free(cur_node);
     free(cur_from);
@@ -289,6 +301,11 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
     prev->next = cur;
     prev = cur;
   }
+  if (s->retrieve_openpgp_keys) {
+    cur = rexmpp_xml_feature("urn:xmpp:openpgp:0:public-keys+notify");
+    prev->next = cur;
+    prev = cur;
+  }
   cur = rexmpp_xml_feature("urn:xmpp:ping");
   prev->next = cur;
   prev = cur;
@@ -333,6 +350,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->track_roster_presence = 1;
   s->track_roster_events = 1;
   s->nick_notifications = 1;
+  s->retrieve_openpgp_keys = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->resolver_ctx = NULL;
@@ -440,6 +458,17 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   gsasl_callback_hook_set(s->sasl_ctx, s);
   gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
 
+  gpgme_check_version(NULL);
+  err = gpgme_new(&(s->pgp_ctx));
+  if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
+    rexmpp_log(s, LOG_CRIT, "gpgme initialisation error: %s",
+               gpgme_strerror(err));
+    gsasl_done(s->sasl_ctx);
+    gnutls_certificate_free_credentials(s->gnutls_cred);
+    xmlFreeParserCtxt(s->xml_parser);
+    return REXMPP_E_PGP;
+  }
+
   return REXMPP_SUCCESS;
 }
 
@@ -508,6 +537,7 @@ void rexmpp_cleanup (rexmpp_t *s) {
 /* Frees the things that persist through reconnects. */
 void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
+  gpgme_release(s->pgp_ctx);
   gsasl_done(s->sasl_ctx);
   gnutls_certificate_free_credentials(s->gnutls_cred);
   if (s->resolver_ctx != NULL) {
@@ -654,8 +684,8 @@ xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
   }
   char buf[42];
   time_t t = time(NULL);
-  struct tm *local_time = localtime(&t);
-  strftime(buf, 42, "%FT%T%z", local_time);
+  struct tm *utc_time = gmtime(&t);
+  strftime(buf, 42, "%FT%TZ", utc_time);
   xmlNodePtr delay = xmlNewChild(node, NULL, "delay", NULL);
   xmlNewProp(delay, "stamp", buf);
   if (s != NULL && s->assigned_jid.full[0]) {
@@ -1760,12 +1790,19 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                   prev->next = cur->next;
                 }
               }
-              free(node);
 
               /* Add the new message. */
               xmlNodePtr message = xmlCopyNode(elem, 1);
               message->next = s->roster_events;
               s->roster_events = message;
+
+              /* Process the node at once. */
+              if (s->retrieve_openpgp_keys &&
+                  strcmp(node, "urn:xmpp:openpgp:0:public-keys") == 0) {
+                rexmpp_openpgp_check_keys(s, from_jid.bare, items);
+              }
+
+              free(node);
             }
           }
         }

@@ -139,6 +139,8 @@ main (int argc, char **argv) {
           } else if (strcmp(input, ".") == 0) {
             /* Exit. */
             rexmpp_stop(&s);
+          } else if (strlen(input) == 42 && input[0] == 'k' && input[1] == ' ') {
+            rexmpp_openpgp_publish_key(&s, input + 2);
           } else {
             /* A test message for a fixed JID. */
             xmlNodePtr msg = rexmpp_xml_add_id(&s, xmlNewNode(NULL, "message"));

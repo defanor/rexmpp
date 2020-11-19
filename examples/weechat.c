@@ -25,10 +25,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <libxml/tree.h>
 #include "weechat-plugin.h"
 #include "rexmpp.h"
 #include "rexmpp_roster.h"
 #include "rexmpp_jid.h"
+#include "rexmpp_openpgp.h"
 
 WEECHAT_PLUGIN_NAME("rexmpp");
 WEECHAT_PLUGIN_DESCRIPTION("XMPP plugin using librexmpp");
@@ -138,6 +140,19 @@ int muc_close_cb (const void *ptr, void *data,
   return WEECHAT_RC_OK;
 }
 
+void display_message (struct t_gui_buffer *buf,
+                      const char *display_name,
+                      xmlNodePtr body)
+{
+  xmlChar *str = xmlNodeGetContent(body);
+  if (str != NULL) {
+    char tags[4096];
+    snprintf(tags, 4096, "nick_%s", display_name);
+    weechat_printf_date_tags(buf, 0, tags, "%s\t%s\n", display_name, str);
+    xmlFree(str);
+  }
+}
+
 int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
   struct weechat_rexmpp *wr = (struct weechat_rexmpp *)s;
   char *xml_buf = rexmpp_xml_serialize(node);
@@ -161,14 +176,31 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
         weechat_buffer_set(buf, "nicklist", "1");
       }
       xmlNodePtr body = rexmpp_xml_find_child(node, "jabber:client", "body");
-      if (body != NULL) {
-        xmlChar *str = xmlNodeGetContent(body);
-        if (str != NULL) {
-          char tags[4096];
-          snprintf(tags, 4096, "nick_%s", display_name);
-          weechat_printf_date_tags(buf, 0, tags, "%s\t%s\n", display_name, str);
-          xmlFree(str);
+
+      xmlNodePtr openpgp = rexmpp_xml_find_child(node, "urn:xmpp:openpgp:0", "openpgp");
+      if (openpgp != NULL) {
+        /* todo: verify it */
+        const char *openpgp_content = xmlNodeGetContent(openpgp);
+        if (openpgp_content != NULL) {
+          xmlNodePtr elem = rexmpp_openpgp_decrypt_verify(s, openpgp_content);
+          if (elem != NULL) {
+            xmlNodePtr payload =
+              rexmpp_xml_find_child(elem, "urn:xmpp:openpgp:0", "payload");
+            if (payload != NULL) {
+              xmlNodePtr pl_body =
+                rexmpp_xml_find_child(payload, "jabber:client", "body");
+              if (pl_body != NULL) {
+                display_message(buf, display_name, pl_body);
+                body = NULL;
+              }
+            }
+            xmlFreeNode(elem);
+          }
         }
+      }
+
+      if (body != NULL) {
+        display_message(buf, display_name, body);
       }
     }
   }
@@ -427,6 +459,55 @@ void iter (struct weechat_rexmpp *wr, fd_set *rfds, fd_set *wfds) {
 }
 
 int
+command_sc_cb (const void *wr_ptr, void *data,
+               struct t_gui_buffer *buffer,
+               int argc, char **argv, char **argv_eol)
+{
+  struct weechat_rexmpp *wr = (void*)wr_ptr;
+  rexmpp_t *s = &wr->rexmpp_state;
+  const char *to = weechat_buffer_get_string(buffer, "name");
+  xmlNodePtr body = xmlNewNode(NULL, "body");
+  xmlNewNs(body, "jabber:client", NULL);
+  xmlNodeAddContent(body, argv_eol[1]);
+
+  char *rcpt[3];
+  rcpt[0] = s->initial_jid.bare;
+  rcpt[1] = to;
+  rcpt[2] = NULL;
+
+  char *b64 = rexmpp_openpgp_encrypt_sign(s, body, rcpt);
+  if (b64 == NULL) {
+    weechat_printf(buffer, "Failed to encrypt a message.");
+    return WEECHAT_RC_OK;
+  }
+
+  xmlNodePtr openpgp = xmlNewNode(NULL, "openpgp");
+  xmlNewNs(openpgp, "urn:xmpp:openpgp:0", NULL);
+  xmlNodeAddContent(openpgp, b64);
+  free(b64);
+
+  xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+  xmlNewProp(msg, "to", to);
+  xmlNewProp(msg, "type", "chat");
+  xmlAddChild(msg, openpgp);
+
+  body = xmlNewNode(NULL, "body");
+  xmlNewNs(body, "jabber:client", NULL);
+  xmlNodeAddContent(body, "This is a secret message.");
+  xmlAddChild(msg, body);
+
+  /* XEP-0380: Explicit Message Encryption */
+  xmlNodePtr eme = xmlNewNode(NULL, "encryption");
+  xmlNewNs(eme, "urn:xmpp:eme:0", NULL);
+  xmlNewProp(eme, "namespace", "urn:xmpp:openpgp:0");
+  xmlAddChild(msg, eme);
+
+  rexmpp_send(s, msg);
+  weechat_printf_date_tags(buffer, 0, "self_msg", "%s\t%s\n", ">", argv_eol[1]);
+  return WEECHAT_RC_OK;
+}
+
+int
 command_xmpp_cb (const void *pointer, void *data,
                  struct t_gui_buffer *buffer,
                  int argc, char **argv, char **argv_eol)
@@ -450,6 +531,13 @@ command_xmpp_cb (const void *pointer, void *data,
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     iter(wr, &read_fds, &write_fds);
+
+    weechat_hook_command ("sc",
+                          "Sign and encrypt a message",
+                          "<message>",
+                          "message: a message to send",
+                          NULL,
+                          &command_sc_cb, wr, NULL);
   }
   return WEECHAT_RC_OK;
 }

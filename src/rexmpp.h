@@ -14,6 +14,7 @@
 #include <gnutls/gnutls.h>
 #include <gsasl.h>
 #include <libxml/tree.h>
+#include <gpgme.h>
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
@@ -177,6 +178,8 @@ enum rexmpp_err {
   REXMPP_E_SEND_BUFFER_NOT_EMPTY,
   /** SASL-related error. */
   REXMPP_E_SASL,
+  /** OpenGPG-related error. */
+  REXMPP_E_PGP,
   /** TLS-related error. */
   REXMPP_E_TLS,
   /** TCP-related error. */
@@ -243,6 +246,7 @@ struct rexmpp
   int track_roster_presence;
   int track_roster_events;
   int nick_notifications;
+  int retrieve_openpgp_keys;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -336,6 +340,9 @@ struct rexmpp
   /* SASL structures. */
   Gsasl *sasl_ctx;
   Gsasl_session *sasl_session;
+
+  /* OpenPGP structures */
+  gpgme_ctx_t pgp_ctx;
 };
 
 /**
@@ -482,4 +489,9 @@ int rexmpp_xml_match (xmlNodePtr node,
 xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
                                   const char *namespace,
                                   const char *name);
+
+xmlNodePtr rexmpp_find_event (rexmpp_t *s,
+                              const char *from,
+                              const char *node,
+                              xmlNodePtr *prev_event);
 #endif
