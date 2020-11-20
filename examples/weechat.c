@@ -179,23 +179,24 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
 
       xmlNodePtr openpgp = rexmpp_xml_find_child(node, "urn:xmpp:openpgp:0", "openpgp");
       if (openpgp != NULL) {
-        /* todo: verify it */
-        const char *openpgp_content = xmlNodeGetContent(openpgp);
-        if (openpgp_content != NULL) {
-          xmlNodePtr elem = rexmpp_openpgp_decrypt_verify(s, openpgp_content);
-          if (elem != NULL) {
-            xmlNodePtr payload =
-              rexmpp_xml_find_child(elem, "urn:xmpp:openpgp:0", "payload");
-            if (payload != NULL) {
-              xmlNodePtr pl_body =
-                rexmpp_xml_find_child(payload, "jabber:client", "body");
-              if (pl_body != NULL) {
-                display_message(buf, display_name, pl_body);
-                body = NULL;
-              }
+        int valid;
+        xmlNodePtr elem = rexmpp_openpgp_decrypt_verify_message(s, node, &valid);
+        if (! valid) {
+          weechat_printf(buf, "An invalid OpenPGP message!");
+        }
+
+        if (elem != NULL) {
+          xmlNodePtr payload =
+            rexmpp_xml_find_child(elem, "urn:xmpp:openpgp:0", "payload");
+          if (payload != NULL) {
+            xmlNodePtr pl_body =
+              rexmpp_xml_find_child(payload, "jabber:client", "body");
+            if (pl_body != NULL) {
+              display_message(buf, display_name, pl_body);
+              body = NULL;
             }
-            xmlFreeNode(elem);
           }
+          xmlFreeNode(elem);
         }
       }
 

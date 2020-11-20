@@ -16,6 +16,7 @@
 
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
+#include "rexmpp_jid.h"
 
 
 void rexmpp_pgp_fp_reply (rexmpp_t *s,
@@ -319,6 +320,171 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
   return REXMPP_SUCCESS;
 }
 
+int rexmpp_openpgp_fingerprint_matches (const char *f1, const char *f2) {
+  int i = 0, j = 0;
+
+  while (f1[i] || f2[j]) {
+    /* skip spaces */
+    while (f1[i] == ' ') i++;
+    while (f2[j] == ' ') j++;
+    /* compare */
+    if (f1[i] != f2[j]) {
+      return 0;
+    }
+    /* advance */
+    i++;
+    j++;
+  }
+  return 1;
+}
+
+xmlNodePtr
+rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
+                                       xmlNodePtr message,
+                                       int *valid)
+{
+  gpgme_error_t err;
+  struct rexmpp_jid from, to;
+  *valid = 0;
+  if (! rexmpp_xml_match(message, "jabber:client", "message")) {
+    rexmpp_log(s, LOG_ERR, "Not a message element");
+    return NULL;
+  }
+  char *from_str = xmlGetProp(message, "from");
+  if (from_str == NULL) {
+    rexmpp_log(s, LOG_ERR, "No 'from' attribute");
+    return NULL;
+  }
+  rexmpp_jid_parse(from_str, &from);
+  free(from_str);
+  char *to_str = xmlGetProp(message, "to");
+  if (to_str == NULL) {
+    if (strcmp(from.bare, s->assigned_jid.bare) != 0) {
+      rexmpp_log(s, LOG_ERR, "No 'to' attribute");
+      return NULL;
+    }
+    rexmpp_jid_parse(from.full, &to);
+  } else {
+    rexmpp_jid_parse(to_str, &to);
+    free(to_str);
+  }
+  xmlNodePtr openpgp =
+    rexmpp_xml_find_child(message, "urn:xmpp:openpgp:0", "openpgp");
+  if (openpgp == NULL) {
+    rexmpp_log(s, LOG_ERR, "No 'openpgp' child element");
+    return NULL;
+  }
+  xmlNodePtr plain =
+    rexmpp_openpgp_decrypt_verify(s, xmlNodeGetContent(openpgp));
+  if (plain == NULL) {
+    return NULL;
+  }
+
+  if (rexmpp_xml_match(plain, "urn:xmpp:openpgp:0", "crypt")) {
+    *valid = 1;
+    return plain;
+  }
+
+  if (! (rexmpp_xml_match(plain, "urn:xmpp:openpgp:0", "signcrypt") ||
+         rexmpp_xml_match(plain, "urn:xmpp:openpgp:0", "sign"))) {
+    rexmpp_log(s, LOG_ERR, "An unexpected element inside <openpgp/>");
+    return plain;
+  }
+
+  xmlNodePtr child;
+  int found = 0;
+  for (child = xmlFirstElementChild(plain);
+       child != NULL && ! found;
+       child = xmlNextElementSibling(child))
+    {
+      if (rexmpp_xml_match(child, "urn:xmpp:openpgp:0", "to")) {
+        char *to_jid = xmlGetProp(child, "jid");
+        if (to_jid == NULL) {
+          rexmpp_log(s, LOG_WARNING,
+                     "Found a 'to' element without a 'jid' attribute");
+        } else if (strcmp(to_jid, to.bare) == 0) {
+          found = 1;
+        }
+        if (to_jid != NULL) {
+          free(to_jid);
+        }
+      }
+    }
+  if (! found) {
+    rexmpp_log(s, LOG_ERR,
+               "No recipient corresponds to outer message's recipient");
+    return plain;
+  }
+
+  gpgme_verify_result_t result = gpgme_op_verify_result(s->pgp_ctx);
+  if (result == NULL) {
+    rexmpp_log(s, LOG_ERR, "Signature verification failed");
+    return plain;
+  }
+
+  gpgme_signature_t sig = result->signatures;
+  if (sig->next != NULL) {
+    rexmpp_log(s, LOG_WARNING,
+               "Multiple signatures detected, verifying them all");
+  }
+  while (sig) {
+    if (! sig->validity) {
+      rexmpp_log(s, LOG_WARNING, "Invalid signature: %s",
+                 gpgme_strerror(sig->validity_reason));
+      return plain;
+    }
+
+    found = 0;
+    xmlNodePtr metadata;
+    for (metadata = rexmpp_published_fingerprints(s, from.bare);
+         metadata != NULL && ! found;
+         metadata = xmlNextElementSibling(metadata)) {
+      char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+      if (fingerprint == NULL) {
+        rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
+        continue;
+      }
+      if (rexmpp_openpgp_fingerprint_matches(fingerprint, sig->fpr)) {
+        found = 1;
+      }
+      free(fingerprint);
+    }
+    if (! found) {
+      rexmpp_log(s, LOG_ERR, "No %s's known key matches that of the signature",
+                 from.bare);
+      return plain;
+    }
+    gpgme_key_t key;
+    err = gpgme_get_key(s->pgp_ctx, sig->fpr, &key, 0);
+    if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
+      rexmpp_log(s, LOG_ERR, "Key reading failure: %s",
+                 gpgme_strerror(err));
+      return plain;
+    }
+    gpgme_user_id_t uid;
+    found = 0;
+    for (uid = key->uids; uid != NULL; uid = uid->next) {
+      if (strlen(uid->uid) < 6) {
+        continue;
+      }
+      if (strncmp(uid->uid, "xmpp:", 5) == 0 &&
+          strcmp(uid->uid + 5, from.bare) == 0) {
+        found = 1;
+      }
+    }
+    if (! found) {
+      rexmpp_log(s, LOG_ERR,
+                 "No 'xmpp:%s' user ID found in the key used for signature",
+                 from.bare);
+      return plain;
+    }
+    sig = sig->next;
+  }
+
+  *valid = 1;
+  return plain;
+}
+
 xmlNodePtr
 rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
                                const char *cipher_base64)
@@ -372,6 +538,10 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
        metadata != NULL;
        metadata = xmlNextElementSibling(metadata)) {
     char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    if (fingerprint == NULL) {
+      rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
+      continue;
+    }
     err = gpgme_get_key(s->pgp_ctx, fingerprint, &(*keys)[*nkeys], 0);
     if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
       *nkeys = *nkeys + 1;
@@ -395,7 +565,6 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
                                    xmlNodePtr payload,
                                    char **recipients)
 {
-  int i, nkeys = 0, allocated = 8;
   gpgme_error_t err;
   int sasl_err;
 
@@ -417,6 +586,7 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   }
 
   /* Locate keys. */
+  int i, nkeys = 0, allocated = 8;
   gpgme_key_t *keys = malloc(sizeof(gpgme_key_t *) * allocated);
   keys[0] = NULL;
 
