@@ -696,7 +696,17 @@ xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
   return node;
 }
 
-char *rexmpp_xml_serialize(xmlNodePtr node) {
+xmlNodePtr rexmpp_xml_parse (const char *str, int str_len) {
+  xmlNodePtr elem = NULL;
+  xmlDocPtr doc = xmlReadMemory(str, str_len, "", "utf-8", XML_PARSE_NONET);
+  if (doc != NULL) {
+    elem = xmlCopyNode(xmlDocGetRootElement(doc), 1);
+    xmlFreeDoc(doc);
+  }
+  return elem;
+}
+
+char *rexmpp_xml_serialize (xmlNodePtr node) {
   xmlBufferPtr buf = xmlBufferCreate();
   xmlSaveCtxtPtr ctx = xmlSaveToBuffer(buf, "utf-8", 0);
   xmlSaveTree(ctx, node);

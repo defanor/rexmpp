@@ -430,6 +430,14 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
 /**
+   @brief A helper function for XML parsing.
+   @param[in] str A string to parse.
+   @param[in] str_len String length.
+   @returns Parsed XML, or NULL on failure.
+*/
+xmlNodePtr rexmpp_xml_parse (const char *str, int str_len);
+
+/**
    @brief A helper function for XML serialisation.
    @param[in] node An XML node.
    @returns A string (must be freed by the caller).
@@ -490,6 +498,15 @@ xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
                                   const char *namespace,
                                   const char *name);
 
+/**
+   @brief Finds a PEP event.
+   @param[in] s ::rexmpp
+   @param[in] from JID.
+   @param[in] node PEP node.
+   @param[out] prev_event The event preceding the returned one.
+   @returns A pointer to the message announcing an event, or NULL on
+   failure.
+*/
 xmlNodePtr rexmpp_find_event (rexmpp_t *s,
                               const char *from,
                               const char *node,

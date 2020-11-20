@@ -514,12 +514,8 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "Failed to release and get memory");
     return NULL;
   }
-  xmlNodePtr elem = NULL;
-  xmlDocPtr doc = xmlReadMemory(plain, plain_len, "", "utf-8", XML_PARSE_NONET);
-  if (doc != NULL) {
-    elem = xmlCopyNode(xmlDocGetRootElement(doc), 1);
-    xmlFreeDoc(doc);
-  } else {
+  xmlNodePtr elem = rexmpp_xml_parse(plain, plain_len);
+  if(elem == NULL) {
     rexmpp_log(s, LOG_ERR, "Failed to parse an XML document");
   }
   free(plain);
