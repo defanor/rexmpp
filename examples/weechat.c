@@ -471,9 +471,8 @@ command_sc_cb (const void *wr_ptr, void *data,
   xmlNodeAddContent(body, argv_eol[1]);
 
   char *rcpt[3];
-  rcpt[0] = s->initial_jid.bare;
-  rcpt[1] = to;
-  rcpt[2] = NULL;
+  rcpt[0] = to;
+  rcpt[1] = NULL;
 
   char *b64 = rexmpp_openpgp_encrypt_sign(s, body, rcpt);
   if (b64 == NULL) {

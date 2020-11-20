@@ -356,6 +356,36 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
   return elem;
 }
 
+void rexmpp_openpgp_add_keys (rexmpp_t *s,
+                              char *jid,
+                              gpgme_key_t **keys,
+                              int *nkeys,
+                              int *allocated)
+{
+  gpgme_error_t err;
+  xmlNodePtr metadata;
+  for (metadata = rexmpp_published_fingerprints(s, jid);
+       metadata != NULL;
+       metadata = xmlNextElementSibling(metadata)) {
+    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    err = gpgme_get_key(s->pgp_ctx, fingerprint, &(*keys)[*nkeys], 0);
+    if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+      *nkeys = *nkeys + 1;
+      if (*nkeys == *allocated) {
+        *allocated = *allocated * 2;
+        *keys = realloc(*keys, sizeof(gpgme_key_t *) * *allocated);
+      }
+      (*keys)[*nkeys] = NULL;
+    } else if (gpg_err_code(err) == GPG_ERR_EOF) {
+      rexmpp_log(s, LOG_WARNING, "No key %s for %s found",
+                 fingerprint, jid);
+    } else {
+      rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
+                 fingerprint, gpgme_strerror(err));
+    }
+    free(fingerprint);
+  }
+}
 
 char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
                                    xmlNodePtr payload,
@@ -367,33 +397,15 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   /* Locate keys. */
   gpgme_key_t *keys = malloc(sizeof(gpgme_key_t *) * allocated);
   keys[0] = NULL;
-  xmlNodePtr metadata;
+
+  /* Add own keys for encryption and signing. */
+  rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
+  for (i = 0; i < nkeys; i++) {
+    gpgme_signers_add(s->pgp_ctx, keys[i]);
+  }
+  /* Add recipients' keys for encryption. */
   for (i = 0; recipients[i] != NULL; i++) {
-    for (metadata = rexmpp_published_fingerprints(s, recipients[i]);
-         metadata != NULL;
-         metadata = xmlNextElementSibling(metadata)) {
-      char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
-      err = gpgme_get_key(s->pgp_ctx, fingerprint, &keys[nkeys], 0);
-      if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
-        if (strcmp(recipients[i], s->initial_jid.bare) == 0) {
-          /* Own keys: also add them for signing. */
-          gpgme_signers_add(s->pgp_ctx, keys[nkeys]);
-        }
-        nkeys++;
-        if (nkeys == allocated) {
-          allocated *= 2;
-          keys = realloc(keys, sizeof(gpgme_key_t *) * allocated);
-        }
-        keys[nkeys] = NULL;
-      } else if (gpg_err_code(err) == GPG_ERR_EOF) {
-        rexmpp_log(s, LOG_WARNING, "No key %s for %s found",
-                   fingerprint, recipients[i]);
-      } else {
-        rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
-                   fingerprint, gpgme_strerror(err));
-      }
-      free(fingerprint);
-    }
+    rexmpp_openpgp_add_keys(s, recipients[i], &keys, &nkeys, &allocated);
   }
 
   /* Prepare a signcrypt element. */
