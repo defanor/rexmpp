@@ -239,14 +239,15 @@ struct rexmpp
   uint16_t socks_port;
 
   /* Various knobs (these are used instead of loadable modules). */
-  int enable_carbons;
-  int enable_service_discovery;
+  int enable_carbons;           /* XEP-0280 */
+  int enable_service_discovery; /* XEP-0030 */
   int manage_roster;
   const char *roster_cache_file;
   int track_roster_presence;
-  int track_roster_events;
-  int nick_notifications;
-  int retrieve_openpgp_keys;
+  int track_roster_events;      /* XEP-0163 */
+  int nick_notifications;       /* XEP-0172 */
+  int retrieve_openpgp_keys;    /* XEP-0373 */
+  int autojoin_bookmarked_mucs; /* XEP-0402 */
 
   /* Resource limits. */
   uint32_t stanza_queue_size;

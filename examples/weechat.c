@@ -47,7 +47,7 @@ struct weechat_rexmpp {
 
 struct weechat_rexmpp_muc {
   struct weechat_rexmpp *wr;
-  char *jid;
+  struct rexmpp_jid jid;
 };
 
 struct t_weechat_plugin *weechat_plugin = NULL;
@@ -117,9 +117,8 @@ int muc_input_cb (const void *ptr, void *data,
 {
   struct weechat_rexmpp_muc *wrm = (void*)ptr;
   rexmpp_t *s = &wrm->wr->rexmpp_state;
-  const char *to = weechat_buffer_get_string(buffer, "name");
   xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
-  xmlNewProp(msg, "to", to);
+  xmlNewProp(msg, "to", wrm->jid.bare);
   xmlNewProp(msg, "type", "groupchat");
   xmlNewTextChild(msg, NULL, "body", input_data);
   rexmpp_send(s, msg);
@@ -133,7 +132,7 @@ int muc_close_cb (const void *ptr, void *data,
   rexmpp_t *s = &wrm->wr->rexmpp_state;
   xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
   xmlNewProp(presence, "from", s->assigned_jid.full);
-  xmlNewProp(presence, "to", wrm->jid);
+  xmlNewProp(presence, "to", wrm->jid.full);
   xmlNewProp(presence, "type", "unavailable");
   rexmpp_send(s, presence);
   free(wrm);
@@ -212,7 +211,37 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
     rexmpp_jid_parse(from, &from_jid);
     xmlFree(from);
 
-    if (rexmpp_xml_find_child(node, "http://jabber.org/protocol/muc#user", "x")) {
+    xmlNodePtr muc =
+      rexmpp_xml_find_child(node, "http://jabber.org/protocol/muc#user", "x");
+    if (muc != NULL) {
+
+      /* Handle newly joined MUCs */
+      if (presence_type == NULL) {
+        xmlNodePtr status =
+          rexmpp_xml_find_child(muc, "http://jabber.org/protocol/muc#user",
+                                "status");
+        if (status != NULL) {
+          char *code = xmlGetProp(status, "code");
+          if (code != NULL) {
+            if (strcmp(code, "110") == 0) {
+              struct weechat_rexmpp_muc *wrm =
+                malloc(sizeof(struct weechat_rexmpp_muc));
+              wrm->wr = wr;
+              rexmpp_jid_parse(from_jid.full, &(wrm->jid));
+              struct t_gui_buffer *buf =
+                weechat_buffer_search("rexmpp", wrm->jid.bare);
+              if (buf == NULL) {
+                buf = weechat_buffer_new (wrm->jid.bare,
+                                          &muc_input_cb, wrm, NULL,
+                                          &muc_close_cb, wrm, NULL);
+                weechat_buffer_set(buf, "nicklist", "1");
+              }
+            }
+            free(code);
+          }
+        }
+      }
+
       /* Update MUC nicklist */
       struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", from_jid.bare);
       if (buf != NULL) {
@@ -304,7 +333,7 @@ my_input_cb (const void *ptr, void *data,
       weechat_buffer_set(buf, "nicklist", "1");
     }
   } else if (input_data[0] == 'j' && input_data[1] == ' ') {
-    char *jid = strdup(input_data + 2);
+    const char *jid = input_data + 2;
     xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
     xmlNewProp(presence, "from", s->assigned_jid.full);
     xmlNewProp(presence, "to", jid);
@@ -312,24 +341,6 @@ my_input_cb (const void *ptr, void *data,
     xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
     xmlAddChild(presence, x);
     rexmpp_send(s, presence);
-    int i;
-    struct weechat_rexmpp_muc *wrm = malloc(sizeof(struct weechat_rexmpp_muc));
-    wrm->wr = wr;
-    wrm->jid = strdup(jid);
-    for (i = 0; i < strlen(jid); i++) {
-      if (jid[i] == '/') {
-        jid[i] = 0;
-        break;
-      }
-    }
-    struct t_gui_buffer *buf = weechat_buffer_search("rexmpp", jid);
-    if (buf == NULL) {
-      buf = weechat_buffer_new (jid,
-                                &muc_input_cb, wrm, NULL,
-                                &muc_close_cb, wrm, NULL);
-      weechat_buffer_set(buf, "nicklist", "1");
-    }
-    free(jid);
   }
   return WEECHAT_RC_OK;
 }
@@ -471,7 +482,7 @@ command_sc_cb (const void *wr_ptr, void *data,
   xmlNewNs(body, "jabber:client", NULL);
   xmlNodeAddContent(body, argv_eol[1]);
 
-  char *rcpt[3];
+  const char *rcpt[2];
   rcpt[0] = to;
   rcpt[1] = NULL;
 

@@ -60,12 +60,13 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: no data in pubkey");
     return;
   }
-  char *key_base64 = xmlNodeGetContent(data);
 
   char *key_raw = NULL;
   size_t key_raw_len = 0;
+  char *key_base64 = xmlNodeGetContent(data);
   int sasl_err =
     gsasl_base64_from(key_base64, strlen(key_base64), &key_raw, &key_raw_len);
+  free(key_base64);
   if (sasl_err != GSASL_OK) {
     rexmpp_log(s, LOG_ERR, "Base-64 key decoding failure: %s",
                gsasl_strerror(sasl_err));
@@ -374,8 +375,10 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "No 'openpgp' child element");
     return NULL;
   }
+  char *cipher_str = xmlNodeGetContent(openpgp);
   xmlNodePtr plain =
-    rexmpp_openpgp_decrypt_verify(s, xmlNodeGetContent(openpgp));
+    rexmpp_openpgp_decrypt_verify(s, cipher_str);
+  free(cipher_str);
   if (plain == NULL) {
     return NULL;
   }
@@ -523,7 +526,7 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
 }
 
 void rexmpp_openpgp_add_keys (rexmpp_t *s,
-                              char *jid,
+                              const char *jid,
                               gpgme_key_t **keys,
                               int *nkeys,
                               int *allocated)
@@ -559,7 +562,7 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
 
 char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
                                    xmlNodePtr payload,
-                                   char **recipients)
+                                   const char **recipients)
 {
   gpgme_error_t err;
   int sasl_err;

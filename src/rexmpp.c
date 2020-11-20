@@ -257,7 +257,7 @@ char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
                                   "http://jabber.org/protocol/nick",
                                   "nick");
           if (nick != NULL) {
-            return strdup(xmlNodeGetContent(nick));
+            return xmlNodeGetContent(nick);
           }
         }
       }
@@ -299,6 +299,11 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
   prev = cur;
   if (s->nick_notifications) {
     cur = rexmpp_xml_feature("http://jabber.org/protocol/nick+notify");
+    prev->next = cur;
+    prev = cur;
+  }
+  if (s->autojoin_bookmarked_mucs) {
+    cur = rexmpp_xml_feature("urn:xmpp:bookmarks:1+notify");
     prev->next = cur;
     prev = cur;
   }
@@ -352,6 +357,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->track_roster_events = 1;
   s->nick_notifications = 1;
   s->retrieve_openpgp_keys = 1;
+  s->autojoin_bookmarked_mucs = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->resolver_ctx = NULL;
@@ -1554,8 +1560,10 @@ void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response, int success
   if (rexmpp_xml_match(child, "urn:ietf:params:xml:ns:xmpp-bind", "bind")) {
     xmlNodePtr jid = xmlFirstElementChild(child);
     if (rexmpp_xml_match(jid, "urn:ietf:params:xml:ns:xmpp-bind", "jid")) {
-      rexmpp_log(s, LOG_INFO, "jid: %s", xmlNodeGetContent(jid));
-      rexmpp_jid_parse(xmlNodeGetContent(jid), &(s->assigned_jid));
+      char *jid_str = xmlNodeGetContent(jid);
+      rexmpp_log(s, LOG_INFO, "jid: %s", jid_str);
+      rexmpp_jid_parse(jid_str, &(s->assigned_jid));
+      free(jid_str);
     }
     if (s->stream_id == NULL &&
         (child = rexmpp_xml_find_child(s->stream_features, "urn:xmpp:sm:3",
@@ -1813,7 +1821,58 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                   strcmp(node, "urn:xmpp:openpgp:0:public-keys") == 0) {
                 rexmpp_openpgp_check_keys(s, from_jid.bare, items);
               }
-
+              if (s->autojoin_bookmarked_mucs &&
+                  strcmp(node, "urn:xmpp:bookmarks:1") == 0 &&
+                  strcmp(from_jid.bare, s->assigned_jid.bare) == 0) {
+                xmlNodePtr item;
+                for (item = xmlFirstElementChild(items);
+                     item != NULL;
+                     item = xmlNextElementSibling(item)) {
+                  xmlNodePtr conference =
+                    rexmpp_xml_find_child(item,
+                                          "urn:xmpp:bookmarks:1",
+                                          "conference");
+                  if (conference == NULL) {
+                    continue;
+                  }
+                  char *item_id = xmlGetProp(item, "id");
+                  if (item_id == NULL) {
+                    continue;
+                  }
+                  char *autojoin = xmlGetProp(conference, "autojoin");
+                  if (autojoin == NULL) {
+                    free(item_id);
+                    continue;
+                  }
+                  if (strcmp(autojoin, "true") == 0 ||
+                      strcmp(autojoin, "1") == 0) {
+                    xmlNodePtr presence =
+                      rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+                    xmlNewProp(presence, "from", s->assigned_jid.full);
+                    xmlNodePtr nick =
+                      rexmpp_xml_find_child(conference,
+                                            "urn:xmpp:bookmarks:1",
+                                            "nick");
+                    char *nick_str;
+                    if (nick != NULL) {
+                      nick_str = xmlNodeGetContent(nick);
+                    } else {
+                      nick_str = strdup(s->initial_jid.local);
+                    }
+                    char *jid = malloc(strlen(item_id) + strlen(nick_str) + 2);
+                    sprintf(jid, "%s/%s", item_id, nick_str);
+                    free(nick_str);
+                    xmlNewProp(presence, "to", jid);
+                    free(jid);
+                    xmlNodePtr x = xmlNewNode(NULL, "x");
+                    xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
+                    xmlAddChild(presence, x);
+                    rexmpp_send(s, presence);
+                  }
+                  free(item_id);
+                  free(autojoin);
+                }
+              }
               free(node);
             }
           }
@@ -1866,10 +1925,12 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
            mechanism = xmlNextElementSibling(mechanism)) {
         if (rexmpp_xml_match(mechanism, "urn:ietf:params:xml:ns:xmpp-sasl",
                              "mechanism")) {
+          char *mech_str = xmlNodeGetContent(mechanism);
           snprintf(mech_list + strlen(mech_list),
                    2048 - strlen(mech_list),
                    "%s ",
-                   xmlNodeGetContent(mechanism));
+                   mech_str);
+          free(mech_str);
         }
       }
       const char *mech =
@@ -1952,8 +2013,10 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     int sasl_err;
     if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                          "challenge")) {
-      sasl_err = gsasl_step64 (s->sasl_session, xmlNodeGetContent(elem),
+      char *challenge = xmlNodeGetContent(elem);
+      sasl_err = gsasl_step64 (s->sasl_session, challenge,
                                (char**)&sasl_buf);
+      free(challenge);
       if (sasl_err != GSASL_OK) {
         if (sasl_err == GSASL_NEEDS_MORE) {
           rexmpp_log(s, LOG_DEBUG, "SASL needs more data");
@@ -1971,8 +2034,10 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       return rexmpp_send(s, response);
     } else if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                                 "success")) {
-      sasl_err = gsasl_step64 (s->sasl_session, xmlNodeGetContent(elem),
+      char *success = xmlNodeGetContent(elem);
+      sasl_err = gsasl_step64 (s->sasl_session, success,
                                (char**)&sasl_buf);
+      free(success);
       free(sasl_buf);
       if (sasl_err == GSASL_OK) {
         rexmpp_log(s, LOG_DEBUG, "SASL success");

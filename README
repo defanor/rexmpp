@@ -63,7 +63,7 @@ A rough roadmap:
 [+] XEP-0115: Entity Capabilities (including into initial presence)
 [+] XEP-0172: User Nickname
 [+] XEP-0373: OpenPGP for XMPP
-[ ] XEP-0402: PEP Native Bookmarks (autojoin conferences)
+[+] XEP-0402: PEP Native Bookmarks (autojoin conferences)
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer
 [ ] XEP-0261: Jingle In-Band Bytestreams Transport Method

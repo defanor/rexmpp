@@ -28,6 +28,6 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
 
 char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
                                    xmlNodePtr payload,
-                                   char **recipients);
+                                   const char **recipients);
 
 #endif
