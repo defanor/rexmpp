@@ -11,6 +11,7 @@
 
 #include <gpgme.h>
 #include <libxml/tree.h>
+#include <gsasl.h>
 
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
@@ -393,6 +394,24 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
 {
   int i, nkeys = 0, allocated = 8;
   gpgme_error_t err;
+  int sasl_err;
+
+  /* A random-length random-content padding. */
+  char *rand_str, rand[256];
+  gsasl_random(rand, 1);
+  size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
+  sasl_err = gsasl_random(rand, rand_len);
+  if (sasl_err != GSASL_OK) {
+    rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
+               gsasl_strerror(sasl_err));
+    return NULL;
+  }
+  sasl_err = gsasl_base64_to(rand, rand_len, &rand_str, &rand_str_len);
+  if (sasl_err != GSASL_OK) {
+    rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
+               gsasl_strerror(sasl_err));
+    return NULL;
+  }
 
   /* Locate keys. */
   gpgme_key_t *keys = malloc(sizeof(gpgme_key_t *) * allocated);
@@ -430,13 +449,6 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   xmlNewNs(time, "urn:xmpp:openpgp:0", NULL);
   xmlNewProp(time, "stamp", time_str);
   xmlAddChild(signcrypt, time);
-
-  /* Add a random-length random-content padding. */
-  char *rand_str, rand[256];
-  gsasl_random(rand, 1);
-  size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] + 16;
-  gsasl_random(rand, rand_len);
-  gsasl_base64_to(rand, rand_len, &rand_str, &rand_str_len);
 
   xmlNodePtr rpad = xmlNewNode(NULL, "rpad");
   xmlNewNs(rpad, "urn:xmpp:openpgp:0", NULL);
