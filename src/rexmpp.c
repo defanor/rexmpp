@@ -8,6 +8,7 @@
 
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 #include <errno.h>
 #include <syslog.h>
 #include <arpa/nameser.h>
@@ -684,8 +685,9 @@ xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
   }
   char buf[42];
   time_t t = time(NULL);
-  struct tm *utc_time = gmtime(&t);
-  strftime(buf, 42, "%FT%TZ", utc_time);
+  struct tm utc_time;
+  gmtime_r(&t, &utc_time);
+  strftime(buf, 42, "%FT%TZ", &utc_time);
   xmlNodePtr delay = xmlNewChild(node, NULL, "delay", NULL);
   xmlNewProp(delay, "stamp", buf);
   if (s != NULL && s->assigned_jid.full[0]) {

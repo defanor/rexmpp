@@ -8,6 +8,7 @@
 
 #include <syslog.h>
 #include <string.h>
+#include <time.h>
 
 #include <gpgme.h>
 #include <libxml/tree.h>
@@ -210,8 +211,9 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
 
   char time_str[42];
   time_t t = time(NULL);
-  struct tm *utc_time = gmtime(&t);
-  strftime(time_str, 42, "%FT%TZ", utc_time);
+  struct tm utc_time;
+  gmtime_r(&t, &utc_time);
+  strftime(time_str, 42, "%FT%TZ", &utc_time);
 
   xmlNodePtr metadata = xmlNewNode(NULL, "pubkey-metadata");
   xmlNewNs(metadata, "urn:xmpp:openpgp:0", NULL);
@@ -292,8 +294,9 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
 
   char time_str[42];
   time_t t = time(NULL);
-  struct tm *utc_time = gmtime(&t);
-  strftime(time_str, 42, "%FT%TZ", utc_time);
+  struct tm utc_time;
+  gmtime_r(&t, &utc_time);
+  strftime(time_str, 42, "%FT%TZ", &utc_time);
 
   xmlNodePtr item = xmlNewNode(NULL, "item");
   xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
@@ -442,8 +445,9 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   /* Add timestamp. */
   char time_str[42];
   time_t t = time(NULL);
-  struct tm *utc_time = gmtime(&t);
-  strftime(time_str, 42, "%FT%TZ", utc_time);
+  struct tm utc_time;
+  gmtime_r(&t, &utc_time);
+  strftime(time_str, 42, "%FT%TZ", &utc_time);
 
   xmlNodePtr time = xmlNewNode(NULL, "time");
   xmlNewNs(time, "urn:xmpp:openpgp:0", NULL);
