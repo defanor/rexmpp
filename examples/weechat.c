@@ -303,6 +303,12 @@ int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
   return 0;
 }
 
+void my_console_print_cb (struct weechat_rexmpp *wr, const char *fmt, va_list args) {
+  char str[4096];
+  vsnprintf(str, 4096, fmt, args);
+  weechat_printf(wr->server_buffer, "%s", str);
+}
+
 int
 my_input_cb (const void *ptr, void *data,
              struct t_gui_buffer *buffer, const char *input_data)
@@ -332,15 +338,8 @@ my_input_cb (const void *ptr, void *data,
                                 &query_close_cb, wr, NULL);
       weechat_buffer_set(buf, "nicklist", "1");
     }
-  } else if (input_data[0] == 'j' && input_data[1] == ' ') {
-    const char *jid = input_data + 2;
-    xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-    xmlNewProp(presence, "from", s->assigned_jid.full);
-    xmlNewProp(presence, "to", jid);
-    xmlNodePtr x = xmlNewNode(NULL, "x");
-    xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
-    xmlAddChild(presence, x);
-    rexmpp_send(s, presence);
+  } else {
+    rexmpp_console_feed(s, input_data, strlen(input_data));
   }
   return WEECHAT_RC_OK;
 }
@@ -538,6 +537,7 @@ command_xmpp_cb (const void *pointer, void *data,
     s->xml_in_cb = my_xml_in_cb;
     s->xml_out_cb = my_xml_out_cb;
     s->roster_modify_cb = my_roster_modify_cb;
+    s->console_print_cb = my_console_print_cb;
     fd_set read_fds, write_fds;
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);

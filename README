@@ -88,7 +88,7 @@ A rough roadmap:
 - Various utility functions:
 
 [+] Display name establishment.
-[ ] A console module.
+[.] A console module.
 
 
 - Examples and application:

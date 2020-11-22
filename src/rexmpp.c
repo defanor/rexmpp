@@ -32,6 +32,7 @@
 #include "rexmpp_dns.h"
 #include "rexmpp_jid.h"
 #include "rexmpp_openpgp.h"
+#include "rexmpp_console.h"
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                const char *localname,
@@ -394,6 +395,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->xml_in_cb = NULL;
   s->xml_out_cb = NULL;
   s->roster_modify_cb = NULL;
+  s->console_print_cb = NULL;
   s->ping_delay = 600;
   s->ping_requested = 0;
   s->last_network_activity = 0;
@@ -848,6 +850,8 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
     rexmpp_log(s, LOG_ERR, "The send queue is full, not sending.");
     return REXMPP_E_SEND_QUEUE_FULL;
   }
+
+  rexmpp_console_on_send(s, node);
 
   if (rexmpp_xml_is_stanza(node)) {
     if (s->sm_state == REXMPP_SM_ACTIVE) {
@@ -1594,6 +1598,8 @@ rexmpp_err_t rexmpp_stream_bind (rexmpp_t *s) {
 }
 
 rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
+  rexmpp_console_on_recv(s, elem);
+
   /* IQs. These are the ones that should be processed by the library;
      if a user-facing application wants to handle them on its own, it
      should cancel further processing by the library (so we can send
