@@ -2400,8 +2400,10 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
 
   if (s->tcp_state == REXMPP_TCP_CLOSED) {
+    rexmpp_console_on_run(s, REXMPP_SUCCESS);
     return REXMPP_SUCCESS;
   } else {
+    rexmpp_console_on_run(s, REXMPP_E_AGAIN);
     return REXMPP_E_AGAIN;
   }
 }

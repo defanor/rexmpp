@@ -119,6 +119,13 @@ void rexmpp_console_on_recv (rexmpp_t *s, xmlNodePtr node) {
   }
 }
 
+void rexmpp_console_on_run (rexmpp_t *s, rexmpp_err_t result) {
+  if (result == REXMPP_SUCCESS) {
+    rexmpp_console_printf(s, "Done.\n");
+    return;
+  }
+}
+
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   /* todo: buffering */
   char *words_save_ptr;
