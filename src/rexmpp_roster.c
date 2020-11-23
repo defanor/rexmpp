@@ -142,6 +142,7 @@ void rexmpp_iq_roster_get (rexmpp_t *s,
                            xmlNodePtr response,
                            int success)
 {
+  (void)req;     /* Nothing interesting in the request. */
   if (! success) {
     rexmpp_log(s, LOG_ERR, "Roster loading failed.");
     return;

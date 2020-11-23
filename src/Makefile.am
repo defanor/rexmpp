@@ -1,4 +1,5 @@
-AM_CFLAGS = -Werror -Wall -Wextra -Wno-pointer-sign -Wno-unused-parameter
+AM_CFLAGS = -Werror -Wall -Wextra -pedantic -std=gnu99 \
+	-Wno-pointer-sign
 
 # -Wno-pointer-sign is used to suppress libxml2-related warnings.
 # Since we only care about UTF-8, and in almost all cases just its

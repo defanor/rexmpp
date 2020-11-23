@@ -320,6 +320,7 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
 }
 
 int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
+  (void)sctx;      /* The session should already be in rexmpp_t. */
   rexmpp_t *s = gsasl_callback_hook_get(ctx);
   if (s == NULL || s->sasl_property_cb == NULL) {
     return GSASL_NO_CALLBACK;
@@ -1462,6 +1463,8 @@ void rexmpp_carbons_enabled (rexmpp_t *s,
                              xmlNodePtr response,
                              int success)
 {
+  (void)req; /* The request is always the same. */
+  (void)response; /* Only checking whether it's a success. */
   if (success) {
     rexmpp_log(s, LOG_INFO, "carbons enabled");
     s->carbons_state = REXMPP_CARBONS_ACTIVE;
@@ -1476,6 +1479,9 @@ void rexmpp_pong (rexmpp_t *s,
                   xmlNodePtr response,
                   int success)
 {
+  (void)req;
+  (void)response;
+  (void)success;
   s->ping_requested = 0;
 }
 
@@ -1484,6 +1490,7 @@ void rexmpp_iq_discovery_info (rexmpp_t *s,
                                xmlNodePtr response,
                                int success)
 {
+  (void)req;
   if (! success) {
     rexmpp_log(s, LOG_ERR, "Failed to discover features");
     return;
@@ -1554,6 +1561,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
 /* Resource binding,
    https://tools.ietf.org/html/rfc6120#section-7 */
 void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response, int success) {
+  (void)req;
   if (! success) {
     /* todo: reconnect here? */
     rexmpp_log(s, LOG_ERR, "Resource binding failed.");
@@ -2154,6 +2162,11 @@ void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                int nb_defaulted,
                                const char **attributes)
 {
+  /* Not checking namespaces beyond URI. */
+  (void)nb_namespaces;
+  (void)namespaces;
+  (void)nb_defaulted;
+
   int i;
   if (s->stream_state == REXMPP_STREAM_OPENING &&
       strcmp(localname, "stream") == 0 &&
@@ -2190,6 +2203,7 @@ void rexmpp_sax_end_elem_ns (rexmpp_t *s,
                              const char *prefix,
                              const char *URI)
 {
+  (void)prefix;                 /* Not interested in prefix here. */
   if ((s->stream_state == REXMPP_STREAM_CLOSING ||
        s->stream_state == REXMPP_STREAM_ERROR) &&
       strcmp(localname, "stream") == 0 &&

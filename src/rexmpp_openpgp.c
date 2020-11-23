@@ -24,6 +24,7 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
                           xmlNodePtr response,
                           int success)
 {
+  (void)req;                    /* Not of interest. */
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to retrieve an OpenpPGP key");
     return;
@@ -189,6 +190,8 @@ void rexmpp_pgp_key_publish_list_iq (rexmpp_t *s,
                                      xmlNodePtr response,
                                      int success)
 {
+  (void)req;
+  (void)response;
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to publish an OpenpPGP key list");
     return;
@@ -201,6 +204,7 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
                                 xmlNodePtr response,
                                 int success)
 {
+  (void)response;
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to publish an OpenpPGP key");
     return;

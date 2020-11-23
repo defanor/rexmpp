@@ -197,6 +197,7 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
                          fd_set *read_fds,
                          fd_set *write_fds)
 {
+  (void)read_fds;     /* Not checking any read FDs at the moment. */
   struct timeval now;
   int i;
 

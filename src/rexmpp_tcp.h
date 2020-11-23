@@ -19,12 +19,11 @@
 #ifndef REXMPP_TCP_H
 #define REXMPP_TCP_H
 
+#include <sys/time.h>
+
 #define REXMPP_TCP_MAX_CONNECTION_ATTEMPTS 20
 #define REXMPP_TCP_IPV6_DELAY_MS 50
 #define REXMPP_TCP_CONN_DELAY_MS 250
-
-typedef enum rexmpp_tcp_conn_resolution_status
-rexmpp_tcp_conn_resolution_status_t;
 
 /**
    @brief Resolution status.
@@ -40,7 +39,8 @@ enum rexmpp_tcp_conn_resolution_status {
   REXMPP_CONN_RESOLUTION_FAILURE
 };
 
-typedef enum rexmpp_tcp_conn_error rexmpp_tcp_conn_error_t;
+typedef enum rexmpp_tcp_conn_resolution_status
+rexmpp_tcp_conn_resolution_status_t;
 
 /**
    @brief Connection errors.
@@ -58,6 +58,8 @@ enum rexmpp_tcp_conn_error {
   /** An unexpected error during connection. */
   REXMPP_CONN_ERROR
 };
+
+typedef enum rexmpp_tcp_conn_error rexmpp_tcp_conn_error_t;
 
 typedef struct rexmpp_tcp_connection rexmpp_tcp_conn_t;
 

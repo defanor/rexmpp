@@ -128,6 +128,7 @@ void rexmpp_console_on_run (rexmpp_t *s, rexmpp_err_t result) {
 
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   /* todo: buffering */
+  (void)str_len;                /* Unused for now (todo). */
   char *words_save_ptr;
   char *word, *jid_str, *msg_text;
   struct rexmpp_jid jid;
