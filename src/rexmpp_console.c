@@ -319,8 +319,26 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         char *item_jid = xmlGetProp(item, "jid");
         char *item_ask = xmlGetProp(item, "ask");
         char *item_subscription = xmlGetProp(item, "subscription");
-        rexmpp_console_printf(s, "%s: subscription = %s, ask = %s\n",
-                              item_jid, item_subscription, item_ask);
+        char *item_presence = "unavailable";
+        if (s->track_roster_presence) {
+          for (presence = s->roster_presence;
+               presence != NULL;
+               presence = xmlNextElementSibling(presence)) {
+            char *presence_from = xmlGetProp(presence, "from");
+            if (presence_from != NULL) {
+              rexmpp_jid_parse(presence_from, &jid);
+              if (! strcmp(jid.bare, item_jid)) {
+                item_presence = "available";
+              }
+              free(presence_from);
+            }
+          }
+        }
+        rexmpp_console_printf(s,
+                              "%s: subscription = %s, ask = %s, "
+                              "presence = %s\n",
+                              item_jid, item_subscription, item_ask,
+                              item_presence);
         if (item_jid != NULL) {
           free(item_jid);
         }
