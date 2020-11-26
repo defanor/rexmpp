@@ -432,7 +432,7 @@ void iter (struct weechat_rexmpp *wr, fd_set *rfds, fd_set *wfds) {
     return;
   }
   if (err != REXMPP_E_AGAIN) {
-    weechat_printf(wr->server_buffer, "rexmpp error");
+    weechat_printf(wr->server_buffer, "rexmpp error: %s", rexmpp_strerror(err));
     return;
   }
   fd_set read_fds, write_fds;

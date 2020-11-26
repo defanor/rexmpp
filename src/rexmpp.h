@@ -178,7 +178,7 @@ enum rexmpp_err {
   REXMPP_E_SEND_BUFFER_NOT_EMPTY,
   /** SASL-related error. */
   REXMPP_E_SASL,
-  /** OpenGPG-related error. */
+  /** OpenPGP-related error. */
   REXMPP_E_PGP,
   /** TLS-related error. */
   REXMPP_E_TLS,
@@ -518,5 +518,12 @@ xmlNodePtr rexmpp_find_event (rexmpp_t *s,
                               xmlNodePtr *prev_event);
 
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len);
+
+/**
+   @brief A strerror function for ::rexmpp_err
+   @param[in] error Error code, as returned by rexmpp functions.
+   @returns A string explaining the error.
+*/
+const char *rexmpp_strerror (rexmpp_err_t error);
 
 #endif

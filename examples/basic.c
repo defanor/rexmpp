@@ -160,7 +160,7 @@ main (int argc, char **argv) {
       break;
     }
     if (err != REXMPP_E_AGAIN) {
-      puts("error");
+      printf("error: %s\n", rexmpp_strerror(err));
       break;
     }
     /* Could inspect the state here. */

@@ -34,6 +34,37 @@
 #include "rexmpp_openpgp.h"
 #include "rexmpp_console.h"
 
+const char *rexmpp_strerror (rexmpp_err_t error) {
+  switch (error) {
+  case REXMPP_SUCCESS: return "No error";
+  case REXMPP_E_AGAIN: return "An operation is in progress";
+  case REXMPP_E_SEND_QUEUE_FULL: return
+      "A message can't be queued for sending, because the queue is full";
+  case REXMPP_E_STANZA_QUEUE_FULL: return
+      "The library can't take responsibility for message delivery because "
+      "XEP-0198 stanza queue is full";
+  case REXMPP_E_CANCELLED: return "Cancelled by a user";
+  case REXMPP_E_SEND_BUFFER_EMPTY: return
+      "Attempted to send while send buffer is empty";
+  case REXMPP_E_SEND_BUFFER_NOT_EMPTY: return
+      "Attempted to start sending while send buffer is not empty";
+  case REXMPP_E_SASL: return "SASL-related error";
+  case REXMPP_E_PGP: return "OpenPGP-related error";
+  case REXMPP_E_TLS: return "TLS-related error";
+  case REXMPP_E_TCP: return "TCP-related error";
+  case REXMPP_E_DNS: return "DNS-related error";
+  case REXMPP_E_XML: return "XML-related error";
+  case REXMPP_E_JID: return "JID-related error";
+  case REXMPP_E_MALLOC: return "Memory allocation failure";
+  case REXMPP_E_ROSTER: return "Roster-related error";
+  case REXMPP_E_ROSTER_ITEM_NOT_FOUND: return "Roster item is not found";
+  case REXMPP_E_PARAM: return "An erroneous parameter is supplied";
+  case REXMPP_E_STREAM: return "A stream error";
+  case REXMPP_E_OTHER: return "An unspecified error";
+  default: return "Unknown error";
+  }
+}
+
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
                                const char *localname,
                                const char *prefix,
