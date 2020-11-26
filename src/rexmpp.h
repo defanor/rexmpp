@@ -199,7 +199,9 @@ enum rexmpp_err {
   /** An erroneous parameter is supplied. */
   REXMPP_E_PARAM,
   /** A stream error. */
-  REXMPP_E_STREAM
+  REXMPP_E_STREAM,
+  /** An unspecified error. */
+  REXMPP_E_OTHER
 };
 typedef enum rexmpp_err rexmpp_err_t;
 

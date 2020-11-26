@@ -1086,30 +1086,32 @@ rexmpp_err_t rexmpp_stream_open (rexmpp_t *s) {
   return rexmpp_send_raw(s, buf, strlen(buf));
 }
 
-void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err);
+rexmpp_err_t
+rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err);
 
-void rexmpp_start_connecting (rexmpp_t *s) {
+rexmpp_err_t rexmpp_start_connecting (rexmpp_t *s) {
   if (s->socks_host == NULL) {
     rexmpp_log(s, LOG_DEBUG, "Connecting to %s:%u",
                s->server_host, s->server_port);
-    rexmpp_process_conn_err(s,
-                            rexmpp_tcp_conn_init(&s->server_connection,
-                                                 s->resolver_ctx,
-                                                 s->server_host,
-                                                 s->server_port));
+    return
+      rexmpp_process_conn_err(s,
+                              rexmpp_tcp_conn_init(&s->server_connection,
+                                                   s->resolver_ctx,
+                                                   s->server_host,
+                                                   s->server_port));
   } else {
     rexmpp_log(s, LOG_DEBUG, "Connecting to %s:%u via %s:%u",
                s->server_host, s->server_port,
                s->socks_host, s->socks_port);
-    rexmpp_process_conn_err(s,
-                            rexmpp_tcp_conn_init(&s->server_connection,
-                                                 s->resolver_ctx,
-                                                 s->socks_host,
-                                                 s->socks_port));
+    return rexmpp_process_conn_err(s,
+                                   rexmpp_tcp_conn_init(&s->server_connection,
+                                                        s->resolver_ctx,
+                                                        s->socks_host,
+                                                        s->socks_port));
   }
 }
 
-void rexmpp_try_next_host (rexmpp_t *s) {
+rexmpp_err_t rexmpp_try_next_host (rexmpp_t *s) {
   struct ub_result *cur_result;
   int cur_number;
   /* todo: check priorities and weights */
@@ -1145,20 +1147,21 @@ void rexmpp_try_next_host (rexmpp_t *s) {
                "No candidate hosts left to try, scheduling a reconnect");
     rexmpp_cleanup(s);
     rexmpp_schedule_reconnect(s);
-    return;
+    return REXMPP_E_AGAIN;
   }
 
-  if (rexmpp_parse_srv(cur_result->data[cur_number],
-                       cur_result->len[cur_number],
-                       &(s->server_active_srv))) {
-    rexmpp_log(s, LOG_DEBUG, "Failed to parse an SRV record");
+  int err = rexmpp_parse_srv(cur_result->data[cur_number],
+                             cur_result->len[cur_number],
+                             &(s->server_active_srv));
+  if (err) {
+    rexmpp_log(s, LOG_ERR, "Failed to parse an SRV record");
     rexmpp_cleanup(s);
     rexmpp_schedule_reconnect(s);
-    return;
+    return REXMPP_E_DNS;
   }
   s->server_host = s->server_active_srv.target;
   s->server_port = s->server_active_srv.port;
-  rexmpp_start_connecting(s);
+  return rexmpp_start_connecting(s);
 }
 
 rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
@@ -1315,31 +1318,36 @@ rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
   }
 }
 
-void rexmpp_process_socks_err (rexmpp_t *s, enum socks_err err) {
+rexmpp_err_t rexmpp_process_socks_err (rexmpp_t *s, enum socks_err err) {
   if (err == REXMPP_SOCKS_CONNECTED) {
-    rexmpp_connected_to_server(s);
+    return rexmpp_connected_to_server(s);
   } else if (err != REXMPP_SOCKS_E_AGAIN) {
     rexmpp_log(s, LOG_ERR, "SOCKS5 connection failed.");
     s->tcp_state = REXMPP_TCP_CONNECTION_FAILURE;
     close(s->server_socket);
     s->server_socket = -1;
-    rexmpp_try_next_host(s);
+    return rexmpp_try_next_host(s);
   }
+  return REXMPP_E_AGAIN;
 }
 
-void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err) {
+rexmpp_err_t
+rexmpp_process_conn_err (rexmpp_t *s,
+                         enum rexmpp_tcp_conn_error err)
+{
   s->tcp_state = REXMPP_TCP_CONNECTING;
   if (err == REXMPP_CONN_DONE) {
     s->server_socket_dns_secure = s->server_connection.dns_secure;
     s->server_socket = rexmpp_tcp_conn_finish(&s->server_connection);
     if (s->socks_host == NULL) {
-      rexmpp_connected_to_server(s);
+      return rexmpp_connected_to_server(s);
     } else {
       s->tcp_state = REXMPP_TCP_SOCKS;
-      rexmpp_process_socks_err(s, rexmpp_socks_init(&s->server_socks_conn,
-                                                    s->server_socket,
-                                                    s->server_host,
-                                                    s->server_port));
+      return
+        rexmpp_process_socks_err(s, rexmpp_socks_init(&s->server_socks_conn,
+                                                      s->server_socket,
+                                                      s->server_host,
+                                                      s->server_port));
     }
   } else if (err != REXMPP_CONN_IN_PROGRESS) {
     if (err == REXMPP_CONN_ERROR) {
@@ -1348,8 +1356,9 @@ void rexmpp_process_conn_err (rexmpp_t *s, enum rexmpp_tcp_conn_error err) {
       s->tcp_state = REXMPP_TCP_CONNECTION_FAILURE;
     }
     rexmpp_tcp_conn_finish(&s->server_connection);
-    rexmpp_try_next_host(s);
+    return rexmpp_try_next_host(s);
   }
+  return REXMPP_E_AGAIN;
 }
 
 void rexmpp_srv_cb (void *s_ptr,
@@ -1411,7 +1420,7 @@ rexmpp_err_t rexmpp_resend_stanzas (rexmpp_t *s) {
   for (i = 0; i < count && s->stanza_queue != NULL; i++) {
     sq = xmlNextElementSibling(s->stanza_queue);
     ret = rexmpp_send(s, s->stanza_queue);
-    if (ret != REXMPP_SUCCESS && ret != REXMPP_E_AGAIN) {
+    if (ret > REXMPP_E_AGAIN) {
       return ret;
     }
     s->stanza_queue = sq;
@@ -2256,7 +2265,7 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
   }
   if (s->sm_state == REXMPP_SM_ACTIVE) {
     int ret = rexmpp_sm_ack(s);
-    if (ret != REXMPP_SUCCESS && ret != REXMPP_E_AGAIN) {
+    if (ret > REXMPP_E_AGAIN) {
       return ret;
     }
   }
@@ -2270,7 +2279,10 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
 
 rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   struct timeval now;
-  gettimeofday(&now, NULL);
+  if (gettimeofday(&now, NULL) != 0) {
+    rexmpp_log(s, LOG_ERR, "Failed to get time: %s", strerror(errno));
+    return REXMPP_E_OTHER;
+  }
 
   /* Inactive: start or reconnect. */
   if ((s->resolver_state == REXMPP_RESOLVER_NONE ||
@@ -2287,6 +2299,9 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
         strlen("_xmpps-client._tcp..") +
         1;
       char *srv_query = malloc(srv_query_buf_len);
+      if (srv_query == NULL) {
+        return REXMPP_E_MALLOC;
+      }
       snprintf(srv_query, srv_query_buf_len,
                "_xmpps-client._tcp.%s.", s->initial_jid.domain);
       int err;
@@ -2315,7 +2330,10 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       } else {
         s->tls_state = REXMPP_TLS_INACTIVE;
       }
-      rexmpp_start_connecting(s);
+      rexmpp_err_t err = rexmpp_start_connecting(s);
+      if (err > REXMPP_E_AGAIN) {
+        return err;
+      }
     }
   }
 
@@ -2325,21 +2343,34 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
     if (ub_poll(s->resolver_ctx)) {
-      ub_process(s->resolver_ctx);
+      int err = ub_process(s->resolver_ctx);
+      if (err != 0) {
+        rexmpp_log(s, LOG_ERR, "DNS query processing error: %s",
+                   ub_strerror(err));
+        return REXMPP_E_DNS;
+      }
     }
   }
 
   /* Connecting. Continues in rexmpp_process_conn_err, possibly
      leading to stream opening. */
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
-    rexmpp_process_conn_err(s,
-                            rexmpp_tcp_conn_proceed(&s->server_connection,
-                                                    read_fds, write_fds));
+    rexmpp_err_t err =
+      rexmpp_process_conn_err(s,
+                              rexmpp_tcp_conn_proceed(&s->server_connection,
+                                                      read_fds, write_fds));
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* SOCKS5 connection. */
   if (s->tcp_state == REXMPP_TCP_SOCKS) {
-    rexmpp_process_socks_err(s, rexmpp_socks_proceed(&s->server_socks_conn));
+    rexmpp_err_t err =
+      rexmpp_process_socks_err(s, rexmpp_socks_proceed(&s->server_socks_conn));
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* The things we do while connected. */
@@ -2354,7 +2385,10 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
        s->stream_state != REXMPP_STREAM_ERROR) &&
       s->sasl_state != REXMPP_SASL_ERROR &&
       s->send_buffer != NULL) {
-    rexmpp_send_continue(s);
+    rexmpp_err_t err = rexmpp_send_continue(s);
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* Pinging the server. */
@@ -2382,21 +2416,30 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
        s->stream_state != REXMPP_STREAM_CLOSED &&
        s->stream_state != REXMPP_STREAM_ERROR) &&
       s->sasl_state != REXMPP_SASL_ERROR) {
-    rexmpp_recv(s);
+    rexmpp_err_t err = rexmpp_recv(s);
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* Performing a TLS handshake. A stream restart happens after
      this, if everything goes well. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       s->tls_state == REXMPP_TLS_HANDSHAKE) {
-    rexmpp_tls_handshake(s);
+    rexmpp_err_t err = rexmpp_tls_handshake(s);
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* Closing the stream once everything is sent. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       s->stream_state == REXMPP_STREAM_CLOSE_REQUESTED &&
       s->send_buffer == NULL) {
-    rexmpp_close(s);
+    rexmpp_err_t err = rexmpp_close(s);
+    if (err > REXMPP_E_AGAIN) {
+      return err;
+    }
   }
 
   /* Closing TLS and TCP connections once stream is closed. If
@@ -2410,6 +2453,10 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       s->tls_state = REXMPP_TLS_INACTIVE;
       rexmpp_cleanup(s);
       s->tcp_state = REXMPP_TCP_CLOSED;
+    } else {
+      rexmpp_log(s, LOG_WARNING, "Failed to close TLS connection: %s",
+                 gnutls_strerror(ret));
+      return REXMPP_E_TLS;
     }
   }
 

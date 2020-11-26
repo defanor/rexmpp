@@ -26,6 +26,7 @@ struct rexmpp_dns_srv {
    @param[out] out A structure to fill with data.
    @returns 0 on success, non-zero on parsing failure.
 */
-int rexmpp_parse_srv (char *in, int in_len, struct rexmpp_dns_srv *out);
+int
+rexmpp_parse_srv (char *in, int in_len, struct rexmpp_dns_srv *out);
 
 #endif
