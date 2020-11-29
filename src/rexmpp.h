@@ -280,7 +280,6 @@ struct rexmpp
   rexmpp_iq_t *active_iq;
 
   /* Connection and stream management. */
-  unsigned int id_counter;
   unsigned int reconnect_number;
   time_t reconnect_seconds;
   struct timeval next_reconnect_time;

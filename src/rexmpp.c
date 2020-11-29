@@ -413,7 +413,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->active_iq = NULL;
   s->tls_session_data = NULL;
   s->tls_session_data_size = 0;
-  s->id_counter = 0;
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
@@ -659,10 +658,23 @@ const char *jid_bare_to_host (const char *jid_bare) {
 }
 
 xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node) {
-  char buf[11];
-  snprintf(buf, 11, "%u", s->id_counter);
-  s->id_counter++;
-  xmlNewProp(node, "id", buf);
+  int sasl_err;
+  char buf_raw[18], *buf_base64 = NULL;
+  size_t buf_base64_len = 0;
+  sasl_err = gsasl_nonce(buf_raw, 18);
+  if (sasl_err != GSASL_OK) {
+    rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
+               gsasl_strerror(sasl_err));
+    return NULL;
+  }
+  sasl_err = gsasl_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
+  if (sasl_err != GSASL_OK) {
+    rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
+               gsasl_strerror(sasl_err));
+    return NULL;
+  }
+  xmlNewProp(node, "id", buf_base64);
+  free(buf_base64);
   return node;
 }
 
