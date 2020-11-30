@@ -1091,9 +1091,12 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
       }
       rexmpp_log(s, LOG_INFO, "TCP disconnected");
       rexmpp_cleanup(s);
-      s->tcp_state = REXMPP_TCP_CLOSED;
-      if (s->stream_state == REXMPP_STREAM_READY) {
+      if (s->stream_state == REXMPP_STREAM_READY ||
+          s->stream_state == REXMPP_STREAM_ERROR_RECONNECT) {
+        s->tcp_state = REXMPP_TCP_NONE;
         rexmpp_schedule_reconnect(s);
+      } else {
+        s->tcp_state = REXMPP_TCP_CLOSED;
       }
     } else {
       if (s->tls_state == REXMPP_TLS_ACTIVE) {
@@ -2054,9 +2057,18 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
   /* Stream errors, https://tools.ietf.org/html/rfc6120#section-4.9 */
   if (rexmpp_xml_match(elem, "http://etherx.jabber.org/streams",
                        "error")) {
-    rexmpp_log(s, LOG_ERR, "stream error");
-    s->stream_state = REXMPP_STREAM_ERROR;
-    return REXMPP_E_STREAM;
+    if (rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-streams",
+                              "reset") != NULL ||
+        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-streams",
+                              "system-shutdown") != NULL) {
+      rexmpp_log(s, LOG_WARNING, "Server reset or shutdown.");
+      s->stream_state = REXMPP_STREAM_ERROR_RECONNECT;
+      return REXMPP_E_AGAIN;
+    } else {
+      rexmpp_log(s, LOG_ERR, "Stream error");
+      s->stream_state = REXMPP_STREAM_ERROR;
+      return REXMPP_E_STREAM;
+    }
   }
 
   /* STARTTLS negotiation,
@@ -2503,7 +2515,8 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     }
   }
 
-  if (s->tcp_state == REXMPP_TCP_CLOSED) {
+  if (s->tcp_state == REXMPP_TCP_CLOSED &&
+      s->stream_state != REXMPP_STREAM_ERROR_RECONNECT) {
     rexmpp_console_on_run(s, REXMPP_SUCCESS);
     return REXMPP_SUCCESS;
   } else {

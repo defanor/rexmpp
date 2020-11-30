@@ -112,7 +112,9 @@ enum stream_st {
   /** The server-to-client stream is closed. */
   REXMPP_STREAM_CLOSED,
   /** A stream error was detected in the server-to-client stream. */
-  REXMPP_STREAM_ERROR
+  REXMPP_STREAM_ERROR,
+  /** A stream error that should be fixed by a reconnect. */
+  REXMPP_STREAM_ERROR_RECONNECT
 };
 
 /** @brief TLS state */
