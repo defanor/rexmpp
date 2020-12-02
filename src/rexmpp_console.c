@@ -428,7 +428,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       if (word == NULL) {
         return;
       }
-      presence = xmlNewNode(NULL, "presence");
+      presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
       xmlNewProp(presence, "to", word);
       xmlNewProp(presence, "type", "subscribe");
       rexmpp_send(s, presence);
@@ -438,7 +438,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       if (word == NULL) {
         return;
       }
-      presence = xmlNewNode(NULL, "presence");
+      presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
       xmlNewProp(presence, "to", word);
       xmlNewProp(presence, "type", "subscribed");
       rexmpp_send(s, presence);
@@ -448,7 +448,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       if (word == NULL) {
         return;
       }
-      presence = xmlNewNode(NULL, "presence");
+      presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
       xmlNewProp(presence, "to", word);
       xmlNewProp(presence, "type", "unsubscribed");
       rexmpp_send(s, presence);

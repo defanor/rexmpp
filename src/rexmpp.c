@@ -1599,7 +1599,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
     rexmpp_iq_new(s, "get", NULL,
                   roster_query, rexmpp_iq_roster_get);
   }
-  xmlNodePtr presence = xmlNewNode(NULL, "presence");
+  xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
   char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
   if (caps_hash != NULL) {
     xmlNodePtr c = xmlNewNode(NULL, "c");
@@ -2314,7 +2314,7 @@ rexmpp_err_t rexmpp_close (rexmpp_t *s) {
 
 rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
   if (s->stream_state == REXMPP_STREAM_READY) {
-    xmlNodePtr presence = xmlNewNode(NULL, "presence");
+    xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
     xmlNewProp(presence, "type", "unavailable");
     rexmpp_send(s, presence);
   }
