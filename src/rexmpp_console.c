@@ -133,10 +133,25 @@ void rexmpp_console_on_recv (rexmpp_t *s, xmlNodePtr node) {
     } else if (presence_type != NULL && ! strcmp(presence_type, "unsubscribed")) {
       rexmpp_console_printf(s, "%s denies a presence subscription\n", from);
     } else {
-      rexmpp_console_printf(s, "%s is %s\n", from,
+      rexmpp_console_printf(s, "%s is %s", from,
                             (presence_type == NULL) ?
                             "available" :
                             presence_type);
+      xmlNodePtr show = rexmpp_xml_find_child(node, "jabber:client", "show");
+      if (show != NULL) {
+        char *show_str = xmlNodeGetContent(show);
+        rexmpp_console_printf(s, " (%s)", show_str);
+        free(show_str);
+        show_str = NULL;
+      }
+      xmlNodePtr status = rexmpp_xml_find_child(node, "jabber:client", "status");
+      if (status != NULL) {
+        char *status_str = xmlNodeGetContent(status);
+        rexmpp_console_printf(s, ": %s", status_str);
+        free(status_str);
+        status_str = NULL;
+      }
+      rexmpp_console_printf(s, "\n");
     }
     if (presence_type != NULL) {
       free(presence_type);
