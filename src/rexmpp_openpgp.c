@@ -2,8 +2,51 @@
    @file rexmpp_openpgp.c
    @brief XEP-0373 routines
    @author defanor <defanor@uberspace.net>
-   @date 2020
+   @date 2020--2021
    @copyright MIT license.
+
+
+Implementation notes
+====================
+
+XEP-0373 v0.6 is implemented here.
+
+Intentionally omitted functionality:
+
+- Not including a `to` element for self, since it is redundant for
+  signed messages, and only useful for signed ones.
+
+- Private key synchronisation is not implemented, since it is
+  unnecessary in the presence of asynchronous cryptography and support
+  for multiple keys, but can be dangerous if a passphrase used for key
+  encryption is weaker than the key itself.
+
+- XEP-0374 is not implemented here, since restricting its usage to
+  `<signcrypt/>` is likely to be undesirable in some cases (primarily
+  because it introduces non-repudiation).
+
+Possible future improvements:
+
+- Allow just signing or just encryption, not only both at once.
+
+- A setting to generate the keys if they are missing, upload them
+  automatically, encrypt messages opportunistically (as the XEP
+  suggests).
+
+- Optionally use a separate (possibly per-JID) keyring (though it can
+  be set by a client application already, right after rexmpp
+  initialisation).
+
+- Upload keys signed with other keys (instead of exporting with
+  `GPGME_EXPORT_MODE_MINIMAL`): for key rollover, for helping to
+  extend trust to all the keys once some of them are verified in
+  person, possibly for making use of the WOT trust model.
+
+- Maybe use alternative key retrieval methods in order to decrease
+  dependency on PEP/pubsub, and possibly to incorporate existing
+  infrastructure: e.g., retrieval by PEP-provided fingerprint from key
+  servers, by vCard-provided email address from WKD or DANE.
+
 */
 
 #include <syslog.h>
