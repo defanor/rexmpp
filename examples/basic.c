@@ -30,10 +30,17 @@ void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
    initial JID. */
 int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
   if (prop == GSASL_PASSWORD) {
-    char buf[4096];
+    char *buf = NULL;
+    size_t buf_len = 4096;
     printf("password: ");
-    gets(buf);
-    gsasl_property_set (s->sasl_session, GSASL_PASSWORD, buf);
+    getline(&buf, &buf_len, stdin);
+    if (buf != NULL) {
+      if (buf[strlen(buf) - 1] == '\n') {
+        buf[strlen(buf) - 1] = '\0';
+      }
+      gsasl_property_set (s->sasl_session, GSASL_PASSWORD, buf);
+      free(buf);
+    }
     return GSASL_OK;
   }
   if (prop == GSASL_AUTHID) {
