@@ -650,16 +650,47 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
     }
     err = gpgme_get_key(s->pgp_ctx, fingerprint, &(*keys)[*nkeys], 0);
     if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
-      *nkeys = *nkeys + 1;
-      if (*nkeys == *allocated) {
-        *allocated = *allocated * 2;
-        *keys = realloc(*keys, sizeof(gpgme_key_t *) * *allocated);
+      if ((*keys)[*nkeys]->can_encrypt) {
+        *nkeys = *nkeys + 1;
+        if (*nkeys == *allocated) {
+          *allocated = *allocated * 2;
+          *keys = realloc(*keys, sizeof(gpgme_key_t *) * *allocated);
+        }
+      } else {
+        gpgme_key_unref((*keys)[*nkeys]);
       }
       (*keys)[*nkeys] = NULL;
     } else if (gpg_err_code(err) == GPG_ERR_EOF) {
       rexmpp_log(s, LOG_WARNING, "No key %s for %s found",
                  fingerprint, jid);
     } else {
+      rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
+                 fingerprint, gpgme_strerror(err));
+    }
+    free(fingerprint);
+  }
+}
+
+void rexmpp_openpgp_set_signers (rexmpp_t *s) {
+  gpgme_error_t err;
+  xmlNodePtr metadata;
+  gpgme_key_t sec_key;
+  gpgme_signers_clear(s->pgp_ctx);
+  for (metadata = rexmpp_published_fingerprints(s, s->initial_jid.bare);
+       metadata != NULL;
+       metadata = xmlNextElementSibling(metadata)) {
+    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    if (fingerprint == NULL) {
+      rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
+      continue;
+    }
+    err = gpgme_get_key(s->pgp_ctx, fingerprint, &sec_key, 1);
+    if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+      if (sec_key->can_sign) {
+        gpgme_signers_add(s->pgp_ctx, sec_key);
+      }
+      gpgme_key_unref(sec_key);
+    } else if (gpg_err_code(err) != GPG_ERR_EOF) {
       rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
                  fingerprint, gpgme_strerror(err));
     }
@@ -698,19 +729,8 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
 
   /* Add own keys for encryption and signing. */
   rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
-  gpgme_signers_clear(s->pgp_ctx);
-  for (i = 0; i < nkeys; i++) {
-    /* Check that the key can be used to sign data, and that we have
-       the secret key. */
-    if (keys[i]->can_sign) {
-      gpgme_key_t sec_key;
-      err = gpgme_get_key(s->pgp_ctx, keys[i]->subkeys->fpr, &sec_key, 1);
-      gpgme_key_unref(sec_key);
-      if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
-        gpgme_signers_add(s->pgp_ctx, keys[i]);
-      }
-    }
-  }
+  rexmpp_openpgp_set_signers(s);
+
   /* Add recipients' keys for encryption. */
   for (i = 0; recipients[i] != NULL; i++) {
     rexmpp_openpgp_add_keys(s, recipients[i], &keys, &nkeys, &allocated);
