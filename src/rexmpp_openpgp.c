@@ -259,6 +259,24 @@ void rexmpp_pgp_key_fp_list_upload (rexmpp_t *s, xmlNodePtr metadata) {
   rexmpp_iq_new(s, "set", NULL, pubsub, rexmpp_pgp_key_publish_list_iq);
 }
 
+void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
+                               xmlNodePtr req,
+                               xmlNodePtr response,
+                               int success)
+{
+  (void)response;
+  if (! success) {
+    rexmpp_log(s, LOG_WARNING, "Failed to delete an OpenpPGP key");
+    return;
+  }
+  xmlNodePtr pubsub = xmlFirstElementChild(req);
+  xmlNodePtr publish = xmlFirstElementChild(pubsub);
+  char *node = xmlGetProp(publish, "node");
+  char *fingerprint = node + 31;
+  rexmpp_log(s, LOG_INFO, "Removed OpenpPGP key %s", fingerprint);
+  free(node);
+}
+
 void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
                                 xmlNodePtr req,
                                 xmlNodePtr response,
@@ -296,7 +314,7 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
   rexmpp_pgp_key_fp_list_upload(s, metadata);
 }
 
-rexmpp_err_t rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
+void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
   xmlNodePtr metadata, prev = NULL;
   for (metadata = rexmpp_published_fingerprints(s, s->assigned_jid.bare);
        metadata != NULL;
@@ -325,9 +343,18 @@ rexmpp_err_t rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
     }
   }
 
-  /* TODO: delete the key node too. */
+  char node_str[72];
+  snprintf(node_str, 72, "urn:xmpp:openpgp:0:public-keys:%s", fp);
 
-  return REXMPP_SUCCESS;
+  xmlNodePtr delete = xmlNewNode(NULL, "delete");
+  xmlNewNs(delete, "http://jabber.org/protocol/pubsub#owner", NULL);
+  xmlNewProp(delete, "node", node_str);
+
+  xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
+  xmlNewNs(pubsub, "http://jabber.org/protocol/pubsub#owner", NULL);
+  xmlAddChild(pubsub, delete);
+
+  rexmpp_iq_new(s, "set", NULL, pubsub, rexmpp_pgp_key_delete_iq);
 }
 
 rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
