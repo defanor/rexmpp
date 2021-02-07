@@ -27,8 +27,6 @@ Intentionally omitted functionality:
 
 Possible future improvements:
 
-- Allow just signing or just encryption, not only both at once.
-
 - A setting to generate the keys if they are missing, upload them
   automatically, encrypt messages opportunistically (as the XEP
   suggests).
@@ -614,7 +612,9 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
   gpgme_data_new(&plain_dh);
   err = gpgme_op_decrypt_verify (s->pgp_ctx, cipher_dh, plain_dh);
   gpgme_data_release(cipher_dh);
-  if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
+
+  if (! (gpg_err_code(err) == GPG_ERR_NO_ERROR ||
+         gpg_err_code(err) == GPG_ERR_NO_DATA)) {
     rexmpp_log(s, LOG_ERR, "Failed to decrypt/verify: %s", gpgme_strerror(err));
     gpgme_data_release(plain_dh);
     return NULL;
@@ -698,54 +698,44 @@ void rexmpp_openpgp_set_signers (rexmpp_t *s) {
   }
 }
 
-char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
-                                   xmlNodePtr payload,
-                                   const char **recipients)
+char *rexmpp_openpgp_payload (rexmpp_t *s,
+                              xmlNodePtr payload,
+                              const char **recipients,
+                              int sign,
+                              int crypt)
 {
   gpgme_error_t err;
   int sasl_err;
+  int i, nkeys = 0, allocated = 0;
+  gpgme_key_t *keys = NULL;
 
-  /* A random-length random-content padding. */
-  char *rand_str, rand[256];
-  gsasl_nonce(rand, 1);
-  size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
-  sasl_err = gsasl_nonce(rand, rand_len);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
-               gsasl_strerror(sasl_err));
-    return NULL;
-  }
-  sasl_err = gsasl_base64_to(rand, rand_len, &rand_str, &rand_str_len);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
-               gsasl_strerror(sasl_err));
+  if (! (sign || crypt)) {
+    rexmpp_log(s, LOG_ERR, "Attempted to neither sign nor encrypt");
     return NULL;
   }
 
-  /* Locate keys. */
-  int i, nkeys = 0, allocated = 8;
-  gpgme_key_t *keys = malloc(sizeof(gpgme_key_t *) * allocated);
-  keys[0] = NULL;
-
-  /* Add own keys for encryption and signing. */
-  rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
-  rexmpp_openpgp_set_signers(s);
-
-  /* Add recipients' keys for encryption. */
-  for (i = 0; recipients[i] != NULL; i++) {
-    rexmpp_openpgp_add_keys(s, recipients[i], &keys, &nkeys, &allocated);
+  /* Prepare an element. */
+  char *elem_name = NULL;
+  if (sign && crypt) {
+    elem_name = "signcrypt";
+  } else if (sign) {
+    elem_name = "sign";
+  } else if (crypt) {
+    elem_name = "crypt";
   }
+  xmlNodePtr elem = xmlNewNode(NULL, elem_name);
+  xmlNewNs(elem, "urn:xmpp:openpgp:0", NULL);
 
-  /* Prepare a signcrypt element. */
-  xmlNodePtr signcrypt = xmlNewNode(NULL, "signcrypt");
-  xmlNewNs(signcrypt, "urn:xmpp:openpgp:0", NULL);
+  if (sign) {
+    rexmpp_openpgp_set_signers(s);
 
-  /* Add all the recipients. */
-  for (i = 0; recipients[i] != NULL; i++) {
-    xmlNodePtr to = xmlNewNode(NULL, "to");
-    xmlNewNs(to, "urn:xmpp:openpgp:0", NULL);
-    xmlNewProp(to, "jid", recipients[i]);
-    xmlAddChild(signcrypt, to);
+    /* Add all the recipients. */
+    for (i = 0; recipients[i] != NULL; i++) {
+      xmlNodePtr to = xmlNewNode(NULL, "to");
+      xmlNewNs(to, "urn:xmpp:openpgp:0", NULL);
+      xmlNewProp(to, "jid", recipients[i]);
+      xmlAddChild(elem, to);
+    }
   }
 
   /* Add timestamp. */
@@ -754,41 +744,78 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   struct tm utc_time;
   gmtime_r(&t, &utc_time);
   strftime(time_str, 42, "%FT%TZ", &utc_time);
-
   xmlNodePtr time = xmlNewNode(NULL, "time");
   xmlNewNs(time, "urn:xmpp:openpgp:0", NULL);
   xmlNewProp(time, "stamp", time_str);
-  xmlAddChild(signcrypt, time);
-
-  xmlNodePtr rpad = xmlNewNode(NULL, "rpad");
-  xmlNewNs(rpad, "urn:xmpp:openpgp:0", NULL);
-  xmlNodeAddContent(rpad, rand_str);
-  free(rand_str);
-  xmlAddChild(signcrypt, rpad);
+  xmlAddChild(elem, time);
 
   /* Add the payload. */
   xmlNodePtr pl = xmlNewNode(NULL, "payload");
   xmlNewNs(pl, "urn:xmpp:openpgp:0", NULL);
   xmlAddChild(pl, payload);
-  xmlAddChild(signcrypt, pl);
+  xmlAddChild(elem, pl);
+
+  if (crypt) {
+    /* Add keys for encryption. */
+    allocated = 8;
+    keys = malloc(sizeof(gpgme_key_t *) * allocated);
+    keys[0] = NULL;
+    rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
+    for (i = 0; recipients[i] != NULL; i++) {
+      rexmpp_openpgp_add_keys(s, recipients[i], &keys, &nkeys, &allocated);
+    }
+
+    /* A random-length random-content padding. */
+    char *rand_str, rand[256];
+    gsasl_nonce(rand, 1);
+    size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
+    sasl_err = gsasl_nonce(rand, rand_len);
+    if (sasl_err != GSASL_OK) {
+      rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
+                 gsasl_strerror(sasl_err));
+      return NULL;
+    }
+    sasl_err = gsasl_base64_to(rand, rand_len, &rand_str, &rand_str_len);
+    if (sasl_err != GSASL_OK) {
+      rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
+                 gsasl_strerror(sasl_err));
+      return NULL;
+    }
+
+    xmlNodePtr rpad = xmlNewNode(NULL, "rpad");
+    xmlNewNs(rpad, "urn:xmpp:openpgp:0", NULL);
+    xmlNodeAddContent(rpad, rand_str);
+    free(rand_str);
+    xmlAddChild(elem, rpad);
+  }
 
   /* Serialize the resulting XML. */
-  char *plaintext = rexmpp_xml_serialize(signcrypt);
-  xmlFreeNode(signcrypt);
+  char *plaintext = rexmpp_xml_serialize(elem);
+  xmlFreeNode(elem);
 
   /* Encrypt, base64-encode. */
   gpgme_data_t cipher_dh, plain_dh;
   gpgme_data_new(&cipher_dh);
   gpgme_data_new_from_mem(&plain_dh, plaintext, strlen(plaintext), 0);
-  err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
-                              plain_dh, cipher_dh);
-  for (i = 0; i < nkeys; i++) {
-    gpgme_key_unref(keys[i]);
+  if (sign && crypt) {
+    err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
+                                plain_dh, cipher_dh);
+  } else if (crypt) {
+    err = gpgme_op_encrypt(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
+                           plain_dh, cipher_dh);
+  } else if (sign) {
+    err = gpgme_op_sign(s->pgp_ctx, plain_dh, cipher_dh, GPGME_SIG_MODE_NORMAL);
   }
-  free(keys);
+  if (keys != NULL) {
+    for (i = 0; i < nkeys; i++) {
+      gpgme_key_unref(keys[i]);
+    }
+    free(keys);
+    keys = NULL;
+  }
   gpgme_data_release(plain_dh);
   if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
-    rexmpp_log(s, LOG_ERR, "Failed to encrypt: %s", gpgme_strerror(err));
+    rexmpp_log(s, LOG_ERR, "Failed to %s: %s", elem_name, gpgme_strerror(err));
     gpgme_data_release(cipher_dh);
     return NULL;
   }
@@ -800,6 +827,27 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   free(cipher_raw);
 
   return cipher_base64;
+}
+
+char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
+                                   xmlNodePtr payload,
+                                   const char **recipients)
+{
+  return rexmpp_openpgp_payload(s, payload, recipients, 1, 1);
+}
+
+char *rexmpp_openpgp_encrypt (rexmpp_t *s,
+                              xmlNodePtr payload,
+                              const char **recipients)
+{
+  return rexmpp_openpgp_payload(s, payload, recipients, 0, 1);
+}
+
+char *rexmpp_openpgp_sign (rexmpp_t *s,
+                           xmlNodePtr payload,
+                           const char **recipients)
+{
+  return rexmpp_openpgp_payload(s, payload, recipients, 1, 0);
 }
 
 rexmpp_err_t rexmpp_openpgp_set_home_dir (rexmpp_t *s, const char *home_dir) {

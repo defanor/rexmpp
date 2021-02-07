@@ -229,6 +229,8 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "tell <jid> <message>\n"
     "gtell <muc jid> <message>\n"
     "signcrypt <jid> <message>\n"
+    "sign <jid> <message>\n"
+    "crypt <jid> <message>\n"
     "publish-key <fingerprint>\n"
     "retract-key <fingerprint>\n"
     "join <conference> [as] <nick>\n"
@@ -286,7 +288,9 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     rexmpp_send(s, msg);
   }
 
-  if (! strcmp(word, "signcrypt")) {
+  if ((strcmp(word, "signcrypt") == 0) ||
+      (strcmp(word, "sign") == 0) ||
+      (strcmp(word, "crypt") == 0)) {
     jid_str = strtok_r(NULL, " ", &words_save_ptr);
     if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
       return;
@@ -298,7 +302,14 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     const char *rcpt[2];
     rcpt[0] = jid.full;
     rcpt[1] = NULL;
-    char *b64 = rexmpp_openpgp_encrypt_sign(s, body, rcpt);
+    char *b64 = NULL;
+    if (strcmp(word, "signcrypt") == 0) {
+      b64 = rexmpp_openpgp_encrypt_sign(s, body, rcpt);
+    } else if (strcmp(word, "sign") == 0) {
+      b64 = rexmpp_openpgp_sign(s, body, rcpt);
+    } else if (strcmp(word, "crypt") == 0) {
+      b64 = rexmpp_openpgp_encrypt(s, body, rcpt);
+    }
     xmlNodePtr openpgp = xmlNewNode(NULL, "openpgp");
     openpgp->ns = xmlNewNs(openpgp, "urn:xmpp:openpgp:0", NULL);
     xmlNodeAddContent(openpgp, b64);

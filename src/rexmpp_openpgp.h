@@ -31,6 +31,14 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
                                    xmlNodePtr payload,
                                    const char **recipients);
 
+char *rexmpp_openpgp_encrypt (rexmpp_t *s,
+                              xmlNodePtr payload,
+                              const char **recipients);
+
+char *rexmpp_openpgp_sign (rexmpp_t *s,
+                           xmlNodePtr payload,
+                           const char **recipients);
+
 /**
    @brief An utility function for setting GPG home directory. An
    appropriate time to call it is right after rexmpp_init.
