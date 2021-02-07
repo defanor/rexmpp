@@ -698,6 +698,7 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
 
   /* Add own keys for encryption and signing. */
   rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
+  gpgme_signers_clear(s->pgp_ctx);
   for (i = 0; i < nkeys; i++) {
     /* Check that the key can be used to sign data, and that we have
        the secret key. */
