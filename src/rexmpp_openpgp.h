@@ -16,6 +16,7 @@ rexmpp_openpgp_check_keys (rexmpp_t *s,
                            xmlNodePtr items);
 
 rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp);
+rexmpp_err_t rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp);
 
 xmlNodePtr
 rexmpp_openpgp_decrypt_verify (rexmpp_t *s,

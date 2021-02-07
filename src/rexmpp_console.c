@@ -230,6 +230,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "gtell <muc jid> <message>\n"
     "signcrypt <jid> <message>\n"
     "publish-key <fingerprint>\n"
+    "retract-key <fingerprint>\n"
     "join <conference> [as] <nick>\n"
     "leave <conference> [as] <nick>\n"
     "roster list\n"
@@ -253,6 +254,10 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   if (! strcmp(word, "publish-key")) {
     char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
     rexmpp_openpgp_publish_key(s, fingerprint);
+  }
+  if (! strcmp(word, "retract-key")) {
+    char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
+    rexmpp_openpgp_retract_key(s, fingerprint);
   }
 
   if (! strcmp(word, "tell")) {
