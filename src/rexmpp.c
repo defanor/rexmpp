@@ -1680,7 +1680,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         char *rep_from = xmlGetProp(elem, "from");
         int id_matches = (strcmp(id, req_id) == 0);
         int jid_matches = 0;
-        if (req_to == NULL && rep_from == NULL) {
+        if (rep_from == NULL) {
           jid_matches = 1;
         } else if (req_to != NULL && rep_from != NULL) {
           jid_matches = (strcmp(req_to, rep_from) == 0);
