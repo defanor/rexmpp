@@ -676,9 +676,9 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
 
   /* A random-length random-content padding. */
   char *rand_str, rand[256];
-  gsasl_random(rand, 1);
+  gsasl_nonce(rand, 1);
   size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
-  sasl_err = gsasl_random(rand, rand_len);
+  sasl_err = gsasl_nonce(rand, rand_len);
   if (sasl_err != GSASL_OK) {
     rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
                gsasl_strerror(sasl_err));
