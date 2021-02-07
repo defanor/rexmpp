@@ -33,10 +33,6 @@ Possible future improvements:
   automatically, encrypt messages opportunistically (as the XEP
   suggests).
 
-- Optionally use a separate (possibly per-JID) keyring (though it can
-  be set by a client application already, right after rexmpp
-  initialisation).
-
 - Upload keys signed with other keys (instead of exporting with
   `GPGME_EXPORT_MODE_MINIMAL`): for key rollover, for helping to
   extend trust to all the keys once some of them are verified in
@@ -710,4 +706,19 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   free(cipher_raw);
 
   return cipher_base64;
+}
+
+rexmpp_err_t rexmpp_openpgp_set_home_dir (rexmpp_t *s, const char *home_dir) {
+  gpgme_engine_info_t engine_info;
+  gpgme_error_t err;
+  engine_info = gpgme_ctx_get_engine_info(s->pgp_ctx);
+  err = gpgme_ctx_set_engine_info(s->pgp_ctx, engine_info->protocol,
+                                  engine_info->file_name,
+                                  home_dir);
+  if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
+    rexmpp_log(s, LOG_ERR, "Failed to set home directory: %s",
+               gpgme_strerror(err));
+    return REXMPP_E_PGP;
+  }
+  return REXMPP_SUCCESS;
 }
