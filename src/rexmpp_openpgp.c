@@ -154,7 +154,7 @@ rexmpp_openpgp_check_keys (rexmpp_t *s,
     gpgme_error_t err;
     err = gpgme_get_key(s->pgp_ctx, fingerprint, &key, 0);
     if (key != NULL) {
-      gpgme_key_release(key);
+      gpgme_key_unref(key);
     }
     if (gpg_err_code(err) == GPG_ERR_EOF) {
       rexmpp_log(s, LOG_DEBUG,
@@ -705,7 +705,7 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
     if (keys[i]->can_sign) {
       gpgme_key_t sec_key;
       err = gpgme_get_key(s->pgp_ctx, keys[i]->subkeys->fpr, &sec_key, 1);
-      gpgme_key_release(sec_key);
+      gpgme_key_unref(sec_key);
       if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
         gpgme_signers_add(s->pgp_ctx, keys[i]);
       }
@@ -763,7 +763,7 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
                               plain_dh, cipher_dh);
   for (i = 0; i < nkeys; i++) {
-    gpgme_key_release(keys[i]);
+    gpgme_key_unref(keys[i]);
   }
   free(keys);
   gpgme_data_release(plain_dh);
