@@ -635,7 +635,16 @@ char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
   /* Add own keys for encryption and signing. */
   rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
   for (i = 0; i < nkeys; i++) {
-    gpgme_signers_add(s->pgp_ctx, keys[i]);
+    /* Check that the key can be used to sign data, and that we have
+       the secret key. */
+    if (keys[i]->can_sign) {
+      gpgme_key_t sec_key;
+      err = gpgme_get_key(s->pgp_ctx, keys[i]->subkeys->fpr, &sec_key, 1);
+      gpgme_key_release(sec_key);
+      if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+        gpgme_signers_add(s->pgp_ctx, keys[i]);
+      }
+    }
   }
   /* Add recipients' keys for encryption. */
   for (i = 0; recipients[i] != NULL; i++) {
