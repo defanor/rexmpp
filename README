@@ -89,6 +89,7 @@ A rough roadmap:
 
 [+] Display name establishment.
 [.] A console module.
+[ ] Pubsub (XEP-0060) utility functions.
 
 
 - Examples and application:

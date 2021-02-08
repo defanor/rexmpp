@@ -304,11 +304,11 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     rcpt[1] = NULL;
     char *b64 = NULL;
     if (strcmp(word, "signcrypt") == 0) {
-      b64 = rexmpp_openpgp_encrypt_sign(s, body, rcpt);
+      b64 = rexmpp_openpgp_payload(s, body, rcpt, REXMPP_OX_SIGNCRYPT);
     } else if (strcmp(word, "sign") == 0) {
-      b64 = rexmpp_openpgp_sign(s, body, rcpt);
+      b64 = rexmpp_openpgp_payload(s, body, rcpt, REXMPP_OX_SIGN);
     } else if (strcmp(word, "crypt") == 0) {
-      b64 = rexmpp_openpgp_encrypt(s, body, rcpt);
+      b64 = rexmpp_openpgp_payload(s, body, rcpt, REXMPP_OX_CRYPT);
     }
     xmlNodePtr openpgp = xmlNewNode(NULL, "openpgp");
     openpgp->ns = xmlNewNs(openpgp, "urn:xmpp:openpgp:0", NULL);

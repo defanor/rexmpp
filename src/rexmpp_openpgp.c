@@ -701,32 +701,26 @@ void rexmpp_openpgp_set_signers (rexmpp_t *s) {
 char *rexmpp_openpgp_payload (rexmpp_t *s,
                               xmlNodePtr payload,
                               const char **recipients,
-                              int sign,
-                              int crypt)
+                              enum rexmpp_ox_mode mode)
 {
   gpgme_error_t err;
   int sasl_err;
   int i, nkeys = 0, allocated = 0;
   gpgme_key_t *keys = NULL;
 
-  if (! (sign || crypt)) {
-    rexmpp_log(s, LOG_ERR, "Attempted to neither sign nor encrypt");
-    return NULL;
-  }
-
   /* Prepare an element. */
   char *elem_name = NULL;
-  if (sign && crypt) {
+  if (mode == REXMPP_OX_SIGNCRYPT) {
     elem_name = "signcrypt";
-  } else if (sign) {
+  } else if (mode == REXMPP_OX_SIGN) {
     elem_name = "sign";
-  } else if (crypt) {
+  } else if (mode == REXMPP_OX_CRYPT) {
     elem_name = "crypt";
   }
   xmlNodePtr elem = xmlNewNode(NULL, elem_name);
   xmlNewNs(elem, "urn:xmpp:openpgp:0", NULL);
 
-  if (sign) {
+  if (mode == REXMPP_OX_SIGN || mode == REXMPP_OX_SIGNCRYPT) {
     rexmpp_openpgp_set_signers(s);
 
     /* Add all the recipients. */
@@ -755,7 +749,7 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   xmlAddChild(pl, payload);
   xmlAddChild(elem, pl);
 
-  if (crypt) {
+  if (mode == REXMPP_OX_CRYPT || mode == REXMPP_OX_SIGNCRYPT) {
     /* Add keys for encryption. */
     allocated = 8;
     keys = malloc(sizeof(gpgme_key_t *) * allocated);
@@ -797,13 +791,13 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   gpgme_data_t cipher_dh, plain_dh;
   gpgme_data_new(&cipher_dh);
   gpgme_data_new_from_mem(&plain_dh, plaintext, strlen(plaintext), 0);
-  if (sign && crypt) {
+  if (mode == REXMPP_OX_SIGNCRYPT) {
     err = gpgme_op_encrypt_sign(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
                                 plain_dh, cipher_dh);
-  } else if (crypt) {
+  } else if (mode == REXMPP_OX_CRYPT) {
     err = gpgme_op_encrypt(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
                            plain_dh, cipher_dh);
-  } else if (sign) {
+  } else if (mode == REXMPP_OX_SIGN) {
     err = gpgme_op_sign(s->pgp_ctx, plain_dh, cipher_dh, GPGME_SIG_MODE_NORMAL);
   }
   if (keys != NULL) {
@@ -827,27 +821,6 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   free(cipher_raw);
 
   return cipher_base64;
-}
-
-char *rexmpp_openpgp_encrypt_sign (rexmpp_t *s,
-                                   xmlNodePtr payload,
-                                   const char **recipients)
-{
-  return rexmpp_openpgp_payload(s, payload, recipients, 1, 1);
-}
-
-char *rexmpp_openpgp_encrypt (rexmpp_t *s,
-                              xmlNodePtr payload,
-                              const char **recipients)
-{
-  return rexmpp_openpgp_payload(s, payload, recipients, 0, 1);
-}
-
-char *rexmpp_openpgp_sign (rexmpp_t *s,
-                           xmlNodePtr payload,
-                           const char **recipients)
-{
-  return rexmpp_openpgp_payload(s, payload, recipients, 1, 0);
 }
 
 rexmpp_err_t rexmpp_openpgp_set_home_dir (rexmpp_t *s, const char *home_dir) {
