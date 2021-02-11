@@ -20,5 +20,6 @@ struct rexmpp_jid {
 };
 
 int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid);
+int rexmpp_jid_check (struct rexmpp_jid *jid);
 
 #endif

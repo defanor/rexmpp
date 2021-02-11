@@ -441,6 +441,10 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
     rexmpp_log(s, LOG_CRIT, "Failed to parse the initial JID.");
     return REXMPP_E_JID;
   }
+  if (! rexmpp_jid_check(&s->initial_jid)) {
+    rexmpp_log(s, LOG_CRIT, "An invalid initial JID is provided.");
+    return REXMPP_E_JID;
+  }
 
   s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
 

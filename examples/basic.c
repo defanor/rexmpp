@@ -106,6 +106,8 @@ main (int argc, char **argv) {
   /*                                        GNUTLS_X509_FMT_PEM); */
   s.roster_cache_file = "roster.xml";
 
+  /* rexmpp_openpgp_set_home_dir(&s, "./pgp/"); */
+
   /* Once the main structure is initialised and everything is
      sufficiently configured, we are ready to run the main loop and
      call rexmpp from it. */

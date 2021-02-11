@@ -15,7 +15,7 @@ of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
 Current dependencies: libunbound, libxml2, gnutls, gnutls-dane, gsasl,
-gpgme.
+gpgme, libicu.
 
 
 A rough roadmap:
