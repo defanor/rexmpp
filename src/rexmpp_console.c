@@ -227,14 +227,14 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "help\n"
     "quit\n"
     "tell <jid> <message>\n"
-    "gtell <muc jid> <message>\n"
     "signcrypt <jid> <message>\n"
     "sign <jid> <message>\n"
     "crypt <jid> <message>\n"
-    "publish-key <fingerprint>\n"
-    "retract-key <fingerprint>\n"
-    "join <conference> [as] <nick>\n"
-    "leave <conference> [as] <nick>\n"
+    "key publish <fingerprint>\n"
+    "key retract <fingerprint>\n"
+    "muc join <conference> [as] <nick>\n"
+    "muc leave <conference> [as] <nick>\n"
+    "muc tell <conference> <message>\n"
     "roster list\n"
     "roster add <jid>\n"
     "roster delete <jid>\n"
@@ -253,13 +253,16 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     return;
   }
 
-  if (! strcmp(word, "publish-key")) {
-    char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
-    rexmpp_openpgp_publish_key(s, fingerprint);
-  }
-  if (! strcmp(word, "retract-key")) {
-    char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
-    rexmpp_openpgp_retract_key(s, fingerprint);
+  if (! strcmp(word, "key")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (! strcmp(word, "publish")) {
+      char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
+      rexmpp_openpgp_publish_key(s, fingerprint);
+    }
+    if (! strcmp(word, "retract")) {
+      char *fingerprint = strtok_r(NULL, " ", &words_save_ptr);
+      rexmpp_openpgp_retract_key(s, fingerprint);
+    }
   }
 
   if (! strcmp(word, "tell")) {
@@ -271,19 +274,6 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
     xmlNewProp(msg, "to", jid.full);
     xmlNewProp(msg, "type", "chat");
-    xmlNewTextChild(msg, NULL, "body", msg_text);
-    rexmpp_send(s, msg);
-  }
-
-  if (! strcmp(word, "gtell")) {
-    jid_str = strtok_r(NULL, " ", &words_save_ptr);
-    if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
-      return;
-    }
-    msg_text = jid_str + strlen(jid_str) + 1;
-    xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
-    xmlNewProp(msg, "to", jid.full);
-    xmlNewProp(msg, "type", "groupchat");
     xmlNewTextChild(msg, NULL, "body", msg_text);
     rexmpp_send(s, msg);
   }
@@ -328,52 +318,66 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     rexmpp_send(s, msg);
   }
 
-  if (! strcmp(word, "join")) {
-    jid_str = strtok_r(NULL, " ", &words_save_ptr);
-    if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
-      return;
-    }
+  if (! strcmp(word, "muc")) {
     word = strtok_r(NULL, " ", &words_save_ptr);
-    if (! strcmp(word, "as")) {
+    if (! strcmp(word, "tell")) {
+      jid_str = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
+        return;
+      }
+      msg_text = jid_str + strlen(jid_str) + 1;
+      xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+      xmlNewProp(msg, "to", jid.full);
+      xmlNewProp(msg, "type", "groupchat");
+      xmlNewTextChild(msg, NULL, "body", msg_text);
+      rexmpp_send(s, msg);
+    }
+    if (! strcmp(word, "join")) {
+      jid_str = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
+        return;
+      }
       word = strtok_r(NULL, " ", &words_save_ptr);
+      if (! strcmp(word, "as")) {
+        word = strtok_r(NULL, " ", &words_save_ptr);
+      }
+      if (word == NULL) {
+        return;
+      }
+      char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
+      snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
+               jid.bare, word);
+      presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+      xmlNewProp(presence, "from", s->assigned_jid.full);
+      xmlNewProp(presence, "to", full_jid);
+      xmlNodePtr x = xmlNewNode(NULL, "x");
+      xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
+      xmlAddChild(presence, x);
+      rexmpp_send(s, presence);
+      free(full_jid);
     }
-    if (word == NULL) {
-      return;
-    }
-    char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
-    snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
-             jid.bare, word);
-    presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-    xmlNewProp(presence, "from", s->assigned_jid.full);
-    xmlNewProp(presence, "to", full_jid);
-    xmlNodePtr x = xmlNewNode(NULL, "x");
-    xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
-    xmlAddChild(presence, x);
-    rexmpp_send(s, presence);
-    free(full_jid);
-  }
-
-  if (! strcmp(word, "leave")) {
-    jid_str = strtok_r(NULL, " ", &words_save_ptr);
-    if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
-      return;
-    }
-    word = strtok_r(NULL, " ", &words_save_ptr);
-    if (! strcmp(word, "as")) {
+    if (! strcmp(word, "leave")) {
+      jid_str = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid_str == NULL || rexmpp_jid_parse(jid_str, &jid)) {
+        return;
+      }
       word = strtok_r(NULL, " ", &words_save_ptr);
+      if (! strcmp(word, "as")) {
+        word = strtok_r(NULL, " ", &words_save_ptr);
+      }
+      if (word == NULL) {
+        return;
+      }
+      char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
+      snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
+               jid.bare, word);
+      presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+      xmlNewProp(presence, "from", s->assigned_jid.full);
+      xmlNewProp(presence, "to", full_jid);
+      xmlNewProp(presence, "type", "unavailable");
+      rexmpp_send(s, presence);
+      free(full_jid);
     }
-    if (word == NULL) {
-      return;
-    }
-    char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
-    snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
-             jid.bare, word);
-    presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-    xmlNewProp(presence, "from", s->assigned_jid.full);
-    xmlNewProp(presence, "to", full_jid);
-    xmlNewProp(presence, "type", "unavailable");
-    rexmpp_send(s, presence);
-    free(full_jid);
   }
 
   if (! strcmp(word, "roster")) {
