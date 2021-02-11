@@ -21,11 +21,19 @@ int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid) {
   /* Find the separators. */
   for (i = 0; i < full_len; i++) {
     if (local_len == 0 && str[i] == '@') {
+      if (i == 0) {
+        /* '@' is in the very beginning, an error. */
+        return -1;
+      }
       local_len = i;
       domain_len -= local_len + 1;
       domain = str + i + 1;
     }
     if (str[i] == '/') {
+      if (i == full_len - 1) {
+        /* '/' is in the end, that's an error. */
+        return -1;
+      }
       resource_len = full_len - i - 1;
       domain_len -= resource_len + 1;
       bare_len -= resource_len + 1;
