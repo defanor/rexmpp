@@ -31,11 +31,6 @@ Possible future improvements:
   automatically, encrypt messages opportunistically (as the XEP
   suggests).
 
-- Upload keys signed with other keys (instead of exporting with
-  `GPGME_EXPORT_MODE_MINIMAL`): for key rollover, for helping to
-  extend trust to all the keys once some of them are verified in
-  person, possibly for making use of the WOT trust model.
-
 - Maybe use alternative key retrieval methods in order to decrease
   dependency on PEP/pubsub, and possibly to incorporate existing
   infrastructure: e.g., retrieval by PEP-provided fingerprint from key
@@ -222,6 +217,39 @@ int rexmpp_openpgp_key_is_published (rexmpp_t *s, const char *fp) {
   return 0;
 }
 
+xmlNodePtr
+rexmpp_openpgp_remove_key_from_list (rexmpp_t *s,
+                                     const char *fp)
+{
+  xmlNodePtr fps =
+    xmlCopyNodeList(rexmpp_published_fingerprints(s, s->assigned_jid.bare));
+  xmlNodePtr metadata, prev = NULL;
+  for (metadata = fps;
+       metadata != NULL;
+       prev = metadata, metadata = xmlNextElementSibling(metadata)) {
+    if (! rexmpp_xml_match(metadata, "urn:xmpp:openpgp:0", "pubkey-metadata")) {
+      continue;
+    }
+    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    if (fingerprint == NULL) {
+      rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
+      continue;
+    }
+    int matches = (strcmp(fingerprint, fp) == 0);
+    free(fingerprint);
+    if (matches) {
+      if (prev != NULL) {
+        prev->next = metadata->next;
+      } else {
+        fps = metadata->next;
+      }
+      xmlFreeNode(metadata);
+      return fps;
+    }
+  }
+  return fps;
+}
+
 void rexmpp_pgp_key_publish_list_iq (rexmpp_t *s,
                                      xmlNodePtr req,
                                      xmlNodePtr response,
@@ -304,41 +332,17 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
 
   free(node);
 
-  xmlNodePtr fps = rexmpp_published_fingerprints(s, s->assigned_jid.bare);
+  xmlNodePtr fps = rexmpp_openpgp_remove_key_from_list(s, fingerprint);
   if (fps != NULL) {
     metadata->next = xmlCopyNodeList(fps);
   }
-
   rexmpp_pgp_key_fp_list_upload(s, metadata);
 }
 
 void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
-  xmlNodePtr metadata, prev = NULL;
-  for (metadata = rexmpp_published_fingerprints(s, s->assigned_jid.bare);
-       metadata != NULL;
-       prev = metadata, metadata = xmlNextElementSibling(metadata)) {
-    if (! rexmpp_xml_match(metadata, "urn:xmpp:openpgp:0", "pubkey-metadata")) {
-      continue;
-    }
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
-    if (fingerprint == NULL) {
-      rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
-      continue;
-    }
-    int matches = (strcmp(fingerprint, fp) == 0);
-    free(fingerprint);
-    if (matches) {
-      xmlNodePtr new_fp_list = NULL;
-      if (prev != NULL) {
-        prev->next = metadata->next;
-        new_fp_list = rexmpp_published_fingerprints(s, s->assigned_jid.bare);
-      } else {
-        new_fp_list = metadata->next;
-      }
-      xmlFreeNode(metadata);
-      rexmpp_pgp_key_fp_list_upload(s, new_fp_list);
-      break;
-    }
+  xmlNodePtr new_fp_list = rexmpp_openpgp_remove_key_from_list(s, fp);
+  if (new_fp_list != NULL) {
+    rexmpp_pgp_key_fp_list_upload(s, new_fp_list);
   }
 
   char node_str[72];
@@ -360,10 +364,6 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
     rexmpp_log(s, LOG_ERR, "Wrong fingerprint length: %d", strlen(fp));
     return REXMPP_E_PGP;
   }
-  if (rexmpp_openpgp_key_is_published(s, fp)) {
-    rexmpp_log(s, LOG_DEBUG, "Key %s is already published", fp);
-    return REXMPP_SUCCESS;
-  }
 
   gpgme_data_t key_dh;
   gpgme_error_t err;
@@ -375,7 +375,7 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
     return REXMPP_E_PGP;
   }
   gpgme_data_set_encoding(key_dh, GPGME_DATA_ENCODING_BINARY);
-  err = gpgme_op_export(s->pgp_ctx, fp, GPGME_EXPORT_MODE_MINIMAL, key_dh);
+  err = gpgme_op_export(s->pgp_ctx, fp, 0, key_dh);
   if (gpg_err_code(err) == GPG_ERR_EOF) {
     rexmpp_log(s, LOG_ERR, "No such key found: %s", fp);
     gpgme_data_release(key_dh);
