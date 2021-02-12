@@ -49,6 +49,7 @@ Possible future improvements:
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
 #include "rexmpp_jid.h"
+#include "rexmpp_pubsub.h"
 
 
 void rexmpp_pgp_fp_reply (rexmpp_t *s,
@@ -268,21 +269,8 @@ void rexmpp_pgp_key_fp_list_upload (rexmpp_t *s, xmlNodePtr metadata) {
   xmlNodePtr keylist = xmlNewNode(NULL, "public-keys-list");
   xmlNewNs(keylist, "urn:xmpp:openpgp:0", NULL);
   xmlAddChild(keylist, metadata);
-
-  xmlNodePtr item = xmlNewNode(NULL, "item");
-  xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
-  xmlAddChild(item, keylist);
-
-  xmlNodePtr publish = xmlNewNode(NULL, "publish");
-  xmlNewNs(publish, "http://jabber.org/protocol/pubsub", NULL);
-  xmlNewProp(publish, "node", "urn:xmpp:openpgp:0:public-keys");
-  xmlAddChild(publish, item);
-
-  xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
-  xmlNewNs(pubsub, "http://jabber.org/protocol/pubsub", NULL);
-  xmlAddChild(pubsub, publish);
-
-  rexmpp_iq_new(s, "set", NULL, pubsub, rexmpp_pgp_key_publish_list_iq);
+  rexmpp_pubsub_item_publish(s, NULL, "urn:xmpp:openpgp:0:public-keys",
+                             NULL, keylist, rexmpp_pgp_key_publish_list_iq);
 }
 
 void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
@@ -344,19 +332,9 @@ void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
   if (new_fp_list != NULL) {
     rexmpp_pgp_key_fp_list_upload(s, new_fp_list);
   }
-
   char node_str[72];
   snprintf(node_str, 72, "urn:xmpp:openpgp:0:public-keys:%s", fp);
-
-  xmlNodePtr delete = xmlNewNode(NULL, "delete");
-  xmlNewNs(delete, "http://jabber.org/protocol/pubsub#owner", NULL);
-  xmlNewProp(delete, "node", node_str);
-
-  xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
-  xmlNewNs(pubsub, "http://jabber.org/protocol/pubsub#owner", NULL);
-  xmlAddChild(pubsub, delete);
-
-  rexmpp_iq_new(s, "set", NULL, pubsub, rexmpp_pgp_key_delete_iq);
+  rexmpp_pubsub_node_delete(s, NULL, node_str, rexmpp_pgp_key_delete_iq);
 }
 
 rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
@@ -404,25 +382,10 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
   struct tm utc_time;
   gmtime_r(&t, &utc_time);
   strftime(time_str, 42, "%FT%TZ", &utc_time);
-
-  xmlNodePtr item = xmlNewNode(NULL, "item");
-  xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
-  xmlNewProp(item, "id", time_str);
-  xmlAddChild(item, pubkey);
-
   char node_str[72];
   snprintf(node_str, 72, "urn:xmpp:openpgp:0:public-keys:%s", fp);
-  xmlNodePtr publish = xmlNewNode(NULL, "publish");
-  xmlNewNs(publish, "http://jabber.org/protocol/pubsub", NULL);
-  xmlNewProp(publish, "node", node_str);
-  xmlAddChild(publish, item);
-
-  xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
-  xmlNewNs(pubsub, "http://jabber.org/protocol/pubsub", NULL);
-  xmlAddChild(pubsub, publish);
-
-  rexmpp_iq_new(s, "set", NULL, pubsub, rexmpp_pgp_key_publish_iq);
-
+  rexmpp_pubsub_item_publish(s, NULL, node_str, time_str,
+                             pubkey, rexmpp_pgp_key_publish_iq);
   return REXMPP_SUCCESS;
 }
 
