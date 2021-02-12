@@ -77,7 +77,7 @@ main (int argc, char **argv) {
      structure and an initial jid. */
   rexmpp_t s;
   rexmpp_err_t err;
-  err = rexmpp_init(&s, argv[1]);
+  err = rexmpp_init(&s, argv[1], my_logger);
   if (err != REXMPP_SUCCESS) {
     puts("Failed to initialise rexmpp.");
     return -1;
@@ -85,7 +85,6 @@ main (int argc, char **argv) {
 
   /* Set the primary callback functions: for logging, SASL, XML in and
      out. */
-  s.log_function = my_logger;
   s.sasl_property_cb = my_sasl_property_cb;
   s.xml_in_cb = my_xml_in_cb;
   s.xml_out_cb = my_xml_out_cb;

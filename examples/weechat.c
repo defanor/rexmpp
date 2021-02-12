@@ -531,8 +531,7 @@ command_xmpp_cb (const void *pointer, void *data,
     wr->password = strdup(argv[2]);
     wr->hooks = weechat_arraylist_new(42, 0, 0, NULL, NULL, hook_free_cb, NULL);
     rexmpp_t *s = &wr->rexmpp_state;
-    rexmpp_init(s, argv[1]);
-    s->log_function = my_logger;
+    rexmpp_init(s, argv[1], my_logger);
     s->sasl_property_cb = my_sasl_property_cb;
     s->xml_in_cb = my_xml_in_cb;
     s->xml_out_cb = my_xml_out_cb;

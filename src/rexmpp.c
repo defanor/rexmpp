@@ -359,7 +359,9 @@ int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
   return s->sasl_property_cb(s, prop);
 }
 
-rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
+rexmpp_err_t rexmpp_init (rexmpp_t *s,
+                          const char *jid,
+                          log_function_t log_func)
 {
   int err;
   xmlSAXHandler sax = {
@@ -421,7 +423,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid)
   s->stanza_queue_size = 1024;
   s->send_queue_size = 1024;
   s->iq_queue_size = 1024;
-  s->log_function = NULL;
+  s->log_function = log_func;
   s->sasl_property_cb = NULL;
   s->xml_in_cb = NULL;
   s->xml_out_cb = NULL;

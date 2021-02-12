@@ -357,7 +357,9 @@ struct rexmpp
    @param[in] jid Initial bare JID.
    @returns ::REXMPP_SUCCESS or some ::rexmpp_err error.
  */
-rexmpp_err_t rexmpp_init (rexmpp_t *s, const char *jid);
+rexmpp_err_t rexmpp_init (rexmpp_t *s,
+                          const char *jid,
+                          log_function_t log_function);
 
 /**
    @brief ::rexmpp structure deinitialisation. This will free all the
