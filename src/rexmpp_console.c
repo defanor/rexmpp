@@ -113,6 +113,49 @@ void rexmpp_console_on_send (rexmpp_t *s, xmlNodePtr node) {
 
 void rexmpp_console_on_recv (rexmpp_t *s, xmlNodePtr node) {
   if (rexmpp_xml_match(node, "jabber:client", "message")) {
+    xmlNodePtr sent = rexmpp_xml_find_child(node, "urn:xmpp:carbons:2", "sent");
+    if (sent != NULL) {
+      xmlNodePtr fwd =
+        rexmpp_xml_find_child(sent, "urn:xmpp:forward:0", "forwarded");
+      if (fwd != NULL) {
+        xmlNodePtr msg =
+          rexmpp_xml_find_child(fwd, "jabber:client", "message");
+        if (msg != NULL) {
+          char *to = xmlGetProp(msg, "to");
+          char *str = rexmpp_console_message_string(s, msg);
+          if (str != NULL) {
+            rexmpp_console_printf(s, "You tell %s: %s\n", to, str);
+            free(str);
+          }
+          if (to != NULL) {
+            free(to);
+          }
+        }
+      }
+    }
+
+    xmlNodePtr received =
+      rexmpp_xml_find_child(node, "urn:xmpp:carbons:2", "received");
+    if (received != NULL) {
+      xmlNodePtr fwd =
+        rexmpp_xml_find_child(received, "urn:xmpp:forward:0", "forwarded");
+      if (fwd != NULL) {
+        xmlNodePtr msg =
+          rexmpp_xml_find_child(fwd, "jabber:client", "message");
+        if (msg != NULL) {
+          char *from = xmlGetProp(msg, "from");
+          char *str = rexmpp_console_message_string(s, msg);
+          if (str != NULL) {
+            rexmpp_console_printf(s, "%s tells you: %s\n", from, str);
+            free(str);
+          }
+          if (from != NULL) {
+            free(from);
+          }
+        }
+      }
+    }
+
     char *from = xmlGetProp(node, "from");
     if (from != NULL) {
       char *str = rexmpp_console_message_string(s, node);
