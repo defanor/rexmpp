@@ -631,6 +631,12 @@ void rexmpp_done (rexmpp_t *s) {
 }
 
 void rexmpp_schedule_reconnect (rexmpp_t *s) {
+  if (s->stream_state == REXMPP_STREAM_CLOSE_REQUESTED ||
+      s->stream_state == REXMPP_STREAM_CLOSING) {
+    /* Don't schedule a reconnect if a reconnect-causing condition
+       happened during closing. */
+    return;
+  }
   if (s->reconnect_number == 0) {
     gnutls_rnd(GNUTLS_RND_NONCE, &s->reconnect_seconds, sizeof(time_t));
     if (s->reconnect_seconds < 0) {
@@ -2319,6 +2325,7 @@ rexmpp_err_t rexmpp_close (rexmpp_t *s) {
 }
 
 rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
+  s->stream_state = REXMPP_STREAM_CLOSE_REQUESTED;
   if (s->stream_state == REXMPP_STREAM_READY) {
     xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
     xmlNewProp(presence, "type", "unavailable");
@@ -2330,7 +2337,6 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
       return ret;
     }
   }
-  s->stream_state = REXMPP_STREAM_CLOSE_REQUESTED;
   if (s->send_buffer == NULL) {
     return rexmpp_close(s);
   } else {
@@ -2396,6 +2402,13 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
         return err;
       }
     }
+  }
+
+  /* Don't try to reconnect if a stream is requested to be closed. */
+  if (s->tcp_state == REXMPP_TCP_ERROR &&
+      (s->stream_state == REXMPP_STREAM_CLOSE_REQUESTED ||
+       s->stream_state == REXMPP_STREAM_CLOSING)) {
+    return REXMPP_E_TCP;
   }
 
   /* Resolving SRV records. This continues in rexmpp_srv_tls_cb,
