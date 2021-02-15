@@ -96,4 +96,4 @@ A rough roadmap:
 
 [+] Basic usage example.
 [.] WeeChat plugin.
-[ ] A dumb terminal client.
+[ ] Emacs mode (and perhaps an XML-based interface).

@@ -6,9 +6,14 @@
 #include <gsasl.h>
 #include <rexmpp.h>
 
+int log_level = 8;
+
 /* A logger callback. This one just prints all the logs into
    stderr. */
 void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
+  if (priority >= log_level) {
+    return;
+  }
   char *priority_str = "unknown";
   switch (priority) {
   case LOG_EMERG: priority_str = "emerg"; break;
@@ -67,27 +72,59 @@ int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
   return 0;
 }
 
+void my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
+  vprintf(fmt, args);
+}
+
+void print_help (char *prog_name) {
+  printf("Usage: %s [options] <jid>\n" \
+         "Options:\n" \
+         "-c\tenable textual console\n" \
+         "-x\tenable XML console\n" \
+         "-l <n>\tset log level (0 to disable, 8 to print everything)\n"
+         "-h\tprint this help message\n"
+         , prog_name);
+}
+
 main (int argc, char **argv) {
-  if (argc != 2) {
-    printf("Usage: %s <jid>", argv[0]);
+  int c, xml_console = 0, txt_console = 0, log = 0;
+  if (argc < 2) {
+    print_help(argv[0]);
     return -1;
+  }
+  while ((c = getopt (argc, argv, "xchl:")) != -1) {
+    if (c == 'x') {
+      xml_console = 1;
+    } else if (c == 'c') {
+      txt_console = 1;
+    } else if (c == 'l') {
+      log_level = atoi(optarg);
+    } else if (c == 'h') {
+      print_help(argv[0]);
+      return 0;
+    }
   }
 
   /* The minimal initialisation: provide an allocated rexmpp_t
      structure and an initial jid. */
   rexmpp_t s;
   rexmpp_err_t err;
-  err = rexmpp_init(&s, argv[1], my_logger);
+  err = rexmpp_init(&s, argv[argc - 1], my_logger);
   if (err != REXMPP_SUCCESS) {
     puts("Failed to initialise rexmpp.");
     return -1;
   }
 
-  /* Set the primary callback functions: for logging, SASL, XML in and
+  /* Set the primary callback functions: for console, SASL, XML in and
      out. */
+  if (txt_console) {
+    s.console_print_cb = my_console_print_cb;
+  }
   s.sasl_property_cb = my_sasl_property_cb;
-  s.xml_in_cb = my_xml_in_cb;
-  s.xml_out_cb = my_xml_out_cb;
+  if (xml_console) {
+    s.xml_in_cb = my_xml_in_cb;
+    s.xml_out_cb = my_xml_out_cb;
+  }
 
   /* Could set a client certificate for SASL EXTERNAL authentication
      here. */
@@ -103,9 +140,9 @@ main (int argc, char **argv) {
   /* gnutls_certificate_set_x509_trust_file(s.gnutls_cred, */
   /*                                        "foo.custom.crt", */
   /*                                        GNUTLS_X509_FMT_PEM); */
+  /* rexmpp_openpgp_set_home_dir(&s, "pgp"); */
   s.roster_cache_file = "roster.xml";
 
-  /* rexmpp_openpgp_set_home_dir(&s, "./pgp/"); */
 
   /* Once the main structure is initialised and everything is
      sufficiently configured, we are ready to run the main loop and
@@ -129,7 +166,7 @@ main (int argc, char **argv) {
       } else {
         input[input_len - 1] = '\0';
         if (strlen(input) != 0) {
-          if (input[0] == '<') {
+          if (input[0] == '<' && xml_console) {
             /* Raw XML input. */
             xmlDocPtr doc = xmlReadMemory(input, input_len, "", "utf-8", 0);
             if (doc != NULL) {
@@ -144,18 +181,8 @@ main (int argc, char **argv) {
             } else {
               puts("Failed to read a document");
             }
-          } else if (strcmp(input, ".") == 0) {
-            /* Exit. */
-            rexmpp_stop(&s);
-          } else if (strlen(input) == 42 && input[0] == 'k' && input[1] == ' ') {
-            rexmpp_openpgp_publish_key(&s, input + 2);
-          } else {
-            /* A test message for a fixed JID. */
-            xmlNodePtr msg = rexmpp_xml_add_id(&s, xmlNewNode(NULL, "message"));
-            xmlNewProp(msg, "to", "test2@foo.custom");
-            xmlNewProp(msg, "type", "chat");
-            xmlNewTextChild(msg, NULL, "body", input);
-            rexmpp_send(&s, msg);
+          } else if (txt_console) {
+            rexmpp_console_feed(&s, input, input_len);
           }
         }
       }
