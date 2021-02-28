@@ -1,3 +1,11 @@
+/**
+   @file basic.c
+   @brief A reference rexmpp-based client.
+   @author defanor <defanor@uberspace.net>
+   @date 2020--2021
+   @copyright MIT license.
+*/
+
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
@@ -230,4 +238,5 @@ main (int argc, char **argv) {
   /* Deinitialise the rexmpp structure in the end, freeing whatever it
      allocated. */
   rexmpp_done(&s);
+  return 0;
 }

@@ -315,6 +315,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     }
     msg_text = jid_str + strlen(jid_str) + 1;
     xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+    xmlNewNs(msg, "jabber:client", NULL);
     xmlNewProp(msg, "to", jid.full);
     xmlNewProp(msg, "type", "chat");
     xmlNewTextChild(msg, NULL, "body", msg_text);
@@ -349,6 +350,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     free(b64);
 
     xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+    xmlNewNs(msg, "jabber:client", NULL);
     xmlNewProp(msg, "to", jid.full);
     xmlNewProp(msg, "type", "chat");
     xmlAddChild(msg, openpgp);
@@ -370,6 +372,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       }
       msg_text = jid_str + strlen(jid_str) + 1;
       xmlNodePtr msg = rexmpp_xml_add_id(s, xmlNewNode(NULL, "message"));
+      xmlNewNs(msg, "jabber:client", NULL);
       xmlNewProp(msg, "to", jid.full);
       xmlNewProp(msg, "type", "groupchat");
       xmlNewTextChild(msg, NULL, "body", msg_text);
