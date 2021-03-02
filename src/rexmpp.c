@@ -1452,20 +1452,6 @@ void rexmpp_srv_cb (void *s_ptr,
   } else if (s->resolver_state == REXMPP_RESOLVER_SRV_2) {
     s->resolver_state = REXMPP_RESOLVER_READY;
   }
-  if (s->resolver_state != REXMPP_RESOLVER_READY) {
-    return;
-  }
-
-  /* todo: sort the records */
-
-  if (s->server_srv == NULL && s->server_srv_tls == NULL) {
-    /* Failed to resolve anything: a fallback. */
-    s->server_host = s->initial_jid.domain;
-    s->server_port = 5222;
-    rexmpp_start_connecting(s);
-  } else {
-    rexmpp_try_next_host(s);
-  }
 }
 
 /* Should be called after reconnect, and after rexmpp_sm_handle_ack in
@@ -2412,8 +2398,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
 
   /* Resolving SRV records. This continues in rexmpp_srv_tls_cb,
-     rexmpp_srv_cb, and rexmpp_after_srv, possibly leading to
-     connection initiation. */
+     rexmpp_srv_cb. */
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
     if (ub_poll(s->resolver_ctx)) {
@@ -2423,6 +2408,20 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
                    ub_strerror(err));
         return REXMPP_E_DNS;
       }
+    }
+  }
+
+  /* Initiating a connection after SRV resolution. */
+  if (s->resolver_state == REXMPP_RESOLVER_READY) {
+    s->resolver_state = REXMPP_RESOLVER_NONE;
+    /* todo: sort the records */
+    if (s->server_srv == NULL && s->server_srv_tls == NULL) {
+      /* Failed to resolve anything: a fallback. */
+      s->server_host = s->initial_jid.domain;
+      s->server_port = 5222;
+      rexmpp_start_connecting(s);
+    } else {
+      rexmpp_try_next_host(s);
     }
   }
 
