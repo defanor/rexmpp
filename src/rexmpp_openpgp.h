@@ -76,12 +76,16 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
    @param[in] s ::rexmpp
    @param[in] payload XML payload.
    @param[in] recipients A NULL-terminated list of recipient JIDs.
+   @param[in] signers A NULL-terminated list of fingerprints of the
+   keys to sign with. Can be NULL to sign with all the available
+   published keys.
    @param[in] mode ::rexmpp_ox_mode
    @returns An encoded <openpgp> payload.
 */
 char *rexmpp_openpgp_payload (rexmpp_t *s,
                               xmlNodePtr payload,
                               const char **recipients,
+                              const char **signers,
                               enum rexmpp_ox_mode mode);
 
 

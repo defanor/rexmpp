@@ -664,6 +664,7 @@ void rexmpp_openpgp_set_signers (rexmpp_t *s) {
 char *rexmpp_openpgp_payload (rexmpp_t *s,
                               xmlNodePtr payload,
                               const char **recipients,
+                              const char **signers,
                               enum rexmpp_ox_mode mode)
 {
   gpgme_error_t err;
@@ -684,7 +685,23 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   xmlNewNs(elem, "urn:xmpp:openpgp:0", NULL);
 
   if (mode == REXMPP_OX_SIGN || mode == REXMPP_OX_SIGNCRYPT) {
-    rexmpp_openpgp_set_signers(s);
+    if (signers == NULL) {
+      rexmpp_openpgp_set_signers(s);
+    } else {
+      gpgme_signers_clear(s->pgp_ctx);
+      int signer;
+      gpgme_key_t sec_key;
+      for (signer = 0; signers[signer] != NULL; signer++) {
+        err = gpgme_get_key(s->pgp_ctx, signers[signer], &sec_key, 1);
+        if (gpg_err_code(err) == GPG_ERR_NO_ERROR) {
+          gpgme_signers_add(s->pgp_ctx, sec_key);
+          gpgme_key_unref(sec_key);
+        } else {
+          rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
+                     signers[signer], gpgme_strerror(err));
+        }
+      }
+    }
 
     /* Add all the recipients. */
     for (i = 0; recipients[i] != NULL; i++) {

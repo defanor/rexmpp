@@ -131,7 +131,8 @@ void req_process (rexmpp_t *s,
       }
     }
     recipients[recipients_num] = NULL;
-    char *payload_str = rexmpp_openpgp_payload(s, xmlCopyNode(payload_xml, 1), recipients, mode);
+    char *payload_str =
+      rexmpp_openpgp_payload(s, xmlCopyNode(payload_xml, 1), recipients, NULL, mode);
     for (recipients_num = 0; recipients[recipients_num] != NULL; recipients_num++) {
       free(recipients[recipients_num]);
     }
