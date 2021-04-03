@@ -74,6 +74,9 @@
   "A subprocess request queue.")
 (make-variable-buffer-local 'xmpp-request-queue)
 
+(defvar xmpp-truncate-buffer-at 100000
+  "The buffer size at which to truncate an XMPP-related buffer by
+  approximately halving it.")
 
 (defun xmpp-jid-to-bare (jid)
   (let* ((jid-list (reverse (string-to-list jid)))
@@ -290,6 +293,12 @@
 
 (defun xmpp-insert (args)
   (save-excursion
+    (when (and xmpp-truncate-buffer-at
+               (> xmpp-input-point xmpp-truncate-buffer-at))
+      (goto-char (/ xmpp-truncate-buffer-at 2))
+      (search-forward "\n")
+      (setq xmpp-input-point (- xmpp-input-point (1- (point))))
+      (delete-region (point-min) (point)))
     (goto-char xmpp-input-point)
     (funcall 'insert args)
     (setq-local xmpp-input-point (point)))
