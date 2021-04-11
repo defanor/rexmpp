@@ -36,6 +36,7 @@
 
 (require 'xml)
 (require 'seq)
+(require 'alert)
 
 (defvar xmpp-command "rexmpp_xml_interface"
   "A command to run an XMPP client subprocess.")
@@ -77,6 +78,9 @@
 (defvar xmpp-truncate-buffer-at 100000
   "The buffer size at which to truncate an XMPP-related buffer by
   approximately halving it.")
+
+(defun xmpp-message-notify ()
+  (alert (concat "A new message in " (buffer-name)) :category "xmpp"))
 
 (defun xmpp-jid-to-bare (jid)
   (let* ((jid-list (reverse (string-to-list jid)))
@@ -143,13 +147,15 @@
             (when message-body
               (with-current-buffer (xmpp-query message-from proc)
                 (xmpp-insert
-                 (concat "< " (car (xml-node-children message-body)) "\n")))))
+                 (concat "< " (car (xml-node-children message-body)) "\n"))
+                (xmpp-message-notify))))
            ("groupchat"
             (when message-body
               (with-current-buffer (xmpp-muc-buffer message-from proc)
                 (xmpp-insert
                  (concat (xmpp-jid-resource message-from) ": "
-                         (car (xml-node-children message-body)) "\n")))))))))))
+                         (car (xml-node-children message-body)) "\n"))
+                (xmpp-message-notify))))))))))
 
 (defun xmpp-set-from (proc xml)
   (let* ((name (xml-node-name xml))
@@ -297,7 +303,7 @@
                (> xmpp-input-point xmpp-truncate-buffer-at))
       (goto-char (/ xmpp-truncate-buffer-at 2))
       (search-forward "\n")
-      (setq xmpp-input-point (- xmpp-input-point (1- (point))))
+      (setq xmpp-input-point (- xmpp-input-point (- (point) (point-min))))
       (delete-region (point-min) (point)))
     (goto-char xmpp-input-point)
     (funcall 'insert args)
@@ -382,9 +388,7 @@
         (bare-jid (xmpp-jid-to-bare jid)))
     (with-current-buffer (process-buffer process)
       (if (assoc bare-jid xmpp-query-buffers)
-          (let ((query-buf (cdr (assoc bare-jid xmpp-query-buffers))))
-            (display-buffer query-buf)
-            query-buf)
+          (cdr (assoc bare-jid xmpp-query-buffers))
         (let ((query-buf (generate-new-buffer (concat "*xmpp:" bare-jid "*"))))
           (with-current-buffer query-buf
             (xmpp-query-mode)
@@ -427,9 +431,7 @@
         (bare-jid (xmpp-jid-to-bare jid)))
     (with-current-buffer (process-buffer process)
       (if (assoc bare-jid xmpp-muc-buffers)
-          (let ((muc-buf (cdr (assoc bare-jid xmpp-muc-buffers))))
-            (display-buffer muc-buf)
-            muc-buf)
+          (cdr (assoc bare-jid xmpp-muc-buffers))
         (let ((muc-buf (generate-new-buffer (concat "*xmpp:" bare-jid "*"))))
           (with-current-buffer muc-buf
             (xmpp-muc-mode)
