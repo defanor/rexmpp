@@ -1074,6 +1074,10 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
         chunk_len = chunk_raw_len;
       }
       xmlParseChunk(s->xml_parser, chunk, chunk_len, 0);
+      if (chunk != chunk_raw && chunk != NULL) {
+        free(chunk);
+      }
+      chunk = NULL;
 
       xmlNodePtr elem;
       for (elem = s->input_queue;
