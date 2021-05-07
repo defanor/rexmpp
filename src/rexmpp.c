@@ -1880,6 +1880,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                 } else {
                   prev->next = cur->next;
                 }
+                xmlFreeNode(cur);
+                cur = NULL;
               }
 
               /* Add the new message. */
