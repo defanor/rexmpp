@@ -147,13 +147,15 @@
             (when message-body
               (with-current-buffer (xmpp-query message-from proc)
                 (xmpp-insert
-                 (concat "< " (car (xml-node-children message-body)) "\n"))
+                 (concat (format-time-string "%FT%T%z")
+                         " < " (car (xml-node-children message-body)) "\n"))
                 (xmpp-message-notify))))
            ("groupchat"
             (when message-body
               (with-current-buffer (xmpp-muc-buffer message-from proc)
                 (xmpp-insert
-                 (concat (xmpp-jid-resource message-from) ": "
+                 (concat (format-time-string "%FT%T%z") ", "
+                         (xmpp-jid-resource message-from) ": "
                          (car (xml-node-children message-body)) "\n"))
                 (xmpp-message-notify))))))))))
 
@@ -190,7 +192,8 @@
                   (with-current-buffer buf
                     (xmpp-insert
                      (concat
-                      "> " (car (xml-node-children message-body)) "\n")))))))
+                      (format-time-string "%FT%T%z")
+                      " > " (car (xml-node-children message-body)) "\n")))))))
            ("groupchat" nil)))))))
 
 (defun xmpp-process (proc xml)
