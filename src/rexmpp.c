@@ -24,6 +24,7 @@
 #include <gsasl.h>
 #include <unbound.h>
 #include <gpgme.h>
+#include <nettle/sha1.h>
 
 #include "rexmpp.h"
 #include "rexmpp_tcp.h"
@@ -195,20 +196,15 @@ char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
 char *rexmpp_capabilities_hash (rexmpp_t *s,
                                 xmlNodePtr info)
 {
-  int err;
-  char *hash;
+  struct sha1_ctx ctx;
+  sha1_init(&ctx);
+  char hash[SHA1_DIGEST_SIZE];
   char *str = rexmpp_capabilities_string(s, info);
-  err = gsasl_sha1(str, strlen(str), &hash);
-  free(str);
-  if (err) {
-    rexmpp_log(s, LOG_ERR, "Hashing failure: %s",
-               gsasl_strerror(err));
-    return NULL;
-  }
+  sha1_update(&ctx, strlen(str), str);
+  sha1_digest(&ctx, SHA1_DIGEST_SIZE, hash);
   char *out = NULL;
   size_t out_len = 0;
-  gsasl_base64_to(hash, 20, &out, &out_len);
-  free(hash);
+  gsasl_base64_to(hash, SHA1_DIGEST_SIZE, &out, &out_len);
   return out;
 }
 
@@ -472,7 +468,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
                ub_strerror(err));
   }
   /* todo: better to make this path configurable, not to hardcode it */
-  err = ub_ctx_trustedkeys(s->resolver_ctx, "/etc/unbound/root.key");
+  err = ub_ctx_add_ta_file(s->resolver_ctx, "/usr/share/dns/root.key");
   if (err != 0) {
     rexmpp_log(s, LOG_WARNING, "Failed to set root key file for DNSSEC: %s",
                ub_strerror(err));

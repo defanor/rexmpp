@@ -42,6 +42,11 @@ PKG_CHECK_MODULES([ICU_I18N], [icu-i18n])
 AC_SUBST(ICU_I18N_CFLAGS)
 AC_SUBST(ICU_I18N_LIBS)
 
+PKG_CHECK_MODULES([NETTLE], [nettle])
+AC_SUBST(NETTLE_CFLAGS)
+AC_SUBST(NETTLE_LIBS)
+
+
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h netdb.h netinet/in.h sys/socket.h syslog.h])
 

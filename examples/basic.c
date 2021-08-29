@@ -80,8 +80,9 @@ int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
   return 0;
 }
 
-void my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
+int my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
   vprintf(fmt, args);
+  return 0;
 }
 
 void print_help (char *prog_name) {
@@ -94,7 +95,7 @@ void print_help (char *prog_name) {
          , prog_name);
 }
 
-main (int argc, char **argv) {
+int main (int argc, char **argv) {
   int c, xml_console = 0, txt_console = 0, log = 0;
   if (argc < 2) {
     print_help(argv[0]);
