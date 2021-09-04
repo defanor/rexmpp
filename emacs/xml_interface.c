@@ -140,6 +140,17 @@ void req_process (rexmpp_t *s,
     xmlNodeAddContent(rep, payload_str);
     free(payload_str);
   }
+  if (rexmpp_xml_match(child, NULL, "get-name")) {
+    char *jid = xmlNodeGetContent(child);
+    if (jid != NULL) {
+      char *name = rexmpp_get_name(s, jid);
+      if (name != NULL) {
+        xmlNodeAddContent(rep, name);
+        free(name);
+      }
+      free(jid);
+    }
+  }
   print_xml(rep);
   xmlFreeNode(rep);
   return;
@@ -234,7 +245,7 @@ int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
 }
 
 
-main (int argc, char **argv) {
+int main (int argc, char **argv) {
 
   /* The minimal initialisation: provide an allocated rexmpp_t
      structure and an initial jid. */

@@ -41,6 +41,9 @@
 (defvar xmpp-command "rexmpp_xml_interface"
   "A command to run an XMPP client subprocess.")
 
+(defvar xmpp-timestamp-format "%H:%M"
+  "Time string format to use in query buffers.")
+
 (defvar xmpp-proc nil
   "XMPP process buffer. This should be defined for all the
   XMPP-related buffers.")
@@ -142,22 +145,26 @@
      proc xml
      (lambda (message-body)
        (let ((message-from (xml-get-attribute-or-nil xml 'from)))
-         (pcase (xml-get-attribute-or-nil xml 'type)
-           ("chat"
-            (when message-body
-              (with-current-buffer (xmpp-query message-from proc)
-                (xmpp-insert
-                 (concat (format-time-string "%FT%T%z")
-                         " < " (car (xml-node-children message-body)) "\n"))
-                (xmpp-message-notify))))
-           ("groupchat"
-            (when message-body
-              (with-current-buffer (xmpp-muc-buffer message-from proc)
-                (xmpp-insert
-                 (concat (format-time-string "%FT%T%z") ", "
-                         (xmpp-jid-resource message-from) ": "
-                         (car (xml-node-children message-body)) "\n"))
-                (xmpp-message-notify))))))))))
+         (xmpp-with-name
+          message-from
+          (lambda (message-from-name)
+            (pcase (xml-get-attribute-or-nil xml 'type)
+              ("chat"
+               (when message-body
+                 (with-current-buffer (xmpp-query message-from proc)
+                   (xmpp-insert
+                    (concat (format-time-string xmpp-timestamp-format) ", "
+                            message-from-name ": "
+                            (car (xml-node-children message-body)) "\n"))
+                   (xmpp-message-notify))))
+              ("groupchat"
+               (when message-body
+                 (with-current-buffer (xmpp-muc-buffer message-from proc)
+                   (xmpp-insert
+                    (concat (format-time-string xmpp-timestamp-format) ", "
+                            (xmpp-jid-resource message-from) ": "
+                            (car (xml-node-children message-body)) "\n"))
+                   (xmpp-message-notify))))))))))))
 
 (defun xmpp-set-from (proc xml)
   (let* ((name (xml-node-name xml))
@@ -192,8 +199,8 @@
                   (with-current-buffer buf
                     (xmpp-insert
                      (concat
-                      (format-time-string "%FT%T%z")
-                      " > " (car (xml-node-children message-body)) "\n")))))))
+                      (format-time-string xmpp-timestamp-format)
+                      ", me: " (car (xml-node-children message-body)) "\n")))))))
            ("groupchat" nil)))))))
 
 (defun xmpp-process (proc xml)
@@ -241,6 +248,9 @@
       (when (not xmpp-request-queue)
         (xmpp-proc-write `((request nil ,req)) cur-proc))
       (push (cons req cb) xmpp-request-queue))))
+
+(defun xmpp-with-name (jid cb &optional proc)
+  (xmpp-request `(get-name nil ,jid) cb proc))
 
 (defun xmpp-stop (&optional proc)
   (interactive)

@@ -250,6 +250,7 @@ xmlNodePtr rexmpp_find_event (rexmpp_t *s,
   return NULL;
 }
 
+/* https://docs.modernxmpp.org/client/design/#names */
 char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
   struct rexmpp_jid jid;
   if (rexmpp_jid_parse(jid_str, &jid) != 0) {
@@ -290,6 +291,9 @@ char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
         }
       }
     }
+  }
+  if (jid.local[0] != '\0') {
+    return strdup(jid.local);
   }
   return strdup(jid.bare);
 }
