@@ -36,7 +36,7 @@
 
 (require 'xml)
 (require 'seq)
-(require 'alert)
+(require 'tracking)
 
 (defvar xmpp-command "rexmpp_xml_interface"
   "A command to run an XMPP client subprocess.")
@@ -82,8 +82,8 @@
   "The buffer size at which to truncate an XMPP-related buffer by
   approximately halving it.")
 
-(defun xmpp-message-notify ()
-  (alert (concat "A new message in " (buffer-name)) :category "xmpp"))
+(defun xmpp-activity-notify ()
+  (tracking-add-buffer (current-buffer)))
 
 (defun xmpp-jid-to-bare (jid)
   (let* ((jid-list (reverse (string-to-list jid)))
@@ -139,7 +139,22 @@
     (with-current-buffer xmpp-xml-buffer
       (xmpp-insert (format "<!-- server, %s -->\n" (current-time-string)))
       (xmpp-insert-xml (list xml))
-      (xmpp-insert "\n")))
+      (xmpp-insert "\n"))
+    (when (eq (xml-node-name xml) 'presence)
+    (let* ((presence-from (xml-get-attribute-or-nil xml 'from))
+           (presence-type (or (xml-get-attribute-or-nil xml 'type) "available"))
+           (bare-jid (xmpp-jid-to-bare presence-from))
+           (resourcepart (xmpp-jid-resource presence-from)))
+      (when (assoc bare-jid xmpp-query-buffers)
+        (with-current-buffer (cdr (assoc bare-jid xmpp-query-buffers))
+          (xmpp-insert
+           (concat (format-time-string xmpp-timestamp-format) ", "
+                   presence-from " is " presence-type "\n"))))
+      (when (assoc bare-jid xmpp-muc-buffers)
+        (with-current-buffer (cdr (assoc bare-jid xmpp-muc-buffers))
+          (xmpp-insert
+           (concat (format-time-string xmpp-timestamp-format) ", "
+                   resourcepart " is " presence-type "\n")))))))
   (when (eq (xml-node-name xml) 'message)
     (xmpp-with-message-body
      proc xml
@@ -156,7 +171,7 @@
                     (concat (format-time-string xmpp-timestamp-format) ", "
                             message-from-name ": "
                             (car (xml-node-children message-body)) "\n"))
-                   (xmpp-message-notify))))
+                   (xmpp-activity-notify))))
               ("groupchat"
                (when message-body
                  (with-current-buffer (xmpp-muc-buffer message-from proc)
@@ -164,7 +179,7 @@
                     (concat (format-time-string xmpp-timestamp-format) ", "
                             (xmpp-jid-resource message-from) ": "
                             (car (xml-node-children message-body)) "\n"))
-                   (xmpp-message-notify))))))))))))
+                   (xmpp-activity-notify))))))))))))
 
 (defun xmpp-set-from (proc xml)
   (let* ((name (xml-node-name xml))
@@ -400,19 +415,22 @@
   (let ((process (or proc xmpp-proc))
         (bare-jid (xmpp-jid-to-bare jid)))
     (with-current-buffer (process-buffer process)
-      (if (assoc bare-jid xmpp-query-buffers)
-          (cdr (assoc bare-jid xmpp-query-buffers))
-        (let ((query-buf (generate-new-buffer (concat "*xmpp:" bare-jid "*"))))
-          (with-current-buffer query-buf
-            (xmpp-query-mode)
-            (setq-local xmpp-jid bare-jid)
-            (setq-local xmpp-proc process)
-            (setq-local kill-buffer-query-functions
-                        (cons #'xmpp-query-buffer-on-close
-                              kill-buffer-query-functions)))
-          (push (cons bare-jid query-buf) xmpp-query-buffers)
-          (display-buffer query-buf)
-          query-buf)))))
+      (let ((buf (if (assoc bare-jid xmpp-query-buffers)
+                     (cdr (assoc bare-jid xmpp-query-buffers))
+                   (let ((query-buf (generate-new-buffer
+                                     (concat "*xmpp:" bare-jid "*"))))
+                     (with-current-buffer query-buf
+                       (xmpp-query-mode)
+                       (setq-local xmpp-jid bare-jid)
+                       (setq-local xmpp-proc process)
+                       (setq-local kill-buffer-query-functions
+                                   (cons #'xmpp-query-buffer-on-close
+                                         kill-buffer-query-functions)))
+                     (push (cons bare-jid query-buf) xmpp-query-buffers)
+                     query-buf))))
+        (when (interactive-p)
+          (display-buffer buf))
+        buf))))
 
 (defun xmpp-muc-join (jid &optional nick proc)
   (interactive "sConference JID: ")
@@ -441,21 +459,23 @@
 
 (defun xmpp-muc-buffer (jid &optional proc)
   (let* ((process (or proc xmpp-proc))
-        (bare-jid (xmpp-jid-to-bare jid)))
+         (bare-jid (xmpp-jid-to-bare jid)))
     (with-current-buffer (process-buffer process)
-      (if (assoc bare-jid xmpp-muc-buffers)
-          (cdr (assoc bare-jid xmpp-muc-buffers))
-        (let ((muc-buf (generate-new-buffer (concat "*xmpp:" bare-jid "*"))))
-          (with-current-buffer muc-buf
-            (xmpp-muc-mode)
-            (setq-local xmpp-jid bare-jid)
-            (setq-local xmpp-proc process)
-            (setq-local kill-buffer-query-functions
-                        (cons #'xmpp-muc-buffer-on-close
-                              kill-buffer-query-functions)))
-          (push (cons bare-jid muc-buf) xmpp-muc-buffers)
-          (display-buffer muc-buf)
-          muc-buf)))))
+      (let ((buf (if (assoc bare-jid xmpp-muc-buffers)
+                     (cdr (assoc bare-jid xmpp-muc-buffers))
+                   (let ((muc-buf (generate-new-buffer (concat "*xmpp:" bare-jid "*"))))
+                     (with-current-buffer muc-buf
+                       (xmpp-muc-mode)
+                       (setq-local xmpp-jid bare-jid)
+                       (setq-local xmpp-proc process)
+                       (setq-local kill-buffer-query-functions
+                                   (cons #'xmpp-muc-buffer-on-close
+                                         kill-buffer-query-functions)))
+                     (push (cons bare-jid muc-buf) xmpp-muc-buffers)
+                     muc-buf))))
+        (when (interactive-p)
+          (display-buffer buf))
+        buf))))
 
 (provide 'xmpp)
 
