@@ -38,6 +38,44 @@
 (require 'seq)
 (require 'tracking)
 
+(defgroup xmpp nil
+  "An Emacs interface to rexmpp."
+  :prefix "xmpp-"
+  :group 'applications)
+
+(defface xmpp-timestamp
+  '((((type graphic) (class color) (background dark)) :foreground "SteelBlue")
+    (((type graphic) (class color) (background light)) :foreground "SteelBlue"))
+  "Timestamp face."
+  :group 'xmpp)
+
+(defface xmpp-my-nick
+  '((((type graphic) (class color) (background dark)) :foreground "LightSkyBlue")
+    (((type graphic) (class color) (background light)) :foreground "Blue")
+    (t :weight bold))
+  "Own nick face."
+  :group 'xmpp)
+
+(defface xmpp-other-nick
+  '((((type graphic) (class color) (background dark)) :foreground "PaleGreen")
+    (((type graphic) (class color) (background light)) :foreground "DarkGreen")
+    (t :weight bold))
+  "Others' nick face."
+  :group 'xmpp)
+
+(defface xmpp-presence
+  '((((type graphic) (class color) (background dark)) :foreground "wheat1")
+    (((type graphic) (class color) (background light)) :foreground "wheat4"))
+  "Presence notification face."
+  :group 'xmpp)
+
+(defface xmpp-action
+  '((((type graphic) (class color) (background dark)) :foreground "thistle1")
+    (((type graphic) (class color) (background light)) :foreground "thistle4"))
+  "Action (/me) face."
+  :group 'xmpp)
+
+
 (defvar xmpp-command "rexmpp_xml_interface"
   "A command to run an XMPP client subprocess.")
 
@@ -81,6 +119,11 @@
 (defvar xmpp-truncate-buffer-at 100000
   "The buffer size at which to truncate an XMPP-related buffer by
   approximately halving it.")
+
+(defun xmpp-timestamp-string ()
+  (let ((str (format-time-string xmpp-timestamp-format)))
+    (add-face-text-property 0 (length str) 'xmpp-timestamp nil str)
+    str))
 
 (defun xmpp-activity-notify ()
   (tracking-add-buffer (current-buffer)))
@@ -134,6 +177,18 @@
                       proc)
       (funcall func message-body))))
 
+(defun xmpp-message-string (str)
+  (if (string-prefix-p "/me " str)
+      (let ((action (substring str 3)))
+        (add-face-text-property
+         0
+         (length action)
+         'xmpp-action
+         nil
+         action)
+        action)
+    (concat ": " str)))
+
 (defun xmpp-process-input (proc xml)
   (with-current-buffer (process-buffer proc)
     (with-current-buffer xmpp-xml-buffer
@@ -141,45 +196,87 @@
       (xmpp-insert-xml (list xml))
       (xmpp-insert "\n"))
     (when (eq (xml-node-name xml) 'presence)
-    (let* ((presence-from (xml-get-attribute-or-nil xml 'from))
-           (presence-type (or (xml-get-attribute-or-nil xml 'type) "available"))
-           (bare-jid (xmpp-jid-to-bare presence-from))
-           (resourcepart (xmpp-jid-resource presence-from)))
-      (when (assoc bare-jid xmpp-query-buffers)
-        (with-current-buffer (cdr (assoc bare-jid xmpp-query-buffers))
-          (xmpp-insert
-           (concat (format-time-string xmpp-timestamp-format) ", "
-                   presence-from " is " presence-type "\n"))))
-      (when (assoc bare-jid xmpp-muc-buffers)
-        (with-current-buffer (cdr (assoc bare-jid xmpp-muc-buffers))
-          (xmpp-insert
-           (concat (format-time-string xmpp-timestamp-format) ", "
-                   resourcepart " is " presence-type "\n")))))))
+      (let* ((presence-from (xml-get-attribute-or-nil xml 'from))
+             (presence-type (or (xml-get-attribute-or-nil xml 'type) "available"))
+             (presence-show (car (xml-node-children (xmpp-xml-child xml 'show))))
+             (presence-status (car (xml-node-children (xmpp-xml-child xml 'status))))
+             (bare-jid (xmpp-jid-to-bare presence-from))
+             (resourcepart (xmpp-jid-resource presence-from)))
+        (when (assoc bare-jid xmpp-query-buffers)
+          (with-current-buffer (cdr (assoc bare-jid xmpp-query-buffers))
+            (let ((presence-string
+                   (concat
+                    presence-from " is "
+                    presence-type
+                    (when presence-show
+                      (concat " (" presence-show ")"))
+                    (when presence-status
+                      (concat ": " presence-status)))))
+              (add-face-text-property
+               0
+               (length presence-string)
+               'xmpp-presence
+               nil
+               presence-string)
+              (xmpp-insert (concat
+                            (xmpp-timestamp-string) ", "
+                            presence-string "\n")))))
+        (when (assoc bare-jid xmpp-muc-buffers)
+          (with-current-buffer (cdr (assoc bare-jid xmpp-muc-buffers))
+            (let ((presence-string (concat resourcepart " is " presence-type)))
+              (add-face-text-property
+               0
+               (length presence-string)
+               'xmpp-presence
+               nil
+               presence-string)
+              (xmpp-insert
+               (concat (xmpp-timestamp-string) ", "
+                       presence-string "\n"))))))))
   (when (eq (xml-node-name xml) 'message)
     (xmpp-with-message-body
      proc xml
      (lambda (message-body)
-       (let ((message-from (xml-get-attribute-or-nil xml 'from)))
-         (xmpp-with-name
-          message-from
-          (lambda (message-from-name)
-            (pcase (xml-get-attribute-or-nil xml 'type)
-              ("chat"
-               (when message-body
+       (when message-body
+         (let ((message-from (xml-get-attribute-or-nil xml 'from))
+               (message-str
+                (xmpp-message-string (car (xml-node-children message-body)))))
+           (xmpp-with-name
+            message-from
+            (lambda (message-from-name)
+              (pcase (xml-get-attribute-or-nil xml 'type)
+                ("chat"
                  (with-current-buffer (xmpp-query message-from proc)
+                   (add-face-text-property
+                    0
+                    (length message-from-name)
+                    (if (equal (with-current-buffer (process-buffer xmpp-proc) xmpp-jid)
+                               (xmpp-jid-to-bare message-from))
+                        'xmpp-my-nick
+                      'xmpp-other-nick)
+                    nil
+                    message-from-name)
                    (xmpp-insert
-                    (concat (format-time-string xmpp-timestamp-format) ", "
-                            message-from-name ": "
-                            (car (xml-node-children message-body)) "\n"))
-                   (xmpp-activity-notify))))
-              ("groupchat"
-               (when message-body
+                    (concat (xmpp-timestamp-string) ", "
+                            message-from-name
+                            message-str "\n"))
+                   (xmpp-activity-notify)))
+                ("groupchat"
                  (with-current-buffer (xmpp-muc-buffer message-from proc)
-                   (xmpp-insert
-                    (concat (format-time-string xmpp-timestamp-format) ", "
-                            (xmpp-jid-resource message-from) ": "
-                            (car (xml-node-children message-body)) "\n"))
-                   (xmpp-activity-notify))))))))))))
+                   (let ((from-nick (xmpp-jid-resource message-from)))
+                     (add-face-text-property
+                      0
+                      (length from-nick)
+                      (if (equal xmpp-muc-my-nick from-nick)
+                          'xmpp-my-nick
+                        'xmpp-other-nick)
+                      nil
+                      from-nick)
+                     (xmpp-insert
+                      (concat (xmpp-timestamp-string) ", "
+                              from-nick
+                              message-str "\n"))
+                     (xmpp-activity-notify)))))))))))))
 
 (defun xmpp-set-from (proc xml)
   (let* ((name (xml-node-name xml))
@@ -205,18 +302,24 @@
      ;; The "from" attribute is needed for validation.
      proc (xmpp-set-from proc xml)
      (lambda (message-body)
-       (let ((message-to (xml-get-attribute-or-nil xml 'to)))
-         (pcase (xml-get-attribute-or-nil xml 'type)
-           ("chat"
-            (when message-body
-              (let ((buf (xmpp-query message-to proc)))
-                (when buf
-                  (with-current-buffer buf
-                    (xmpp-insert
-                     (concat
-                      (format-time-string xmpp-timestamp-format)
-                      ", me: " (car (xml-node-children message-body)) "\n")))))))
-           ("groupchat" nil)))))))
+       (xmpp-with-name
+        xmpp-jid
+        (lambda (my-name)
+          (add-face-text-property 0 (length my-name) 'xmpp-my-nick nil my-name)
+          (let ((message-to (xml-get-attribute-or-nil xml 'to)))
+            (pcase (xml-get-attribute-or-nil xml 'type)
+              ("chat"
+               (when message-body
+                 (let ((buf (xmpp-query message-to proc)))
+                   (when buf
+                     (with-current-buffer buf
+                       (xmpp-insert
+                        (concat
+                         (xmpp-timestamp-string) ", "
+                         my-name
+                         (xmpp-message-string (car (xml-node-children message-body)))
+                          "\n")))))))
+              ("groupchat" nil)))))))))
 
 (defun xmpp-process (proc xml)
   (let* ((buf (process-buffer proc))
@@ -434,18 +537,18 @@
 
 (defun xmpp-muc-join (jid &optional nick proc)
   (interactive "sConference JID: ")
-  (let* ((process (or proc xmpp-proc))
-         (bare-jid (xmpp-jid-to-bare jid))
-         (my-nick (or nick (xmpp-jid-localpart xmpp-jid)))
-         (full-jid (concat bare-jid "/" my-nick)))
-    (xmpp-send `(presence ((xmlns . "jabber:client")
-                           (id . ,(xmpp-gen-id))
-                           (to . ,full-jid))
-                          (x ((xmlns . "http://jabber.org/protocol/muc")))))
-    (let ((buf (xmpp-muc-buffer jid proc)))
-      (with-current-buffer buf
-        (setq-local xmpp-muc-my-nick my-nick))
-      buf)))
+  (with-current-buffer (process-buffer (or proc xmpp-proc))
+    (let* ((bare-jid (xmpp-jid-to-bare jid))
+           (my-nick (or nick (xmpp-jid-localpart xmpp-jid)))
+           (full-jid (concat bare-jid "/" my-nick)))
+      (xmpp-send `(presence ((xmlns . "jabber:client")
+                             (id . ,(xmpp-gen-id))
+                             (to . ,full-jid))
+                            (x ((xmlns . "http://jabber.org/protocol/muc")))))
+      (let ((buf (xmpp-muc-buffer jid proc)))
+        (with-current-buffer buf
+          (setq-local xmpp-muc-my-nick my-nick))
+        buf))))
 
 (defun xmpp-muc-leave (jid &optional proc)
   (interactive "sConference JID: ")
