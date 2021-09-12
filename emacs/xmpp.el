@@ -37,6 +37,7 @@
 (require 'xml)
 (require 'seq)
 (require 'tracking)
+(require 'auth-source)
 
 (defgroup xmpp nil
   "An Emacs interface to rexmpp."
@@ -325,14 +326,28 @@
   (let* ((buf (process-buffer proc))
          (log-buf (with-current-buffer buf xmpp-log-buffer))
          (console-buf (with-current-buffer buf xmpp-console-buffer))
+         (my-jid (with-current-buffer buf xmpp-jid))
          (xml-elem (car xml)))
     (pcase (xml-node-name xml-elem)
       ('request
        (pcase (car (xml-node-children xml-elem))
          (`(sasl ((property . ,prop)))
-          (xmpp-proc-write `((response nil ,(read-passwd
-                                             (concat "SASL " prop ": "))))
-                           proc))
+          (let ((resp
+                 (if (equal prop "password")
+                     (let ((secret
+                            (plist-get
+                             (car
+                              (auth-source-search
+                               :max 1
+                               :user my-jid
+                               :require '(:user :secret))) :secret)))
+                       (if (functionp secret)
+                           (funcall secret)
+                         secret))
+                   (read-passwd
+                    (concat "SASL " prop ": ")))))
+            (xmpp-proc-write `((response nil ,resp))
+                             proc)))
          (`(xml-in nil ,xml-in)
           (progn (xmpp-process-input proc xml-in)
                  (xmpp-proc-write '((response nil "0")) proc)))
@@ -373,6 +388,20 @@
 (defun xmpp-stop (&optional proc)
   (interactive)
   (xmpp-request '(stop) nil proc))
+
+(defun xmpp-kill-buffers (&optional proc)
+  (interactive)
+  (when (and xmpp-query-buffers
+             xmpp-muc-buffers
+             xmpp-log-buffer
+             xmpp-console-buffer
+             xmpp-xml-buffer)
+    (mapcar (lambda (b) (kill-buffer (cdr b))) xmpp-query-buffers)
+    (mapcar (lambda (b) (kill-buffer (cdr b))) xmpp-muc-buffers)
+    (kill-buffer xmpp-log-buffer)
+    (kill-buffer xmpp-console-buffer)
+    (kill-buffer xmpp-xml-buffer)
+    (kill-buffer)))
 
 (defun xmpp-send (xml &optional proc)
   (xmpp-request `(send nil ,xml) nil proc))
