@@ -460,26 +460,31 @@
 (defun xmpp-insert (args)
   (save-excursion
     (when (and xmpp-truncate-buffer-at
-               (> xmpp-input-point xmpp-truncate-buffer-at))
+               (> xmpp-prompt-start-marker xmpp-truncate-buffer-at))
       (goto-char (/ xmpp-truncate-buffer-at 2))
       (search-forward "\n")
-      (setq xmpp-input-point (- xmpp-input-point (- (point) (point-min))))
+      (set-marker xmpp-prompt-start-marker
+                  (- xmpp-prompt-start-marker (- (point) (point-min))))
+      (set-marker xmpp-prompt-end-marker
+                  (+ xmpp-prompt-start-marker 2))
       (delete-region (point-min) (point)))
-    (goto-char xmpp-input-point)
+    (goto-char xmpp-prompt-start-marker)
     (funcall 'insert args)
-    (setq-local xmpp-input-point (point)))
+    (set-marker xmpp-prompt-start-marker (point))
+    (set-marker xmpp-prompt-end-marker (+ 2 (point))))
   (goto-char (point-max)))
 
 (defun xmpp-insert-xml (xml)
   (save-excursion
-    (goto-char xmpp-input-point)
+    (goto-char xmpp-prompt-start-marker)
     (xml-print xml)
-    (setq-local xmpp-input-point (point)))
-  (goto-char (point-max)))
+    (setq-local xmpp-prompt-start-marker (point-marker))
+    (goto-char (+ 2 xmpp-prompt-start-marker))
+    (setq-local xmpp-prompt-end-marker (point-marker))))
 
 (defun xmpp-send-input ()
   (interactive)
-  (let ((input (buffer-substring xmpp-input-point (point-max))))
+  (let ((input (buffer-substring xmpp-prompt-end-marker (point-max))))
     (pcase major-mode
       ('xmpp-query-mode (xmpp-send `(message ((xmlns . "jabber:client")
                                               (id . ,(xmpp-gen-id))
@@ -493,8 +498,8 @@
                                            (body nil ,input))))
       ('xmpp-console-mode (xmpp-request `(console nil ,input) nil xmpp-proc))
       ('xmpp-xml-mode
-       (mapcar 'xmpp-send (xml-parse-region xmpp-input-point (point-max))))))
-  (delete-region xmpp-input-point (point-max)))
+       (mapcar 'xmpp-send (xml-parse-region xmpp-prompt-end-marker (point-max))))))
+  (delete-region xmpp-prompt-end-marker (point-max)))
 
 
 (defvar xmpp-mode-map
@@ -505,23 +510,23 @@
 
 (define-derived-mode xmpp-mode nil "XMPP"
   "XMPP major mode."
-  (setq-local xmpp-input-point (point-min)))
+  (insert "> ")
+  (add-text-properties (point-min) (point-max)
+		       '(field t read-only t rear-nonsticky t))
+  (setq-local xmpp-prompt-start-marker (point-min-marker))
+  (setq-local xmpp-prompt-end-marker (point-max-marker)))
 
 (define-derived-mode xmpp-query-mode xmpp-mode "XMPP-query"
-  "XMPP Query major mode."
-  (setq-local xmpp-input-point (point-min)))
+  "XMPP Query major mode.")
 
 (define-derived-mode xmpp-muc-mode xmpp-mode "XMPP-MUC"
-  "XMPP Query major mode."
-  (setq-local xmpp-input-point (point-min)))
+  "XMPP Query major mode.")
 
 (define-derived-mode xmpp-console-mode xmpp-mode "XMPP-text-console"
-  "XMPP Text Console major mode."
-  (setq-local xmpp-input-point (point-min)))
+  "XMPP Text Console major mode.")
 
 (define-derived-mode xmpp-xml-mode xmpp-mode "XMPP-XML-console"
-  "XMPP XML Console major mode."
-  (setq-local xmpp-input-point (point-min)))
+  "XMPP XML Console major mode.")
 
 
 (defun xmpp-query-buffer-on-close ()
