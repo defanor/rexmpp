@@ -391,9 +391,7 @@
 
 (defun xmpp-kill-buffers (&optional proc)
   (interactive)
-  (when (and xmpp-query-buffers
-             xmpp-muc-buffers
-             xmpp-log-buffer
+  (when (and xmpp-log-buffer
              xmpp-console-buffer
              xmpp-xml-buffer)
     (mapcar (lambda (b) (kill-buffer (cdr b))) xmpp-query-buffers)
