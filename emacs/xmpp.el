@@ -471,21 +471,22 @@
 (defun xmpp-send-input ()
   (interactive)
   (let ((input (buffer-substring xmpp-prompt-end-marker (point-max))))
-    (pcase major-mode
-      ('xmpp-query-mode (xmpp-send `(message ((xmlns . "jabber:client")
+    (unless (string-empty-p input)
+      (pcase major-mode
+        ('xmpp-query-mode (xmpp-send `(message ((xmlns . "jabber:client")
+                                                (id . ,(xmpp-gen-id))
+                                                (to . ,xmpp-jid)
+                                                (type . "chat"))
+                                               (body nil ,input))))
+        ('xmpp-muc-mode (xmpp-send `(message ((xmlns . "jabber:client")
                                               (id . ,(xmpp-gen-id))
                                               (to . ,xmpp-jid)
-                                              (type . "chat"))
+                                              (type . "groupchat"))
                                              (body nil ,input))))
-      ('xmpp-muc-mode (xmpp-send `(message ((xmlns . "jabber:client")
-                                            (id . ,(xmpp-gen-id))
-                                            (to . ,xmpp-jid)
-                                            (type . "groupchat"))
-                                           (body nil ,input))))
-      ('xmpp-console-mode (xmpp-request `(console nil ,input) nil xmpp-proc))
-      ('xmpp-xml-mode
-       (mapcar 'xmpp-send (xml-parse-region xmpp-prompt-end-marker (point-max))))))
-  (delete-region xmpp-prompt-end-marker (point-max)))
+        ('xmpp-console-mode (xmpp-request `(console nil ,input) nil xmpp-proc))
+        ('xmpp-xml-mode
+         (mapcar 'xmpp-send (xml-parse-region xmpp-prompt-end-marker (point-max))))))
+    (delete-region xmpp-prompt-end-marker (point-max))))
 
 
 (defvar xmpp-mode-map
