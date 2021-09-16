@@ -461,10 +461,6 @@
                (> xmpp-prompt-start-marker xmpp-truncate-buffer-at))
       (goto-char (/ xmpp-truncate-buffer-at 2))
       (search-forward "\n")
-      (set-marker xmpp-prompt-start-marker
-                  (- xmpp-prompt-start-marker (- (point) (point-min))))
-      (set-marker xmpp-prompt-end-marker
-                  (+ xmpp-prompt-start-marker 2))
       (delete-region (point-min) (point)))
     (goto-char xmpp-prompt-start-marker)
     (funcall 'insert args)
