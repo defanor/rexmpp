@@ -201,39 +201,32 @@
              (presence-type (or (xml-get-attribute-or-nil xml 'type) "available"))
              (presence-show (car (xml-node-children (xmpp-xml-child xml 'show))))
              (presence-status (car (xml-node-children (xmpp-xml-child xml 'status))))
+             (presence-string
+              (concat
+               presence-from " is "
+               presence-type
+               (when presence-show
+                 (concat " (" presence-show ")"))
+               (when presence-status
+                 (concat ": " presence-status))))
              (bare-jid (xmpp-jid-to-bare presence-from))
              (resourcepart (xmpp-jid-resource presence-from)))
+        (add-face-text-property
+         0
+         (length presence-string)
+         'xmpp-presence
+         nil
+         presence-string)
         (when (assoc bare-jid xmpp-query-buffers)
           (with-current-buffer (cdr (assoc bare-jid xmpp-query-buffers))
-            (let ((presence-string
-                   (concat
-                    presence-from " is "
-                    presence-type
-                    (when presence-show
-                      (concat " (" presence-show ")"))
-                    (when presence-status
-                      (concat ": " presence-status)))))
-              (add-face-text-property
-               0
-               (length presence-string)
-               'xmpp-presence
-               nil
-               presence-string)
-              (xmpp-insert (concat
-                            (xmpp-timestamp-string) ", "
-                            presence-string "\n")))))
+            (xmpp-insert (concat
+                          (xmpp-timestamp-string) ", "
+                          presence-string "\n"))))
         (when (assoc bare-jid xmpp-muc-buffers)
           (with-current-buffer (cdr (assoc bare-jid xmpp-muc-buffers))
-            (let ((presence-string (concat resourcepart " is " presence-type)))
-              (add-face-text-property
-               0
-               (length presence-string)
-               'xmpp-presence
-               nil
-               presence-string)
-              (xmpp-insert
-               (concat (xmpp-timestamp-string) ", "
-                       presence-string "\n"))))))))
+            (xmpp-insert
+             (concat (xmpp-timestamp-string) ", "
+                     presence-string "\n")))))))
   (when (eq (xml-node-name xml) 'message)
     (xmpp-with-message-body
      proc xml
@@ -465,8 +458,7 @@
     (goto-char xmpp-prompt-start-marker)
     (funcall 'insert args)
     (set-marker xmpp-prompt-start-marker (point))
-    (set-marker xmpp-prompt-end-marker (+ 2 (point))))
-  (goto-char (point-max)))
+    (set-marker xmpp-prompt-end-marker (+ 2 (point)))))
 
 (defun xmpp-insert-xml (xml)
   (save-excursion
