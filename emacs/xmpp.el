@@ -121,8 +121,8 @@
   "The buffer size at which to truncate an XMPP-related buffer by
   approximately halving it.")
 
-(defun xmpp-timestamp-string ()
-  (let ((str (format-time-string xmpp-timestamp-format)))
+(defun xmpp-timestamp-string (&optional time)
+  (let ((str (format-time-string xmpp-timestamp-format time)))
     (add-face-text-property 0 (length str) 'xmpp-timestamp nil str)
     str))
 
@@ -234,6 +234,12 @@
            (carbons-message (xmpp-xml-child carbons-forwarded 'message))
            (message-xml (or carbons-message xml))
            (message-from (xml-get-attribute-or-nil message-xml 'from))
+           (message-delay (xmpp-xml-child message-xml 'delay))
+           (message-time (if message-delay
+                             (encode-time
+                              (iso8601-parse
+                               (xml-get-attribute-or-nil message-delay 'stamp)))
+                           (current-time)))
            (chat-with (cond (carbons-sent (xml-get-attribute-or-nil message-xml 'to))
                             (t message-from))))
       (xmpp-with-message-body
@@ -258,7 +264,7 @@
                       nil
                       message-from-name)
                      (xmpp-insert
-                      (concat (xmpp-timestamp-string) ", "
+                      (concat (xmpp-timestamp-string message-time) ", "
                               message-from-name
                               message-str "\n"))
                      (xmpp-activity-notify)))
@@ -274,7 +280,7 @@
                         nil
                         from-nick)
                        (xmpp-insert
-                        (concat (xmpp-timestamp-string) ", "
+                        (concat (xmpp-timestamp-string message-time) ", "
                                 from-nick
                                 message-str "\n"))
                        (xmpp-activity-notify))))))))))))))
