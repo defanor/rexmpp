@@ -228,49 +228,56 @@
              (concat (xmpp-timestamp-string) ", "
                      presence-string "\n")))))))
   (when (eq (xml-node-name xml) 'message)
-    (xmpp-with-message-body
-     proc xml
-     (lambda (message-body)
-       (when message-body
-         (let ((message-from (xml-get-attribute-or-nil xml 'from))
-               (message-str
-                (xmpp-message-string (car (xml-node-children message-body)))))
-           (xmpp-with-name
-            message-from
-            (lambda (message-from-name)
-              (pcase (xml-get-attribute-or-nil xml 'type)
-                ("chat"
-                 (with-current-buffer (xmpp-query message-from proc)
-                   (add-face-text-property
-                    0
-                    (length message-from-name)
-                    (if (equal (with-current-buffer (process-buffer xmpp-proc) xmpp-jid)
-                               (xmpp-jid-to-bare message-from))
-                        'xmpp-my-nick
-                      'xmpp-other-nick)
-                    nil
-                    message-from-name)
-                   (xmpp-insert
-                    (concat (xmpp-timestamp-string) ", "
-                            message-from-name
-                            message-str "\n"))
-                   (xmpp-activity-notify)))
-                ("groupchat"
-                 (with-current-buffer (xmpp-muc-buffer message-from proc)
-                   (let ((from-nick (xmpp-jid-resource message-from)))
+    (let* ((carbons-sent (xmpp-xml-child xml 'sent))
+           (carbons-received (xmpp-xml-child xml 'received))
+           (carbons-forwarded (xmpp-xml-child (or carbons-sent carbons-received) 'forwarded))
+           (carbons-message (xmpp-xml-child carbons-forwarded 'message))
+           (message-xml (or carbons-message xml))
+           (message-from (xml-get-attribute-or-nil message-xml 'from))
+           (chat-with (cond (carbons-sent (xml-get-attribute-or-nil message-xml 'to))
+                            (t message-from))))
+      (xmpp-with-message-body
+       proc message-xml
+       (lambda (message-body)
+         (when message-body
+           (let ((message-str
+                  (xmpp-message-string (car (xml-node-children message-body)))))
+             (xmpp-with-name
+              message-from
+              (lambda (message-from-name)
+                (pcase (xml-get-attribute-or-nil xml 'type)
+                  ("chat"
+                   (with-current-buffer (xmpp-query chat-with proc)
                      (add-face-text-property
                       0
-                      (length from-nick)
-                      (if (equal xmpp-muc-my-nick from-nick)
+                      (length message-from-name)
+                      (if (equal (with-current-buffer (process-buffer xmpp-proc) xmpp-jid)
+                                 (xmpp-jid-to-bare chat-with))
                           'xmpp-my-nick
                         'xmpp-other-nick)
                       nil
-                      from-nick)
+                      message-from-name)
                      (xmpp-insert
                       (concat (xmpp-timestamp-string) ", "
-                              from-nick
+                              message-from-name
                               message-str "\n"))
-                     (xmpp-activity-notify)))))))))))))
+                     (xmpp-activity-notify)))
+                  ("groupchat"
+                   (with-current-buffer (xmpp-muc-buffer chat-with proc)
+                     (let ((from-nick (xmpp-jid-resource message-from)))
+                       (add-face-text-property
+                        0
+                        (length from-nick)
+                        (if (equal xmpp-muc-my-nick from-nick)
+                            'xmpp-my-nick
+                          'xmpp-other-nick)
+                        nil
+                        from-nick)
+                       (xmpp-insert
+                        (concat (xmpp-timestamp-string) ", "
+                                from-nick
+                                message-str "\n"))
+                       (xmpp-activity-notify))))))))))))))
 
 (defun xmpp-set-from (proc xml)
   (let* ((name (xml-node-name xml))
