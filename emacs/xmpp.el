@@ -333,6 +333,7 @@
                               (auth-source-search
                                :max 1
                                :user my-jid
+                               :port "xmpp"
                                :require '(:user :secret))) :secret)))
                        (if (functionp secret)
                            (funcall secret)
