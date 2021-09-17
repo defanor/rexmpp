@@ -27,8 +27,7 @@
 ;;; Commentary:
 
 ;; See rexmpp's xml_interface.c. Possibly it'll also work with other
-;; libraries later. Might be nice to reuse some generic IM UI library,
-;; something like lui.el.
+;; libraries later.
 
 ;; This is even less polished than the library.
 
@@ -153,9 +152,34 @@
 (defun xmpp-gen-id ()
   (number-to-string (random)))
 
-(defun xmpp-xml-child (xml elem)
-  (seq-find (lambda (x) (and (consp x) (eq (xml-node-name x) elem)))
-            xml))
+(defun xmpp-xml-set-xmlns (node &optional parent-ns)
+  "Propagates xmlns to child elements. This is a temporary hack
+to keep using xml.el without proper namespace parsing, so that
+its printing--which doesn't handle namespaces--can be used too."
+  (if (listp node)
+      (let* ((xmlns (xml-get-attribute-or-nil node 'xmlns))
+             (ns (or xmlns parent-ns))
+             (attrs (xml-node-attributes node)))
+        (cons (xml-node-name node)
+              (cons (if xmlns
+                        attrs
+                      (if ns
+                          (cons (cons 'xmlns ns) attrs)
+                        attrs))
+                    (mapcar (lambda (x) (xmpp-xml-set-xmlns x ns)) (xml-node-children node)))))
+    node))
+
+(defun xmpp-xml-parse-region (&optional beg end buffer)
+  (mapcar 'xmpp-xml-set-xmlns
+          (xml-parse-region beg end buffer)))
+
+(defun xmpp-xml-match (xml name ns)
+  (and (consp xml)
+       (eq (xml-node-name xml) name)
+       (equal (xml-get-attribute-or-nil xml 'xmlns) ns)))
+
+(defun xmpp-xml-child (xml name &optional ns)
+  (seq-find (lambda (x) (xmpp-xml-match x name ns)) xml))
 
 (defun xmpp-proc-write (xml &optional proc)
   (let ((cur-proc (or proc xmpp-proc)))
@@ -167,13 +191,13 @@
 
 (defun xmpp-with-message-body (proc message-xml func)
   (let* ((message-contents (xml-node-children message-xml))
-         (message-body (xmpp-xml-child message-contents 'body))
-         (message-openpgp (xmpp-xml-child message-contents 'openpgp)))
+         (message-body (xmpp-xml-child message-contents 'body "jabber:client"))
+         (message-openpgp (xmpp-xml-child message-contents 'openpgp "urn:xmpp:openpgp:0")))
     (if message-openpgp
         ;; TODO: check validation results.
         (xmpp-request `(openpgp-decrypt-message nil ,message-xml)
                       (lambda (response)
-                        (let* ((payload (xmpp-xml-child response 'payload)))
+                        (let* ((payload (xmpp-xml-child response 'payload "urn:xmpp:openpgp:0")))
                           (funcall func (car (xml-node-children payload)))))
                       proc)
       (funcall func message-body))))
@@ -196,11 +220,11 @@
       (xmpp-insert (format "<!-- server, %s -->\n" (current-time-string)))
       (xmpp-insert-xml (list xml))
       (xmpp-insert "\n"))
-    (when (eq (xml-node-name xml) 'presence)
+    (when (xmpp-xml-match xml 'presence "jabber:client")
       (let* ((presence-from (xml-get-attribute-or-nil xml 'from))
              (presence-type (or (xml-get-attribute-or-nil xml 'type) "available"))
-             (presence-show (car (xml-node-children (xmpp-xml-child xml 'show))))
-             (presence-status (car (xml-node-children (xmpp-xml-child xml 'status))))
+             (presence-show (car (xml-node-children (xmpp-xml-child xml 'show "jabber:client"))))
+             (presence-status (car (xml-node-children (xmpp-xml-child xml 'status "jabber:client"))))
              (presence-string
               (concat
                presence-from " is "
@@ -227,14 +251,15 @@
             (xmpp-insert
              (concat (xmpp-timestamp-string) ", "
                      presence-string "\n")))))))
-  (when (eq (xml-node-name xml) 'message)
-    (let* ((carbons-sent (xmpp-xml-child xml 'sent))
-           (carbons-received (xmpp-xml-child xml 'received))
-           (carbons-forwarded (xmpp-xml-child (or carbons-sent carbons-received) 'forwarded))
-           (carbons-message (xmpp-xml-child carbons-forwarded 'message))
+  (when (xmpp-xml-match xml 'message "jabber:client")
+    (let* ((carbons-sent (xmpp-xml-child xml 'sent "urn:xmpp:carbons:2"))
+           (carbons-received (xmpp-xml-child xml 'received "urn:xmpp:carbons:2"))
+           (carbons-forwarded (xmpp-xml-child (or carbons-sent carbons-received)
+                                              'forwarded "urn:xmpp:forward:0"))
+           (carbons-message (xmpp-xml-child carbons-forwarded 'message "jabber:client"))
            (message-xml (or carbons-message xml))
            (message-from (xml-get-attribute-or-nil message-xml 'from))
-           (message-delay (xmpp-xml-child message-xml 'delay))
+           (message-delay (xmpp-xml-child message-xml 'delay "urn:xmpp:delay"))
            (message-time (if message-delay
                              (encode-time
                               (iso8601-parse
@@ -304,7 +329,7 @@
       (xmpp-insert (format "<!-- client, %s -->\n" (current-time-string)))
       (xmpp-insert-xml (list xml))
       (xmpp-insert "\n")))
-  (when (eq (xml-node-name xml) 'message)
+  (when (xmpp-xml-match xml 'message "jabber:client")
     (xmpp-with-message-body
      ;; The "from" attribute is needed for validation.
      proc (xmpp-set-from proc xml)
@@ -420,7 +445,7 @@
         (goto-char (point-min))
         (let ((zero (search-forward "\0" nil t)))
           (while zero
-            (let ((xml (xml-parse-region (point-min) (1- zero))))
+            (let ((xml (xmpp-xml-parse-region (point-min) (1- zero))))
               (xmpp-process proc xml)
               (delete-region (point-min) zero)
               (setq zero (search-forward "\0" nil t)))))))))
@@ -499,7 +524,7 @@
                                              (body nil ,input))))
         ('xmpp-console-mode (xmpp-request `(console nil ,input) nil xmpp-proc))
         ('xmpp-xml-mode
-         (mapcar 'xmpp-send (xml-parse-region xmpp-prompt-end-marker (point-max))))))
+         (mapcar 'xmpp-send (xmpp-xml-parse-region xmpp-prompt-end-marker (point-max))))))
     (delete-region xmpp-prompt-end-marker (point-max))))
 
 
