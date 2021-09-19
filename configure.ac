@@ -6,7 +6,7 @@ AC_INIT([rexmpp], [0.0.0], [defanor@uberspace.net])
 AM_INIT_AUTOMAKE([-Werror -Wall])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/rexmpp.c])
-AC_CONFIG_HEADERS([config.h])
+AC_CONFIG_HEADERS([src/config.h])
 AC_CONFIG_FILES([Makefile src/Makefile rexmpp.pc Doxyfile])
 
 # Checks for programs.
@@ -17,34 +17,41 @@ LT_INIT
 
 # Checks for libraries.
 PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
-AC_SUBST(LIBXML_CFLAGS)
-AC_SUBST(LIBXML_LIBS)
 
-PKG_CHECK_MODULES([GNUTLS], [gnutls])
-AC_SUBST(GNUTLS_CFLAGS)
-AC_SUBST(GNUTLS_LIBS)
+AC_ARG_ENABLE([tls], AS_HELP_STRING([--disable-tls], [build without TLS support]))
+AC_ARG_WITH([openssl],
+        AS_HELP_STRING([--with-openssl], [Use OpenSSL]))
+AC_ARG_WITH([gnutls],
+        AS_HELP_STRING([--with-gnutls], [Use GnuTLS]))
 
-PKG_CHECK_MODULES([LIBDANE], [gnutls-dane])
-AC_SUBST([LIBDANE_CFLAGS])
-AC_SUBST([LIBDANE_LIBS])
+AS_IF([test "x$with_gnutls" == "xyes"],
+      [PKG_CHECK_MODULES([GNUTLS], [gnutls],
+        [PKG_CHECK_MODULES([LIBDANE], [gnutls-dane],
+          [AC_DEFINE([USE_GNUTLS], [1], [Use GnuTLS])])])],
+
+      [test "x$with_openssl" == "xyes"],
+      [PKG_CHECK_MODULES([OPENSSL], [openssl],
+        [AC_DEFINE([USE_OPENSSL], [1], [Use OpenSSL])])],
+
+      # Default to GnuTLS for now (check for OpenSSL if not found
+      # later).
+      [test "x$enable_tls" != "xno"],
+      [PKG_CHECK_MODULES([GNUTLS], [gnutls],
+        [PKG_CHECK_MODULES([LIBDANE], [gnutls-dane],
+          [AC_DEFINE([USE_GNUTLS], [1], [Use GnuTLS])],
+          [PKG_CHECK_MODULES([OPENSSL], [openssl],
+            [AC_DEFINE([USE_OPENSSL], [1], [Use OpenSSL])])])])])
+
 
 PKG_CHECK_MODULES([GSASL], [libgsasl])
-AC_SUBST(GSASL_CFLAGS)
-AC_SUBST(GSASL_LIBS)
 
 PKG_CHECK_MODULES([UNBOUND], [libunbound])
-AC_SUBST(UNBOUND_CFLAGS)
-AC_SUBST(UNBOUND_LIBS)
 
 AM_PATH_GPGME
 
 PKG_CHECK_MODULES([ICU_I18N], [icu-i18n])
-AC_SUBST(ICU_I18N_CFLAGS)
-AC_SUBST(ICU_I18N_LIBS)
 
 PKG_CHECK_MODULES([NETTLE], [nettle])
-AC_SUBST(NETTLE_CFLAGS)
-AC_SUBST(NETTLE_LIBS)
 
 
 # Checks for header files.

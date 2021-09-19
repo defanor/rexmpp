@@ -14,8 +14,8 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libunbound, libxml2, gnutls, gnutls-dane, gsasl,
-gpgme, libicu, nettle.
+Current dependencies: libunbound, libxml2, gnutls with gnutls-dane or
+openssl, gsasl, gpgme, libicu, nettle.
 
 
 A rough roadmap:
@@ -40,7 +40,8 @@ A rough roadmap:
 [+] XEP-0368 v1.1: SRV records for XMPP over TLS.
 [+] SOCKS5 (RFC 1928) support. Implemented, though no authentication.
 [+] XEP-0199 v2.0: XMPP Ping.
-[.] Certificate verification using DANE (experimental).
+[.] Certificate verification using DANE (experimental, only when built
+    with GnuTLS).
 
 
 - Library refinement:
@@ -48,7 +49,7 @@ A rough roadmap:
 [.] Doxygen documentation.
 [.] Texinfo manual.
 [.] Proper JID handling (RFC 7622).
-[ ] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
+[.] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
     optional usage of alternative ones. Though maybe shouldn't
     abstract out XML functions and structures: could reuse existing
     libxml2 bindings that way.

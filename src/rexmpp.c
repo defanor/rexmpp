@@ -17,10 +17,6 @@
 
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
-#include <gnutls/gnutls.h>
-#include <gnutls/crypto.h>
-#include <gnutls/x509.h>
-#include <gnutls/dane.h>
 #include <gsasl.h>
 #include <unbound.h>
 #include <gpgme.h>
@@ -393,6 +389,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->nick_notifications = 1;
   s->retrieve_openpgp_keys = 1;
   s->autojoin_bookmarked_mucs = 1;
+  s->require_tls = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->resolver_ctx = NULL;
@@ -413,8 +410,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->stanza_queue = NULL;
   s->stream_id = NULL;
   s->active_iq = NULL;
-  s->tls_session_data = NULL;
-  s->tls_session_data_size = 0;
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
@@ -478,17 +473,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
                ub_strerror(err));
   }
 
-  err = gnutls_certificate_allocate_credentials(&(s->gnutls_cred));
-  if (err) {
-    rexmpp_log(s, LOG_CRIT, "gnutls credentials allocation error: %s",
-               gnutls_strerror(err));
-    xmlFreeParserCtxt(s->xml_parser);
-    return REXMPP_E_TLS;
-  }
-  err = gnutls_certificate_set_x509_system_trust(s->gnutls_cred);
-  if (err < 0) {
-    rexmpp_log(s, LOG_CRIT, "Certificates loading error: %s",
-               gnutls_strerror(err));
+  if (rexmpp_tls_init(s)) {
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
   }
@@ -497,7 +482,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   if (err) {
     rexmpp_log(s, LOG_CRIT, "gsasl initialisation error: %s",
                gsasl_strerror(err));
-    gnutls_certificate_free_credentials(s->gnutls_cred);
+    rexmpp_tls_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
   }
@@ -510,7 +495,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_log(s, LOG_CRIT, "gpgme initialisation error: %s",
                gpgme_strerror(err));
     gsasl_done(s->sasl_ctx);
-    gnutls_certificate_free_credentials(s->gnutls_cred);
+    rexmpp_tls_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_PGP;
   }
@@ -522,10 +507,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
    structures), but keeps others (e.g., stanza queue and stream ID,
    since we may resume the stream afterwards). */
 void rexmpp_cleanup (rexmpp_t *s) {
-  if (s->tls_state != REXMPP_TLS_INACTIVE &&
-      s->tls_state != REXMPP_TLS_AWAITING_DIRECT) {
-    gnutls_deinit(s->gnutls_session);
-  }
+  rexmpp_tls_cleanup(s);
   s->tls_state = REXMPP_TLS_INACTIVE;
   if (s->sasl_state != REXMPP_SASL_INACTIVE) {
     gsasl_finish(s->sasl_session);
@@ -585,7 +567,7 @@ void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
   gpgme_release(s->pgp_ctx);
   gsasl_done(s->sasl_ctx);
-  gnutls_certificate_free_credentials(s->gnutls_cred);
+  rexmpp_tls_deinit(s);
   if (s->resolver_ctx != NULL) {
     ub_ctx_delete(s->resolver_ctx);
     s->resolver_ctx = NULL;
@@ -625,9 +607,6 @@ void rexmpp_done (rexmpp_t *s) {
     free(s->active_iq);
     s->active_iq = next;
   }
-  if (s->tls_session_data != NULL) {
-    free(s->tls_session_data);
-  }
 }
 
 void rexmpp_schedule_reconnect (rexmpp_t *s) {
@@ -638,7 +617,7 @@ void rexmpp_schedule_reconnect (rexmpp_t *s) {
     return;
   }
   if (s->reconnect_number == 0) {
-    gnutls_rnd(GNUTLS_RND_NONCE, &s->reconnect_seconds, sizeof(time_t));
+    gsasl_nonce((char*)&s->reconnect_seconds, sizeof(time_t));
     if (s->reconnect_seconds < 0) {
       s->reconnect_seconds = - s->reconnect_seconds;
     }
@@ -822,12 +801,14 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
     rexmpp_log(s, LOG_ERR, "nothing to send");
     return REXMPP_E_SEND_BUFFER_EMPTY;
   }
-  int ret;
+  ssize_t ret;
+  rexmpp_tls_err_t err;
   while (1) {
     if (s->tls_state == REXMPP_TLS_ACTIVE) {
-      ret = gnutls_record_send (s->gnutls_session,
-                                s->send_buffer,
-                                s->send_buffer_len);
+      err = rexmpp_tls_send (s,
+                             s->send_buffer,
+                             s->send_buffer_len,
+                             &ret);
     } else {
       ret = send (s->server_socket,
                   s->send_buffer + s->send_buffer_sent,
@@ -856,10 +837,9 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
       }
     } else {
       if (s->tls_state == REXMPP_TLS_ACTIVE) {
-        if (ret != GNUTLS_E_AGAIN) {
+        if (err != REXMPP_TLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
-          rexmpp_log(s, LOG_ERR, "TLS send error: %s", gnutls_strerror(ret));
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
@@ -1049,12 +1029,13 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
   char chunk_raw[4096], *chunk;
   ssize_t chunk_raw_len, chunk_len;
   int sasl_err;
+  rexmpp_tls_err_t recv_err;
   rexmpp_err_t err = REXMPP_SUCCESS;
   /* Loop here in order to consume data from TLS buffers, which
      wouldn't show up on select(). */
   do {
     if (s->tls_state == REXMPP_TLS_ACTIVE) {
-      chunk_raw_len = gnutls_record_recv(s->gnutls_session, chunk_raw, 4096);
+      recv_err = rexmpp_tls_recv(s, chunk_raw, 4096, &chunk_raw_len);
     } else {
       chunk_raw_len = recv(s->server_socket, chunk_raw, 4096, 0);
     }
@@ -1116,11 +1097,9 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
       }
     } else {
       if (s->tls_state == REXMPP_TLS_ACTIVE) {
-        if (chunk_raw_len != GNUTLS_E_AGAIN) {
+        if (recv_err != REXMPP_TLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
-          rexmpp_log(s, LOG_ERR, "TLS recv error: %s",
-                     gnutls_strerror(chunk_raw_len));
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
@@ -1226,97 +1205,18 @@ rexmpp_err_t rexmpp_try_next_host (rexmpp_t *s) {
   return rexmpp_start_connecting(s);
 }
 
-rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
-  s->tls_state = REXMPP_TLS_HANDSHAKE;
-  int ret = gnutls_handshake(s->gnutls_session);
-  if (ret == GNUTLS_E_AGAIN) {
-    rexmpp_log(s, LOG_DEBUG, "Waiting for TLS handshake to complete");
-    return REXMPP_E_AGAIN;
-  } else if (ret == 0) {
-    int status;
-
-    int srv_is_secure = 0;
-    if (s->stream_state == REXMPP_STREAM_NONE &&
-        s->server_srv_tls != NULL) { /* Direct TLS */
-      srv_is_secure = s->server_srv_tls->secure;
-    } else if (s->stream_state != REXMPP_STREAM_NONE &&
-               s->server_srv != NULL) { /* STARTTLS connection */
-      srv_is_secure = s->server_srv->secure;
-    }
-
-    /* Check DANE TLSA records; experimental and purely informative
-       now, but may be nice to (optionally) rely on it in the
-       future. */
-    if ((srv_is_secure || s->manual_host != NULL) &&
-        s->server_socket_dns_secure) {
-      /* Apparently GnuTLS only checks against the target
-         server/derived host, while another possibility is a
-         service/source host
-         (<https://tools.ietf.org/html/rfc7712#section-5.1>,
-         <https://tools.ietf.org/html/rfc7673#section-6>). */
-      ret = dane_verify_session_crt(NULL, s->gnutls_session, s->server_host,
-                                    "tcp", s->server_port, 0, 0, &status);
-      if (ret) {
-        rexmpp_log(s, LOG_WARNING, "DANE verification error: %s",
-                   dane_strerror(ret));
-      } else if (status) {
-        if (status & DANE_VERIFY_CA_CONSTRAINTS_VIOLATED) {
-          rexmpp_log(s, LOG_WARNING, "The CA constraints were violated");
-        }
-        if (status & DANE_VERIFY_CERT_DIFFERS) {
-          rexmpp_log(s, LOG_WARNING, "The certificate obtained via DNS differs");
-        }
-        if (status & DANE_VERIFY_UNKNOWN_DANE_INFO) {
-          rexmpp_log(s, LOG_WARNING,
-                     "No known DANE data was found in the DNS record");
-        }
-      } else {
-        rexmpp_log(s, LOG_INFO,
-                   "DANE verification did not reject the certificate");
-      }
-    }
-
-    ret = gnutls_certificate_verify_peers3(s->gnutls_session,
-                                           s->initial_jid.domain,
-                                           &status);
-    if (ret || status) {
-      s->tls_state = REXMPP_TLS_ERROR;
-      if (ret) {
-        rexmpp_log(s, LOG_ERR, "Certificate parsing error: %s",
-                   gnutls_strerror(ret));
-      } else if (status & GNUTLS_CERT_UNEXPECTED_OWNER) {
-        rexmpp_log(s, LOG_ERR, "Unexpected certificate owner");
-      } else {
-        rexmpp_log(s, LOG_ERR, "Untrusted certificate");
-      }
-      gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
-      rexmpp_cleanup(s);
-      rexmpp_schedule_reconnect(s);
-      return REXMPP_E_TLS;
-    }
+rexmpp_err_t
+rexmpp_process_tls_conn_err (rexmpp_t *s,
+                             rexmpp_tls_err_t err)
+{
+  if (err == REXMPP_TLS_E_OTHER) {
+    s->tls_state = REXMPP_TLS_ERROR;
+    rexmpp_cleanup(s);
+    rexmpp_schedule_reconnect(s);
+    return REXMPP_E_TLS;
+  } else if (err == REXMPP_TLS_SUCCESS) {
+    rexmpp_log(s, LOG_DEBUG, "A TLS connection is established");
     s->tls_state = REXMPP_TLS_ACTIVE;
-    rexmpp_log(s, LOG_DEBUG, "TLS ready");
-
-    if (gnutls_session_is_resumed(s->gnutls_session)) {
-      rexmpp_log(s, LOG_INFO, "TLS session is resumed");
-    } else {
-      if (s->tls_session_data != NULL) {
-        rexmpp_log(s, LOG_DEBUG, "TLS session is not resumed");
-        free(s->tls_session_data);
-        s->tls_session_data = NULL;
-      }
-      gnutls_session_get_data(s->gnutls_session, NULL,
-                              &s->tls_session_data_size);
-      s->tls_session_data = malloc(s->tls_session_data_size);
-      ret = gnutls_session_get_data(s->gnutls_session, s->tls_session_data,
-                                    &s->tls_session_data_size);
-      if (ret != GNUTLS_E_SUCCESS) {
-        rexmpp_log(s, LOG_ERR, "Failed to get TLS session data: %s",
-                   gnutls_strerror(ret));
-        return REXMPP_E_TLS;
-      }
-    }
-
     if (s->stream_state == REXMPP_STREAM_NONE) {
       /* It's a direct TLS connection, so open a stream after
          connecting. */
@@ -1327,43 +1227,9 @@ rexmpp_err_t rexmpp_tls_handshake (rexmpp_t *s) {
       return rexmpp_stream_open(s);
     }
   } else {
-    rexmpp_log(s, LOG_ERR, "Unexpected TLS handshake error: %s",
-               gnutls_strerror(ret));
-    rexmpp_cleanup(s);
-    rexmpp_schedule_reconnect(s);
-    return REXMPP_E_TLS;
+    s->tls_state = REXMPP_TLS_HANDSHAKE;
+    return REXMPP_E_AGAIN;
   }
-}
-
-rexmpp_err_t rexmpp_tls_start (rexmpp_t *s) {
-  gnutls_datum_t xmpp_client_protocol = {"xmpp-client", strlen("xmpp-client")};
-  rexmpp_log(s, LOG_DEBUG, "starting TLS");
-  gnutls_init(&s->gnutls_session, GNUTLS_CLIENT);
-  gnutls_session_set_ptr(s->gnutls_session, s);
-  gnutls_alpn_set_protocols(s->gnutls_session, &xmpp_client_protocol, 1, 0);
-  gnutls_server_name_set(s->gnutls_session, GNUTLS_NAME_DNS,
-                         s->initial_jid.domain,
-                         strlen(s->initial_jid.domain));
-  gnutls_set_default_priority(s->gnutls_session);
-  gnutls_credentials_set(s->gnutls_session, GNUTLS_CRD_CERTIFICATE,
-                         s->gnutls_cred);
-  gnutls_transport_set_int(s->gnutls_session, s->server_socket);
-  gnutls_handshake_set_timeout(s->gnutls_session,
-                               GNUTLS_DEFAULT_HANDSHAKE_TIMEOUT);
-  if (s->tls_session_data != NULL) {
-    int ret = gnutls_session_set_data(s->gnutls_session,
-                                      s->tls_session_data,
-                                      s->tls_session_data_size);
-    if (ret != GNUTLS_E_SUCCESS) {
-      rexmpp_log(s, LOG_WARNING, "Failed to set TLS session data: %s",
-                 gnutls_strerror(ret));
-      free(s->tls_session_data);
-      s->tls_session_data = NULL;
-      s->tls_session_data_size = 0;
-    }
-  }
-  s->tls_state = REXMPP_TLS_HANDSHAKE;
-  return rexmpp_tls_handshake(s);
 }
 
 rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
@@ -1374,7 +1240,7 @@ rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
   s->reconnect_number = 0;
   xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
   if (s->tls_state == REXMPP_TLS_AWAITING_DIRECT) {
-    return rexmpp_tls_start(s);
+    return rexmpp_process_tls_conn_err(s, rexmpp_tls_connect(s));
   } else {
     return rexmpp_stream_open(s);
   }
@@ -1665,6 +1531,120 @@ rexmpp_err_t rexmpp_stream_bind (rexmpp_t *s) {
 rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
   rexmpp_console_on_recv(s, elem);
 
+  /* Stream negotiation,
+     https://tools.ietf.org/html/rfc6120#section-4.3 */
+  if (s->stream_state == REXMPP_STREAM_NEGOTIATION) {
+    if (rexmpp_xml_match(elem, "http://etherx.jabber.org/streams", "features")) {
+
+      /* Remember features. */
+      if (s->stream_features != NULL) {
+        xmlFreeNode(s->stream_features);
+      }
+      s->stream_features = xmlCopyNode(elem, 1);
+
+      /* TODO: check for required features properly here. Currently
+         assuming that STARTTLS, SASL, and BIND (with an exception for
+         SM) are always required if they are present. */
+      xmlNodePtr child =
+        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-tls",
+                              "starttls");
+      if (child != NULL) {
+        s->stream_state = REXMPP_STREAM_STARTTLS;
+        xmlNodePtr starttls_cmd = xmlNewNode(NULL, "starttls");
+        xmlNewNs(starttls_cmd, "urn:ietf:params:xml:ns:xmpp-tls", NULL);
+        rexmpp_send(s, starttls_cmd);
+        return REXMPP_SUCCESS;
+      } else if (s->require_tls && s->tls_state != REXMPP_TLS_ACTIVE) {
+        /* TLS is required, not established, and there's no such
+           feature available; fail here. */
+        rexmpp_log(s, LOG_ERR,
+                   "TLS is required, but the server doesn't advertise such a feature");
+        return REXMPP_E_TLS;
+      }
+
+      /* Nothing to negotiate. */
+      if (xmlFirstElementChild(elem) == NULL) {
+        rexmpp_stream_is_ready(s);
+        return REXMPP_SUCCESS;
+      }
+
+      child = rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
+                                    "mechanisms");
+      if (child != NULL) {
+        s->stream_state = REXMPP_STREAM_SASL;
+        s->sasl_state = REXMPP_SASL_NEGOTIATION;
+        char mech_list[2048];   /* todo: perhaps grow it dynamically */
+        mech_list[0] = '\0';
+        xmlNodePtr mechanism;
+        for (mechanism = xmlFirstElementChild(child);
+             mechanism != NULL;
+             mechanism = xmlNextElementSibling(mechanism)) {
+          if (rexmpp_xml_match(mechanism, "urn:ietf:params:xml:ns:xmpp-sasl",
+                               "mechanism")) {
+            char *mech_str = xmlNodeGetContent(mechanism);
+            snprintf(mech_list + strlen(mech_list),
+                     2048 - strlen(mech_list),
+                     "%s ",
+                     mech_str);
+            free(mech_str);
+          }
+        }
+        const char *mech =
+          gsasl_client_suggest_mechanism(s->sasl_ctx, mech_list);
+        rexmpp_log(s, LOG_INFO, "Selected SASL mechanism: %s", mech);
+        int sasl_err;
+        char *sasl_buf;
+        sasl_err = gsasl_client_start(s->sasl_ctx, mech, &(s->sasl_session));
+        if (sasl_err != GSASL_OK) {
+          rexmpp_log(s, LOG_CRIT, "Failed to initialise SASL session: %s",
+                     gsasl_strerror(sasl_err));
+          s->sasl_state = REXMPP_SASL_ERROR;
+          return REXMPP_E_SASL;
+        }
+        sasl_err = gsasl_step64 (s->sasl_session, "", (char**)&sasl_buf);
+        if (sasl_err != GSASL_OK) {
+          if (sasl_err == GSASL_NEEDS_MORE) {
+            rexmpp_log(s, LOG_DEBUG, "SASL needs more data");
+          } else {
+            rexmpp_log(s, LOG_ERR, "SASL error: %s",
+                       gsasl_strerror(sasl_err));
+            s->sasl_state = REXMPP_SASL_ERROR;
+            return REXMPP_E_SASL;
+          }
+        }
+        xmlNodePtr auth_cmd = xmlNewNode(NULL, "auth");
+        xmlNewProp(auth_cmd, "mechanism", mech);
+        xmlNewNs(auth_cmd, "urn:ietf:params:xml:ns:xmpp-sasl", NULL);
+        xmlNodeAddContent(auth_cmd, sasl_buf);
+        free(sasl_buf);
+        rexmpp_send(s, auth_cmd);
+        return REXMPP_SUCCESS;
+      }
+
+      child = rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
+      if (s->stream_id != NULL && child != NULL) {
+        s->stream_state = REXMPP_STREAM_SM_RESUME;
+        char buf[11];
+        snprintf(buf, 11, "%u", s->stanzas_in_count);
+        xmlNodePtr sm_resume = xmlNewNode(NULL, "resume");
+        xmlNewNs(sm_resume, "urn:xmpp:sm:3", NULL);
+        xmlNewProp(sm_resume, "previd", s->stream_id);
+        xmlNewProp(sm_resume, "h", buf);
+        rexmpp_send(s, sm_resume);
+        return REXMPP_SUCCESS;
+      }
+
+      child =
+        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-bind", "bind");
+      if (child != NULL) {
+        return rexmpp_stream_bind(s);
+      }
+    } else {
+      rexmpp_log(s, LOG_ERR, "Expected stream features, received %s", elem->name);
+      return REXMPP_E_STREAM;
+    }
+  }
+
   /* IQs. These are the ones that should be processed by the library;
      if a user-facing application wants to handle them on its own, it
      should cancel further processing by the library (so we can send
@@ -1954,110 +1934,6 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     }
   }
 
-  /* Stream negotiation,
-     https://tools.ietf.org/html/rfc6120#section-4.3 */
-  if (s->stream_state == REXMPP_STREAM_NEGOTIATION &&
-      rexmpp_xml_match(elem, "http://etherx.jabber.org/streams", "features")) {
-
-    /* Remember features. */
-    if (s->stream_features != NULL) {
-      xmlFreeNode(s->stream_features);
-    }
-    s->stream_features = xmlCopyNode(elem, 1);
-
-    /* Nothing to negotiate. */
-    if (xmlFirstElementChild(elem) == NULL) {
-      rexmpp_stream_is_ready(s);
-      return REXMPP_SUCCESS;
-    }
-
-    /* TODO: check for required features properly here. Currently
-       assuming that STARTTLS, SASL, and BIND (with an exception for
-       SM) are always required if they are present. */
-    xmlNodePtr child =
-      rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-tls",
-                            "starttls");
-    if (child != NULL) {
-      s->stream_state = REXMPP_STREAM_STARTTLS;
-      xmlNodePtr starttls_cmd = xmlNewNode(NULL, "starttls");
-      xmlNewNs(starttls_cmd, "urn:ietf:params:xml:ns:xmpp-tls", NULL);
-      rexmpp_send(s, starttls_cmd);
-      return REXMPP_SUCCESS;
-    }
-
-    child = rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
-                                  "mechanisms");
-    if (child != NULL) {
-      s->stream_state = REXMPP_STREAM_SASL;
-      s->sasl_state = REXMPP_SASL_NEGOTIATION;
-      char mech_list[2048];   /* todo: perhaps grow it dynamically */
-      mech_list[0] = '\0';
-      xmlNodePtr mechanism;
-      for (mechanism = xmlFirstElementChild(child);
-           mechanism != NULL;
-           mechanism = xmlNextElementSibling(mechanism)) {
-        if (rexmpp_xml_match(mechanism, "urn:ietf:params:xml:ns:xmpp-sasl",
-                             "mechanism")) {
-          char *mech_str = xmlNodeGetContent(mechanism);
-          snprintf(mech_list + strlen(mech_list),
-                   2048 - strlen(mech_list),
-                   "%s ",
-                   mech_str);
-          free(mech_str);
-        }
-      }
-      const char *mech =
-        gsasl_client_suggest_mechanism(s->sasl_ctx, mech_list);
-      rexmpp_log(s, LOG_INFO, "Selected SASL mechanism: %s", mech);
-      int sasl_err;
-      char *sasl_buf;
-      sasl_err = gsasl_client_start(s->sasl_ctx, mech, &(s->sasl_session));
-      if (sasl_err != GSASL_OK) {
-        rexmpp_log(s, LOG_CRIT, "Failed to initialise SASL session: %s",
-                   gsasl_strerror(sasl_err));
-        s->sasl_state = REXMPP_SASL_ERROR;
-        return REXMPP_E_SASL;
-      }
-      sasl_err = gsasl_step64 (s->sasl_session, "", (char**)&sasl_buf);
-      if (sasl_err != GSASL_OK) {
-        if (sasl_err == GSASL_NEEDS_MORE) {
-          rexmpp_log(s, LOG_DEBUG, "SASL needs more data");
-        } else {
-          rexmpp_log(s, LOG_ERR, "SASL error: %s",
-                     gsasl_strerror(sasl_err));
-          s->sasl_state = REXMPP_SASL_ERROR;
-          return REXMPP_E_SASL;
-        }
-      }
-      xmlNodePtr auth_cmd = xmlNewNode(NULL, "auth");
-      xmlNewProp(auth_cmd, "mechanism", mech);
-      xmlNewNs(auth_cmd, "urn:ietf:params:xml:ns:xmpp-sasl", NULL);
-      xmlNodeAddContent(auth_cmd, sasl_buf);
-      free(sasl_buf);
-      rexmpp_send(s, auth_cmd);
-      return REXMPP_SUCCESS;
-    }
-
-    child = rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
-    if (s->stream_id != NULL && child != NULL) {
-      s->stream_state = REXMPP_STREAM_SM_RESUME;
-      char buf[11];
-      snprintf(buf, 11, "%u", s->stanzas_in_count);
-      xmlNodePtr sm_resume = xmlNewNode(NULL, "resume");
-      xmlNewNs(sm_resume, "urn:xmpp:sm:3", NULL);
-      xmlNewProp(sm_resume, "previd", s->stream_id);
-      xmlNewProp(sm_resume, "h", buf);
-      rexmpp_send(s, sm_resume);
-      return REXMPP_SUCCESS;
-    }
-
-    child =
-      rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-bind", "bind");
-    if (child != NULL) {
-      return rexmpp_stream_bind(s);
-    }
-  }
-
   /* Stream errors, https://tools.ietf.org/html/rfc6120#section-4.9 */
   if (rexmpp_xml_match(elem, "http://etherx.jabber.org/streams",
                        "error")) {
@@ -2080,7 +1956,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
   if (s->stream_state == REXMPP_STREAM_STARTTLS) {
     if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-tls",
                          "proceed")) {
-      return rexmpp_tls_start(s);
+      return rexmpp_process_tls_conn_err(s, rexmpp_tls_connect(s));
     } else if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-tls",
                                 "failure")) {
       rexmpp_log(s, LOG_ERR, "STARTTLS failure");
@@ -2505,7 +2381,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
      this, if everything goes well. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       s->tls_state == REXMPP_TLS_HANDSHAKE) {
-    rexmpp_err_t err = rexmpp_tls_handshake(s);
+    rexmpp_err_t err = rexmpp_process_tls_conn_err(s, rexmpp_tls_connect(s));
     if (err > REXMPP_E_AGAIN) {
       return err;
     }
@@ -2527,14 +2403,13 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       s->stream_state == REXMPP_STREAM_CLOSED &&
       s->tls_state == REXMPP_TLS_CLOSING) {
-    int ret = gnutls_bye(s->gnutls_session, GNUTLS_SHUT_RDWR);
-    if (ret == GNUTLS_E_SUCCESS) {
+    rexmpp_tls_err_t err = rexmpp_tls_disconnect(s);
+    if (err == REXMPP_TLS_SUCCESS) {
       s->tls_state = REXMPP_TLS_INACTIVE;
       rexmpp_cleanup(s);
       s->tcp_state = REXMPP_TCP_CLOSED;
     } else {
-      rexmpp_log(s, LOG_WARNING, "Failed to close TLS connection: %s",
-                 gnutls_strerror(ret));
+      s->tls_state = REXMPP_TLS_ERROR;
       return REXMPP_E_TLS;
     }
   }
@@ -2550,7 +2425,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 }
 
 int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
-  int conn_fd, max_fd = 0;
+  int conn_fd, tls_fd, max_fd = 0;
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
@@ -2579,13 +2454,9 @@ int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
 
   if (s->tls_state == REXMPP_TLS_HANDSHAKE) {
-    if (gnutls_record_get_direction(s->gnutls_session) == 0) {
-      FD_SET(s->server_socket, read_fds);
-    } else {
-      FD_SET(s->server_socket, write_fds);
-    }
-    if (s->server_socket + 1 > max_fd) {
-      max_fd = s->server_socket + 1;
+    tls_fd = rexmpp_tls_fds(s, read_fds, write_fds);
+    if (tls_fd > max_fd) {
+      max_fd = tls_fd;
     }
   }
 

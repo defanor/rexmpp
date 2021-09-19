@@ -22,15 +22,19 @@ librexmpp_la_SOURCES = rexmpp_roster.h rexmpp_roster.c \
 	rexmpp_socks.h rexmpp_socks.c \
 	rexmpp.h rexmpp.c \
 	rexmpp_dns.h rexmpp_dns.c \
+	rexmpp_tls.h rexmpp_tls.c \
 	rexmpp_jid.h rexmpp_jid.c \
 	rexmpp_openpgp.h rexmpp_openpgp.c \
 	rexmpp_console.h rexmpp_console.c \
 	rexmpp_pubsub.h rexmpp_pubsub.c
-include_HEADERS = rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h \
-	rexmpp_dns.h rexmpp_jid.h rexmpp_openpgp.h rexmpp_console.h rexmpp_pubsub.h
-librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) $(GNUTLS_CFLAGS) \
-	$(LIBDANE_CFLAGS) $(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(GPGME_CFLAGS)
+include_HEADERS = config.h rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h \
+	rexmpp_dns.h rexmpp_tls.h rexmpp_jid.h rexmpp_openpgp.h rexmpp_console.h \
+	rexmpp_pubsub.h
+librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) \
+	$(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(OPENSSL_CFLAGS) \
+	$(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(GPGME_CFLAGS)
 	$(ICU_I18N_CFLAGS) $(NETTLE_CFLAGS)
-librexmpp_la_LIBADD = $(LIBXML_LIBS) $(GNUTLS_LIBS) $(LIBDANE_LIBS) \
+librexmpp_la_LIBADD = $(LIBXML_LIBS) \
+	$(GNUTLS_LIBS) $(LIBDANE_LIBS) $(OPENSSL_LIBS) \
 	$(GSASL_LIBS) $(UNBOUND_LIBS) $(GPGME_LIBS) $(ICU_I18N_LIBS) \
 	$(NETTLE_LIBS)

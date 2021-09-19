@@ -11,16 +11,17 @@
 
 #include <stdint.h>
 #include <unbound.h>
-#include <gnutls/gnutls.h>
 #include <gsasl.h>
 #include <libxml/tree.h>
 #include <gpgme.h>
+
+typedef struct rexmpp rexmpp_t;
+
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
+#include "rexmpp_tls.h"
 #include "rexmpp_jid.h"
-
-typedef struct rexmpp rexmpp_t;
 
 /**
    @brief An info/query callback function type.
@@ -253,6 +254,7 @@ struct rexmpp
   int nick_notifications;       /* XEP-0172 */
   int retrieve_openpgp_keys;    /* XEP-0373 */
   int autojoin_bookmarked_mucs; /* XEP-0402 */
+  int require_tls;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -338,10 +340,7 @@ struct rexmpp
   xmlNodePtr input_queue_last;
 
   /* TLS structures. */
-  void *tls_session_data;
-  size_t tls_session_data_size;
-  gnutls_session_t gnutls_session;
-  gnutls_certificate_credentials_t gnutls_cred;
+  rexmpp_tls_t tls;
 
   /* SASL structures. */
   Gsasl *sasl_ctx;
