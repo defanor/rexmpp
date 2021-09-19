@@ -25,7 +25,13 @@ PKG_CHECK_MODULES([GSASL], [libgsasl])
 
 PKG_CHECK_MODULES([NETTLE], [nettle])
 
-AM_PATH_GPGME
+
+# GPGME, optional
+
+AC_ARG_WITH([gpgme],
+        AS_HELP_STRING([--without-gpgme], [Don't use GPGME for OpenPGP]))
+AS_IF([test "x$with_gpgme" != "xno"],
+      [AM_PATH_GPGME([], [AC_DEFINE([HAVE_GPGME], [1], [GPGME is available])])])
 
 # TLS: GnuTLS, OpenSSL, or none
 

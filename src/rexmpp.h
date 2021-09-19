@@ -10,10 +10,15 @@
 #define REXMPP_H
 
 #include <stdint.h>
+
+#include "config.h"
+
 #include <unbound.h>
 #include <gsasl.h>
 #include <libxml/tree.h>
+#ifdef HAVE_GPGME
 #include <gpgme.h>
+#endif
 
 typedef struct rexmpp rexmpp_t;
 
@@ -347,7 +352,9 @@ struct rexmpp
   Gsasl_session *sasl_session;
 
   /* OpenPGP structures */
+#ifdef HAVE_GPGME
   gpgme_ctx_t pgp_ctx;
+#endif
 };
 
 /**

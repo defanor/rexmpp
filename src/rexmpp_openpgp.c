@@ -42,7 +42,11 @@ Possible future improvements:
 #include <string.h>
 #include <time.h>
 
+#include "config.h"
+
+#ifdef HAVE_GPGME
 #include <gpgme.h>
+#endif
 #include <libxml/tree.h>
 #include <gsasl.h>
 
@@ -51,6 +55,8 @@ Possible future improvements:
 #include "rexmpp_jid.h"
 #include "rexmpp_pubsub.h"
 
+
+#ifdef HAVE_GPGME
 
 void rexmpp_pgp_fp_reply (rexmpp_t *s,
                           xmlNodePtr req,
@@ -817,3 +823,69 @@ rexmpp_err_t rexmpp_openpgp_set_home_dir (rexmpp_t *s, const char *home_dir) {
   }
   return REXMPP_SUCCESS;
 }
+
+#else
+
+/* Dummy functions for when it's built without GPGME. */
+
+rexmpp_err_t gpgme_not_supported(rexmpp_t *s) {
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without GPGME support");
+  return REXMPP_E_PGP;
+}
+
+rexmpp_err_t
+rexmpp_openpgp_check_keys (rexmpp_t *s,
+                           const char *jid,
+                           xmlNodePtr items) {
+  (void)jid;
+  (void)items;
+  return gpgme_not_supported(s);
+}
+
+rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
+  (void)fp;
+  return gpgme_not_supported(s);
+}
+
+void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
+  (void)fp;
+  gpgme_not_supported(s);
+}
+
+xmlNodePtr
+rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
+                               const char *cipher_base64) {
+  (void)cipher_base64;
+  gpgme_not_supported(s);
+  return  NULL;
+}
+
+xmlNodePtr
+rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
+                                       xmlNodePtr message,
+                                       int *valid) {
+  (void)message;
+  (void)valid;
+  gpgme_not_supported(s);
+  return NULL;
+}
+
+char *rexmpp_openpgp_payload (rexmpp_t *s,
+                              xmlNodePtr payload,
+                              const char **recipients,
+                              const char **signers,
+                              enum rexmpp_ox_mode mode) {
+  (void)recipients;
+  (void)signers;
+  (void)mode;
+  xmlFreeNode(payload);
+  gpgme_not_supported(s);
+  return NULL;
+}
+
+rexmpp_err_t rexmpp_openpgp_set_home_dir (rexmpp_t *s, const char *home_dir) {
+  (void)home_dir;
+  return gpgme_not_supported(s);
+}
+
+#endif

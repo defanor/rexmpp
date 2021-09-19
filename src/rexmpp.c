@@ -15,11 +15,15 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include "config.h"
+
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include <gsasl.h>
 #include <unbound.h>
+#ifdef HAVE_GPGME
 #include <gpgme.h>
+#endif
 #include <nettle/sha1.h>
 
 #include "rexmpp.h"
@@ -387,7 +391,11 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->track_roster_presence = 1;
   s->track_roster_events = 1;
   s->nick_notifications = 1;
+#ifdef HAVE_GPGME
   s->retrieve_openpgp_keys = 1;
+#else
+  s->retrieve_openpgp_keys = 0;
+#endif
   s->autojoin_bookmarked_mucs = 1;
   s->require_tls = 1;
   s->send_buffer = NULL;
@@ -489,6 +497,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   gsasl_callback_hook_set(s->sasl_ctx, s);
   gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
 
+#ifdef HAVE_GPGME
   gpgme_check_version(NULL);
   err = gpgme_new(&(s->pgp_ctx));
   if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
@@ -499,6 +508,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_PGP;
   }
+#endif
 
   return REXMPP_SUCCESS;
 }
@@ -565,7 +575,9 @@ void rexmpp_cleanup (rexmpp_t *s) {
 /* Frees the things that persist through reconnects. */
 void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
+#ifdef HAVE_GPGME
   gpgme_release(s->pgp_ctx);
+#endif
   gsasl_done(s->sasl_ctx);
   rexmpp_tls_deinit(s);
   if (s->resolver_ctx != NULL) {
