@@ -320,7 +320,7 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
   s->disco_info = xmlNewNode(NULL, "identity");
   xmlNewProp(s->disco_info, "category", "client");
   xmlNewProp(s->disco_info, "type", "console");
-  xmlNewProp(s->disco_info, "name", "rexmpp2");
+  xmlNewProp(s->disco_info, "name", "rexmpp");
   prev = s->disco_info;
   cur = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   prev->next = cur;
