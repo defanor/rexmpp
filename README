@@ -14,8 +14,8 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libunbound, libxml2, gnutls with gnutls-dane or
-openssl, gsasl, gpgme, libicu, nettle.
+Current dependencies: libunbound, libxml2, gsasl, nettle, gpgme.
+Optionally gnutls with gnutls-dane or openssl, icu-i18n.
 
 
 A rough roadmap:

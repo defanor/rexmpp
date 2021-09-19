@@ -16,7 +16,18 @@ AM_PROG_AR
 LT_INIT
 
 # Checks for libraries.
+
+PKG_CHECK_MODULES([UNBOUND], [libunbound])
+
 PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
+
+PKG_CHECK_MODULES([GSASL], [libgsasl])
+
+PKG_CHECK_MODULES([NETTLE], [nettle])
+
+AM_PATH_GPGME
+
+# TLS: GnuTLS, OpenSSL, or none
 
 AC_ARG_ENABLE([tls], AS_HELP_STRING([--disable-tls], [build without TLS support]))
 AC_ARG_WITH([openssl],
@@ -42,16 +53,13 @@ AS_IF([test "x$with_gnutls" == "xyes"],
           [PKG_CHECK_MODULES([OPENSSL], [openssl],
             [AC_DEFINE([USE_OPENSSL], [1], [Use OpenSSL])])])])])
 
+# ICU, optional
 
-PKG_CHECK_MODULES([GSASL], [libgsasl])
-
-PKG_CHECK_MODULES([UNBOUND], [libunbound])
-
-AM_PATH_GPGME
-
-PKG_CHECK_MODULES([ICU_I18N], [icu-i18n])
-
-PKG_CHECK_MODULES([NETTLE], [nettle])
+AC_ARG_WITH([icu],
+        AS_HELP_STRING([--without-icu], [Don't use ICU for JID checks]))
+AS_IF([test "x$with_icu" != "xno"],
+      [PKG_CHECK_MODULES([ICU_I18N], [icu-i18n],
+        AC_DEFINE([HAVE_ICU], [1], [icu-i18n is available]))])
 
 
 # Checks for header files.

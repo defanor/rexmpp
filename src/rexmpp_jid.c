@@ -9,9 +9,11 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+#ifdef HAVE_ICU
 #include <unicode/ustring.h>
 #include <unicode/uset.h>
 #include <unicode/uspoof.h>
+#endif
 #include "rexmpp_jid.h"
 
 int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid) {
@@ -71,6 +73,7 @@ int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid) {
 /* <https://tools.ietf.org/html/rfc7622#section-3>,
    <https://tools.ietf.org/html/rfc8265#section-3.3> */
 int rexmpp_jid_check (struct rexmpp_jid *jid) {
+#ifdef HAVE_ICU
   UErrorCode err = U_ZERO_ERROR;
   UChar local[1023], domain[1023], resource[1023];
   int32_t local_len = 0, domain_len = 0, resource_len = 0;
@@ -173,6 +176,8 @@ int rexmpp_jid_check (struct rexmpp_jid *jid) {
   /* TODO: normalization, unorm2_normalize */
 
   /* TODO: directionality */
-
+#else
+  (void)jid;
+#endif
   return 1;
 }
