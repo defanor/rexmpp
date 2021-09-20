@@ -14,7 +14,7 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libunbound, libxml2, gsasl, nettle.  Optionally
+Current dependencies: libunbound, libxml2, gsasl, nettle. Optionally
 gnutls with gnutls-dane or openssl, icu-i18n, gpgme.
 
 
@@ -42,6 +42,7 @@ A rough roadmap:
 [+] XEP-0199 v2.0: XMPP Ping.
 [.] Certificate verification using DANE (experimental, only when built
     with GnuTLS).
+[+] DNSSEC checks.
 
 
 - Library refinement:

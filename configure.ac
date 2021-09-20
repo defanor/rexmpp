@@ -37,9 +37,9 @@ AS_IF([test "x$with_gpgme" != "xno"],
 
 AC_ARG_ENABLE([tls], AS_HELP_STRING([--disable-tls], [build without TLS support]))
 AC_ARG_WITH([openssl],
-        AS_HELP_STRING([--with-openssl], [Use OpenSSL]))
+        AS_HELP_STRING([--with-openssl], [use OpenSSL]))
 AC_ARG_WITH([gnutls],
-        AS_HELP_STRING([--with-gnutls], [Use GnuTLS]))
+        AS_HELP_STRING([--with-gnutls], [use GnuTLS]))
 
 AS_IF([test "x$with_gnutls" == "xyes"],
       [PKG_CHECK_MODULES([GNUTLS], [gnutls],
@@ -50,8 +50,6 @@ AS_IF([test "x$with_gnutls" == "xyes"],
       [PKG_CHECK_MODULES([OPENSSL], [openssl],
         [AC_DEFINE([USE_OPENSSL], [1], [Use OpenSSL])])],
 
-      # Default to GnuTLS for now (check for OpenSSL if not found
-      # later).
       [test "x$enable_tls" != "xno"],
       [PKG_CHECK_MODULES([GNUTLS], [gnutls],
         [PKG_CHECK_MODULES([LIBDANE], [gnutls-dane],
@@ -62,7 +60,7 @@ AS_IF([test "x$with_gnutls" == "xyes"],
 # ICU, optional
 
 AC_ARG_WITH([icu],
-        AS_HELP_STRING([--without-icu], [Don't use ICU for JID checks]))
+        AS_HELP_STRING([--without-icu], [don't use ICU for JID checks]))
 AS_IF([test "x$with_icu" != "xno"],
       [PKG_CHECK_MODULES([ICU_I18N], [icu-i18n],
         AC_DEFINE([HAVE_ICU], [1], [icu-i18n is available]))])
