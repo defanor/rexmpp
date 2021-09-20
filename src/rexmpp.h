@@ -213,6 +213,13 @@ enum rexmpp_err {
 };
 typedef enum rexmpp_err rexmpp_err_t;
 
+/** @brief TLS policy */
+enum tls_pol {
+  REXMPP_TLS_REQUIRE,
+  REXMPP_TLS_PREFER,
+  REXMPP_TLS_AVOID
+};
+
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
 typedef int (*sasl_property_cb_t) (rexmpp_t *s, Gsasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
@@ -259,7 +266,7 @@ struct rexmpp
   int nick_notifications;       /* XEP-0172 */
   int retrieve_openpgp_keys;    /* XEP-0373 */
   int autojoin_bookmarked_mucs; /* XEP-0402 */
-  int require_tls;
+  enum tls_pol tls_policy;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;

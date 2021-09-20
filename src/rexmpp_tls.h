@@ -71,4 +71,14 @@ rexmpp_tls_err_t rexmpp_tls_recv(rexmpp_t *s, void *data, size_t data_size, ssiz
 
 int rexmpp_tls_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
+rexmpp_tls_err_t
+rexmpp_tls_set_x509_key_file (rexmpp_t *s,
+                              const char *cert_file,
+                              const char *key_file);
+
+rexmpp_tls_err_t
+rexmpp_tls_set_x509_trust_file (rexmpp_t *s,
+                                const char *cert_file);
+
+
 #endif

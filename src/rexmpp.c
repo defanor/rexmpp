@@ -397,7 +397,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->retrieve_openpgp_keys = 0;
 #endif
   s->autojoin_bookmarked_mucs = 1;
-  s->require_tls = 1;
+  s->tls_policy = REXMPP_TLS_REQUIRE;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->resolver_ctx = NULL;
@@ -1557,16 +1557,29 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       /* TODO: check for required features properly here. Currently
          assuming that STARTTLS, SASL, and BIND (with an exception for
          SM) are always required if they are present. */
-      xmlNodePtr child =
+      xmlNodePtr starttls =
         rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-tls",
                               "starttls");
-      if (child != NULL) {
-        s->stream_state = REXMPP_STREAM_STARTTLS;
-        xmlNodePtr starttls_cmd = xmlNewNode(NULL, "starttls");
-        xmlNewNs(starttls_cmd, "urn:ietf:params:xml:ns:xmpp-tls", NULL);
-        rexmpp_send(s, starttls_cmd);
-        return REXMPP_SUCCESS;
-      } else if (s->require_tls && s->tls_state != REXMPP_TLS_ACTIVE) {
+      xmlNodePtr sasl =
+        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
+                              "mechanisms");
+      xmlNodePtr bind =
+        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-bind", "bind");
+      xmlNodePtr sm = rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
+
+      if (starttls != NULL) {
+        /* Go for TLS, unless we're both trying to avoid it, and have
+           other options. */
+        if (! (s->tls_policy == REXMPP_TLS_AVOID &&
+               (sasl != NULL || bind != NULL || sm != NULL))) {
+          s->stream_state = REXMPP_STREAM_STARTTLS;
+          xmlNodePtr starttls_cmd = xmlNewNode(NULL, "starttls");
+          xmlNewNs(starttls_cmd, "urn:ietf:params:xml:ns:xmpp-tls", NULL);
+          rexmpp_send(s, starttls_cmd);
+          return REXMPP_SUCCESS;
+        }
+      } else if (s->tls_policy == REXMPP_TLS_REQUIRE &&
+                 s->tls_state != REXMPP_TLS_ACTIVE) {
         /* TLS is required, not established, and there's no such
            feature available; fail here. */
         rexmpp_log(s, LOG_ERR,
@@ -1580,15 +1593,13 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         return REXMPP_SUCCESS;
       }
 
-      child = rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
-                                    "mechanisms");
-      if (child != NULL) {
+      if (sasl != NULL) {
         s->stream_state = REXMPP_STREAM_SASL;
         s->sasl_state = REXMPP_SASL_NEGOTIATION;
         char mech_list[2048];   /* todo: perhaps grow it dynamically */
         mech_list[0] = '\0';
         xmlNodePtr mechanism;
-        for (mechanism = xmlFirstElementChild(child);
+        for (mechanism = xmlFirstElementChild(sasl);
              mechanism != NULL;
              mechanism = xmlNextElementSibling(mechanism)) {
           if (rexmpp_xml_match(mechanism, "urn:ietf:params:xml:ns:xmpp-sasl",
@@ -1633,8 +1644,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         return REXMPP_SUCCESS;
       }
 
-      child = rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
-      if (s->stream_id != NULL && child != NULL) {
+      if (s->stream_id != NULL && sm != NULL) {
         s->stream_state = REXMPP_STREAM_SM_RESUME;
         char buf[11];
         snprintf(buf, 11, "%u", s->stanzas_in_count);
@@ -1646,9 +1656,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         return REXMPP_SUCCESS;
       }
 
-      child =
-        rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-bind", "bind");
-      if (child != NULL) {
+      if (bind != NULL) {
         return rexmpp_stream_bind(s);
       }
     } else {

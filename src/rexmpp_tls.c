@@ -385,3 +385,64 @@ int rexmpp_tls_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   return 0;
 #endif
 }
+
+rexmpp_tls_err_t
+rexmpp_tls_set_x509_key_file (rexmpp_t *s,
+                              const char *cert_file,
+                              const char *key_file)
+{
+#if defined(USE_GNUTLS)
+  int ret = gnutls_certificate_set_x509_key_file(s->tls.gnutls_cred,
+                                                 cert_file,
+                                                 key_file,
+                                                 GNUTLS_X509_FMT_PEM);
+  if (ret == 0) {
+    return REXMPP_TLS_SUCCESS;
+  } else {
+    rexmpp_log(s, LOG_ERR,
+               "Failed to set a key file: %s", gnutls_strerror(ret));
+    return REXMPP_TLS_E_OTHER;
+  }
+#elif defined(USE_OPENSSL)
+  if (SSL_CTX_use_certificate_file(s->tls.openssl_ctx,
+                                   cert_file,
+                                   SSL_FILETYPE_PEM) != 1) {
+    rexmpp_log(s, LOG_ERR, "Failed to set a certificate file");
+    return REXMPP_TLS_E_OTHER;
+  }
+  if (SSL_CTX_use_PrivateKey_file(s->tls.openssl_ctx,
+                                  key_file,
+                                  SSL_FILETYPE_PEM) != 1) {
+    rexmpp_log(s, LOG_ERR, "Failed to set a key file");
+    return REXMPP_TLS_E_OTHER;
+  }
+  return REXMPP_TLS_SUCCESS;
+#else
+  (void)cert_file;
+  (void)key_file;
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
+  return REXMPP_TLS_E_OTHER;
+#endif
+}
+
+rexmpp_tls_err_t
+rexmpp_tls_set_x509_trust_file (rexmpp_t *s,
+                                const char *cert_file)
+{
+#if defined(USE_GNUTLS)
+  gnutls_certificate_set_x509_trust_file(s->tls.gnutls_cred,
+                                         cert_file,
+                                         GNUTLS_X509_FMT_PEM);
+  return REXMPP_TLS_SUCCESS;
+#elif defined(USE_OPENSSL)
+  if (SSL_CTX_load_verify_locations(s->tls.openssl_ctx, cert_file, NULL) != 1) {
+    rexmpp_log(s, LOG_ERR, "Failed to set a trusted certificate file");
+    return REXMPP_TLS_E_OTHER;
+  }
+  return REXMPP_TLS_SUCCESS;
+#else
+  (void)cert_file;
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
+  return REXMPP_TLS_E_OTHER;
+#endif
+}

@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <syslog.h>
-#include <gnutls/gnutls.h>
 #include <gsasl.h>
 #include <rexmpp.h>
 
@@ -137,21 +136,16 @@ int main (int argc, char **argv) {
 
   /* Could set a client certificate for SASL EXTERNAL authentication
      here. */
-  /* gnutls_certificate_set_x509_key_file(s.gnutls_cred, */
-  /*                                      "cert.pem", */
-  /*                                      "key.pem", */
-  /*                                      GNUTLS_X509_FMT_PEM); */
+  /* rexmpp_tls_set_x509_key_file(&s, "client.crt", "client.key"); */
 
   /* Could also set various other things manually. */
   /* s.socks_host = "127.0.0.1"; */
   /* s.socks_port = 4321; */
-  /* s.manual_host = "foo.custom"; */
-  /* gnutls_certificate_set_x509_trust_file(s.gnutls_cred, */
-  /*                                        "foo.custom.crt", */
-  /*                                        GNUTLS_X509_FMT_PEM); */
+  /* s.manual_host = "localhost"; */
+  /* rexmpp_tls_set_x509_trust_file(&s, "localhost.crt"); */
   /* rexmpp_openpgp_set_home_dir(&s, "pgp"); */
   s.roster_cache_file = "roster.xml";
-
+  /* s.tls_policy = REXMPP_TLS_AVOID; */
 
   /* Once the main structure is initialised and everything is
      sufficiently configured, we are ready to run the main loop and
