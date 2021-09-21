@@ -475,7 +475,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
                ub_strerror(err));
   }
   /* todo: better to make this path configurable, not to hardcode it */
-  err = ub_ctx_add_ta_file(s->resolver_ctx, "/usr/share/dns/root.key");
+  err = ub_ctx_add_ta_file(s->resolver_ctx, DNSSEC_TRUST_ANCHOR_FILE);
   if (err != 0) {
     rexmpp_log(s, LOG_WARNING, "Failed to set root key file for DNSSEC: %s",
                ub_strerror(err));

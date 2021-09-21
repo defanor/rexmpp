@@ -15,9 +15,7 @@ AM_PROG_AR
 
 LT_INIT
 
-# Checks for libraries.
-
-PKG_CHECK_MODULES([UNBOUND], [libunbound])
+# Checks for libraries and related parameters.
 
 PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
 
@@ -25,6 +23,18 @@ PKG_CHECK_MODULES([GSASL], [libgsasl])
 
 PKG_CHECK_MODULES([NETTLE], [nettle])
 
+
+# DNS: libunbound
+
+AC_ARG_VAR([DNSSEC_TRUST_ANCHOR_FILE],
+        [A DNSSEC trust anchor, containing DNSKEY in zone file format])
+AS_IF([test "x$DNSSEC_TRUST_ANCHOR_FILE" == "x"],
+      [DNSSEC_TRUST_ANCHOR_FILE="/usr/share/dns/root.key"])
+AC_DEFINE_UNQUOTED([DNSSEC_TRUST_ANCHOR_FILE],
+        "$DNSSEC_TRUST_ANCHOR_FILE",
+        [A DNSSEC trust anchor, containing DNSKEY in zone file format])
+
+PKG_CHECK_MODULES([UNBOUND], [libunbound])
 
 # GPGME, optional
 
