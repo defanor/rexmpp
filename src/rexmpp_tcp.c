@@ -6,7 +6,6 @@
    @copyright MIT license.
 */
 
-#include <unbound.h>
 #include <netdb.h>
 #include <arpa/nameser.h>
 #include <sys/socket.h>
@@ -19,17 +18,19 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
+#include "rexmpp.h"
 #include "rexmpp_tcp.h"
+#include "rexmpp_dns.h"
 
 
-void rexmpp_dns_aaaa_cb (void *ptr,
-                         int status,
-                         struct ub_result *result)
+void rexmpp_tcp_dns_aaaa_cb (rexmpp_t *s,
+                             void *ptr,
+                             rexmpp_dns_result_t *result)
 {
+  (void)s;
   rexmpp_tcp_conn_t *conn = ptr;
-  conn->resolver_status_v6 = status;
   conn->resolved_v6 = result;
-  if (status == 0 && ! result->bogus && result->havedata) {
+  if (result != NULL) {
     conn->resolution_v6 = REXMPP_CONN_RESOLUTION_SUCCESS;
     conn->addr_cur_v6 = -1;
   } else {
@@ -37,14 +38,14 @@ void rexmpp_dns_aaaa_cb (void *ptr,
   }
 }
 
-void rexmpp_dns_a_cb (void *ptr,
-                      int status,
-                      struct ub_result *result)
+void rexmpp_tcp_dns_a_cb (rexmpp_t *s,
+                          void *ptr,
+                          rexmpp_dns_result_t *result)
 {
+  (void)s;
   rexmpp_tcp_conn_t *conn = ptr;
-  conn->resolver_status_v4 = status;
   conn->resolved_v4 = result;
-  if (status == 0 && ! result->bogus && result->havedata) {
+  if (result != NULL) {
     conn->resolution_v4 = REXMPP_CONN_RESOLUTION_SUCCESS;
     conn->addr_cur_v4 = -1;
     if (conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
@@ -74,11 +75,11 @@ void rexmpp_tcp_cleanup (rexmpp_tcp_conn_t *conn) {
     conn->resolution_v6 = REXMPP_CONN_RESOLUTION_INACTIVE;
   }
   if (conn->resolved_v4 != NULL) {
-    ub_resolve_free(conn->resolved_v4);
+    rexmpp_dns_result_free(conn->resolved_v4);
     conn->resolved_v4 = NULL;
   }
   if (conn->resolved_v6 != NULL) {
-    ub_resolve_free(conn->resolved_v6);
+    rexmpp_dns_result_free(conn->resolved_v6);
     conn->resolved_v6 = NULL;
   }
 }
@@ -99,8 +100,8 @@ rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
 }
 
 rexmpp_tcp_conn_error_t
-rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
-                      struct ub_ctx *resolver_ctx,
+rexmpp_tcp_conn_init (rexmpp_t *s,
+                      rexmpp_tcp_conn_t *conn,
                       const char *host,
                       uint16_t port)
 {
@@ -165,12 +166,11 @@ rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
   }
   conn->resolution_v4 = REXMPP_CONN_RESOLUTION_WAITING;
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_WAITING;
-  conn->resolver_ctx = resolver_ctx;
 
-  ub_resolve_async(conn->resolver_ctx, host, 28, 1,
-                   conn, rexmpp_dns_aaaa_cb, NULL);
-  ub_resolve_async(conn->resolver_ctx, host, 1, 1,
-                   conn, rexmpp_dns_a_cb, NULL);
+  rexmpp_dns_resolve(s, host, 28, 1,
+                     conn, rexmpp_tcp_dns_aaaa_cb);
+  rexmpp_dns_resolve(s, host, 1, 1,
+                     conn, rexmpp_tcp_dns_a_cb);
 
   return REXMPP_CONN_IN_PROGRESS;
 }
@@ -193,7 +193,8 @@ int rexmpp_tcp_conn_ipv6_available(rexmpp_tcp_conn_t *conn) {
 }
 
 rexmpp_tcp_conn_error_t
-rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
+rexmpp_tcp_conn_proceed (rexmpp_t *s,
+                         rexmpp_tcp_conn_t *conn,
                          fd_set *read_fds,
                          fd_set *write_fds)
 {
@@ -222,9 +223,7 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
   /* Name resolution. */
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
-    if (ub_poll(conn->resolver_ctx)) {
-      ub_process(conn->resolver_ctx);
-    }
+    rexmpp_dns_process(s, read_fds, write_fds);
   }
 
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_FAILURE &&
@@ -344,17 +343,15 @@ rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
   }
 }
 
-int rexmpp_tcp_conn_fds (rexmpp_tcp_conn_t *conn,
+int rexmpp_tcp_conn_fds (rexmpp_t *s,
+                         rexmpp_tcp_conn_t *conn,
                          fd_set *read_fds,
                          fd_set *write_fds)
 {
   int max_fd = 0, i;
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
-    max_fd = ub_fd(conn->resolver_ctx) + 1;
-    if (max_fd != 0) {
-      FD_SET(max_fd - 1, read_fds);
-    }
+    max_fd = rexmpp_dns_fds(s, read_fds, write_fds);
   }
   for (i = 0; i < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS; i++) {
     if (conn->sockets[i] != -1) {
@@ -367,12 +364,17 @@ int rexmpp_tcp_conn_fds (rexmpp_tcp_conn_t *conn,
   return max_fd;
 }
 
-struct timeval *rexmpp_tcp_conn_timeout (rexmpp_tcp_conn_t *conn,
+struct timeval *rexmpp_tcp_conn_timeout (rexmpp_t *s,
+                                         rexmpp_tcp_conn_t *conn,
                                          struct timeval *max_tv,
                                          struct timeval *tv)
 {
   struct timeval now;
   struct timeval *ret = max_tv;
+  if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
+      conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
+    ret = rexmpp_dns_timeout(s, max_tv, tv);
+  }
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_SUCCESS ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_SUCCESS ||
       (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_INACTIVE &&

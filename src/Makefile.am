@@ -32,7 +32,7 @@ include_HEADERS = config.h rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h 
 	rexmpp_pubsub.h
 librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) \
 	$(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(OPENSSL_CFLAGS) \
-	$(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(GPGME_CFLAGS)
+	$(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(GPGME_CFLAGS) \
 	$(ICU_I18N_CFLAGS) $(NETTLE_CFLAGS)
 librexmpp_la_LIBADD = $(LIBXML_LIBS) \
 	$(GNUTLS_LIBS) $(LIBDANE_LIBS) $(OPENSSL_LIBS) \

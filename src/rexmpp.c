@@ -400,7 +400,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->tls_policy = REXMPP_TLS_REQUIRE;
   s->send_buffer = NULL;
   s->send_queue = NULL;
-  s->resolver_ctx = NULL;
   s->server_srv = NULL;
   s->server_srv_cur = -1;
   s->server_srv_tls = NULL;
@@ -458,30 +457,13 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_XML;
   }
 
-  s->resolver_ctx = ub_ctx_create();
-  if (s->resolver_ctx == NULL) {
-    rexmpp_log(s, LOG_CRIT, "Failed to create resolver context");
+  if (rexmpp_dns_ctx_init(s)) {
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_DNS;
   }
-  err = ub_ctx_resolvconf(s->resolver_ctx, NULL);
-  if (err != 0) {
-    rexmpp_log(s, LOG_WARNING, "Failed to read resolv.conf: %s",
-               ub_strerror(err));
-  }
-  err = ub_ctx_hosts(s->resolver_ctx, NULL);
-  if (err != 0) {
-    rexmpp_log(s, LOG_WARNING, "Failed to read hosts file: %s",
-               ub_strerror(err));
-  }
-  /* todo: better to make this path configurable, not to hardcode it */
-  err = ub_ctx_add_ta_file(s->resolver_ctx, DNSSEC_TRUST_ANCHOR_FILE);
-  if (err != 0) {
-    rexmpp_log(s, LOG_WARNING, "Failed to set root key file for DNSSEC: %s",
-               ub_strerror(err));
-  }
 
   if (rexmpp_tls_init(s)) {
+    rexmpp_dns_ctx_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_TLS;
   }
@@ -491,6 +473,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_log(s, LOG_CRIT, "gsasl initialisation error: %s",
                gsasl_strerror(err));
     rexmpp_tls_deinit(s);
+    rexmpp_dns_ctx_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
   }
@@ -505,6 +488,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
                gpgme_strerror(err));
     gsasl_done(s->sasl_ctx);
     rexmpp_tls_deinit(s);
+    rexmpp_dns_ctx_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_PGP;
   }
@@ -559,12 +543,12 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->input_queue_last = NULL;
   }
   if (s->server_srv != NULL) {
-    ub_resolve_free(s->server_srv);
+    rexmpp_dns_result_free(s->server_srv);
     s->server_srv = NULL;
     s->server_srv_cur = -1;
   }
   if (s->server_srv_tls != NULL) {
-    ub_resolve_free(s->server_srv_tls);
+    rexmpp_dns_result_free(s->server_srv_tls);
     s->server_srv_tls = NULL;
     s->server_srv_tls_cur = -1;
   }
@@ -580,10 +564,7 @@ void rexmpp_done (rexmpp_t *s) {
 #endif
   gsasl_done(s->sasl_ctx);
   rexmpp_tls_deinit(s);
-  if (s->resolver_ctx != NULL) {
-    ub_ctx_delete(s->resolver_ctx);
-    s->resolver_ctx = NULL;
-  }
+  rexmpp_dns_ctx_deinit(s);
   xmlFreeParserCtxt(s->xml_parser);
   if (s->stream_id != NULL) {
     free(s->stream_id);
@@ -1148,8 +1129,8 @@ rexmpp_err_t rexmpp_start_connecting (rexmpp_t *s) {
                s->server_host, s->server_port);
     return
       rexmpp_process_conn_err(s,
-                              rexmpp_tcp_conn_init(&s->server_connection,
-                                                   s->resolver_ctx,
+                              rexmpp_tcp_conn_init(s,
+                                                   &s->server_connection,
                                                    s->server_host,
                                                    s->server_port));
   } else {
@@ -1157,15 +1138,15 @@ rexmpp_err_t rexmpp_start_connecting (rexmpp_t *s) {
                s->server_host, s->server_port,
                s->socks_host, s->socks_port);
     return rexmpp_process_conn_err(s,
-                                   rexmpp_tcp_conn_init(&s->server_connection,
-                                                        s->resolver_ctx,
+                                   rexmpp_tcp_conn_init(s,
+                                                        &s->server_connection,
                                                         s->socks_host,
                                                         s->socks_port));
   }
 }
 
 rexmpp_err_t rexmpp_try_next_host (rexmpp_t *s) {
-  struct ub_result *cur_result;
+  rexmpp_dns_result_t *cur_result;
   int cur_number;
   /* todo: check priorities and weights */
   s->tls_state = REXMPP_TLS_INACTIVE;
@@ -1301,34 +1282,22 @@ rexmpp_process_conn_err (rexmpp_t *s,
   return REXMPP_E_AGAIN;
 }
 
-void rexmpp_srv_cb (void *s_ptr,
-                    int err,
-                    struct ub_result *result)
+void rexmpp_srv_cb (rexmpp_t *s,
+                    void *ptr,
+                    rexmpp_dns_result_t *result)
 {
-  rexmpp_t *s = s_ptr;
-  if (err == 0) {
-    if (result->bogus) {
-      rexmpp_log(s, LOG_WARNING,
-                 "Received a bogus SRV resolution result for %s",
-                 result->qname);
-    } else if (result->havedata) {
-      rexmpp_log(s,
-                 result->secure ? LOG_DEBUG : LOG_WARNING,
-                 "Resolved %s SRV record (%s)",
-                 result->qname, result->secure ? "secure" : "not secure");
-      if (strncmp("_xmpp-", result->qname, 6) == 0) {
-        s->server_srv = result;
-      } else {
-        s->server_srv_tls = result;
-      }
+  (void)ptr;
+  if (result != NULL) {
+    rexmpp_log(s,
+               result->secure ? LOG_DEBUG : LOG_WARNING,
+               "Resolved %s SRV record (%s)",
+               result->qname, result->secure ? "secure" : "not secure");
+    if (strncmp("_xmpp-", result->qname, 6) == 0) {
+      s->server_srv = result;
     } else {
-      rexmpp_log(s, LOG_DEBUG, "No data in the %s SRV result", result->qname);
+      s->server_srv_tls = result;
     }
-  } else {
-    rexmpp_log(s, LOG_WARNING, "Failed to query %s SRV records: %s",
-               result->qname, ub_strerror(err));
   }
-
   if (s->resolver_state == REXMPP_RESOLVER_SRV) {
     s->resolver_state = REXMPP_RESOLVER_SRV_2;
   } else if (s->resolver_state == REXMPP_RESOLVER_SRV_2) {
@@ -2257,24 +2226,15 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       if (srv_query == NULL) {
         return REXMPP_E_MALLOC;
       }
+      s->resolver_state = REXMPP_RESOLVER_SRV;
       snprintf(srv_query, srv_query_buf_len,
                "_xmpps-client._tcp.%s.", s->initial_jid.domain);
-      int err;
-      err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
-                             s, rexmpp_srv_cb, NULL);
-      if (err) {
-        rexmpp_log(s, LOG_ERR, "Failed to query %s SRV record: %s",
-                   srv_query, ub_strerror(err));
-      }
+      rexmpp_dns_resolve(s, srv_query, 33, 1,
+                         NULL, rexmpp_srv_cb);
       snprintf(srv_query, srv_query_buf_len,
                "_xmpp-client._tcp.%s.", s->initial_jid.domain);
-      err = ub_resolve_async(s->resolver_ctx, srv_query, 33, 1,
-                             s, rexmpp_srv_cb, NULL);
-      if (err) {
-        rexmpp_log(s, LOG_ERR, "Failed to query %s SRV record: %s",
-                   srv_query, ub_strerror(err));
-      }
-      s->resolver_state = REXMPP_RESOLVER_SRV;
+      rexmpp_dns_resolve(s, srv_query, 33, 1,
+                         NULL, rexmpp_srv_cb);
       free(srv_query);
     } else {
       /* A host is configured manually, connect there. */
@@ -2303,13 +2263,8 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
      rexmpp_srv_cb. */
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
-    if (ub_poll(s->resolver_ctx)) {
-      int err = ub_process(s->resolver_ctx);
-      if (err != 0) {
-        rexmpp_log(s, LOG_ERR, "DNS query processing error: %s",
-                   ub_strerror(err));
-        return REXMPP_E_DNS;
-      }
+    if (rexmpp_dns_process(s, read_fds, write_fds)) {
+      return REXMPP_E_DNS;
     }
   }
 
@@ -2332,7 +2287,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
     rexmpp_err_t err =
       rexmpp_process_conn_err(s,
-                              rexmpp_tcp_conn_proceed(&s->server_connection,
+                              rexmpp_tcp_conn_proceed(s, &s->server_connection,
                                                       read_fds, write_fds));
     if (err > REXMPP_E_AGAIN) {
       return err;
@@ -2449,14 +2404,11 @@ int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
-    max_fd = ub_fd(s->resolver_ctx) + 1;
-    if (max_fd != 0) {
-      FD_SET(max_fd - 1, read_fds);
-    }
+    max_fd = rexmpp_dns_fds(s, read_fds, write_fds);
   }
 
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
-    conn_fd = rexmpp_tcp_conn_fds(&s->server_connection, read_fds, write_fds);
+    conn_fd = rexmpp_tcp_conn_fds(s, &s->server_connection, read_fds, write_fds);
     if (conn_fd > max_fd) {
       max_fd = conn_fd;
     }
@@ -2503,7 +2455,7 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
       s->resolver_state != REXMPP_RESOLVER_READY) {
 
   } else if (s->tcp_state == REXMPP_TCP_CONNECTING) {
-    ret = rexmpp_tcp_conn_timeout(&s->server_connection, max_tv, tv);
+    ret = rexmpp_tcp_conn_timeout(s, &s->server_connection, max_tv, tv);
   }
   struct timeval now;
   gettimeofday(&now, NULL);

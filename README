@@ -14,7 +14,7 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libunbound, libxml2, gsasl, nettle. Optionally
+Current dependencies: libxml2, gsasl, nettle. Optionally libunbound,
 gnutls with gnutls-dane or openssl, icu-i18n, gpgme.
 
 
@@ -37,12 +37,13 @@ A rough roadmap:
 - Better connectivity:
 
 [+] "Happy Eyeballs" (RFC 8305).
-[+] XEP-0368 v1.1: SRV records for XMPP over TLS.
+[+] XEP-0368 v1.1: SRV records for XMPP over TLS (when built with
+    libunbound).
 [+] SOCKS5 (RFC 1928) support. Implemented, though no authentication.
 [+] XEP-0199 v2.0: XMPP Ping.
 [.] Certificate verification using DANE (experimental, only when built
     with GnuTLS).
-[+] DNSSEC checks.
+[+] DNSSEC checks (when built with libunbound).
 
 
 - Library refinement:

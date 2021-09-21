@@ -13,7 +13,6 @@
 
 #include "config.h"
 
-#include <unbound.h>
 #include <gsasl.h>
 #include <libxml/tree.h>
 #ifdef HAVE_GPGME
@@ -311,10 +310,15 @@ struct rexmpp
   time_t last_network_activity;
 
   /* DNS-related structures. */
-  struct ub_ctx *resolver_ctx;
-  struct ub_result *server_srv;
+  /* struct ub_ctx *resolver_ctx; */
+  /* struct ub_result *server_srv; */
+  /* int server_srv_cur; */
+  /* struct ub_result *server_srv_tls; */
+  /* int server_srv_tls_cur; */
+  rexmpp_dns_ctx_t resolver;
+  rexmpp_dns_result_t *server_srv;
   int server_srv_cur;
-  struct ub_result *server_srv_tls;
+  rexmpp_dns_result_t *server_srv_tls;
   int server_srv_tls_cur;
   struct rexmpp_dns_srv server_active_srv;
 

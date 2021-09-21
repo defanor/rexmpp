@@ -21,6 +21,9 @@
 
 #include <sys/time.h>
 
+#include "rexmpp.h"
+#include "rexmpp_dns.h"
+
 #define REXMPP_TCP_MAX_CONNECTION_ATTEMPTS 20
 #define REXMPP_TCP_IPV6_DELAY_MS 50
 #define REXMPP_TCP_CONN_DELAY_MS 250
@@ -70,19 +73,13 @@ struct rexmpp_tcp_connection {
   /** @brief A port we are connecting to. */
   uint16_t port;
 
-  /** @brief Resolver context. */
-  struct ub_ctx *resolver_ctx;
-  /** @brief Resolver error is stored here when
-      ::REXMPP_CONN_RESOLVER_ERROR is returned. */
-  int resolver_error;
-
   /** @brief State of A record resolution. */
   enum rexmpp_tcp_conn_resolution_status resolution_v4;
   /** @brief Status of A record resolution, as returned by the
       resolver. */
   int resolver_status_v4;
   /** @brief Resolved A records. */
-  struct ub_result *resolved_v4;
+  rexmpp_dns_result_t *resolved_v4;
   /** @brief The AF_INET address number we are currently at. */
   int addr_cur_v4;
 
@@ -92,7 +89,7 @@ struct rexmpp_tcp_connection {
       resolver. */
   int resolver_status_v6;
   /** @brief Resolved AAAA records. */
-  struct ub_result *resolved_v6;
+  rexmpp_dns_result_t *resolved_v6;
   /** @brief The AF_INET6 address number we are currently at. */
   int addr_cur_v6;
 
@@ -112,28 +109,30 @@ struct rexmpp_tcp_connection {
 
 /**
     @brief Initiates a connection.
+    @param[in] s ::rexmpp
     @param[out] conn An allocated connection structure.
-    @param[in] resolver_ctx Resolver context to use.
     @param[in] host A host to connect to. This could be a domain name,
     or a textual representation of an IPv4 or an IPv6 address.
     @param[in] port A port to connect to.
     @returns A ::rexmpp_tcp_conn_error state.
 */
 rexmpp_tcp_conn_error_t
-rexmpp_tcp_conn_init (rexmpp_tcp_conn_t *conn,
-                      struct ub_ctx *resolver_ctx,
+rexmpp_tcp_conn_init (rexmpp_t *s,
+                      rexmpp_tcp_conn_t *conn,
                       const char *host,
                       uint16_t port);
 
 /**
     @brief Continues a connection process.
+    @param[in] s ::rexmpp
     @param[in,out] conn An active connection structure.
     @param[in] read_fds File descriptors available for reading from.
     @param[in] write_fds File descriptors available for writing to.
     @returns A ::rexmpp_tcp_conn_error state.
 */
 rexmpp_tcp_conn_error_t
-rexmpp_tcp_conn_proceed (rexmpp_tcp_conn_t *conn,
+rexmpp_tcp_conn_proceed (rexmpp_t *s,
+                         rexmpp_tcp_conn_t *conn,
                          fd_set *read_fds,
                          fd_set *write_fds);
 
@@ -158,6 +157,7 @@ int rexmpp_tcp_conn_finish (rexmpp_tcp_conn_t *conn);
    File descriptors are only added to an @c fd_set, so the ones it
    already contains will not be lost.
 
+   @param[in] s ::rexmpp
    @param[in] conn An active connection structure.
    @param[out] read_fds File descriptors a connection process is
    interested in reading from.
@@ -165,19 +165,22 @@ int rexmpp_tcp_conn_finish (rexmpp_tcp_conn_t *conn);
    interested in writing to.
    @returns Maximum file descriptor number, plus 1.
  */
-int rexmpp_tcp_conn_fds (rexmpp_tcp_conn_t *conn,
+int rexmpp_tcp_conn_fds (rexmpp_t *s,
+                         rexmpp_tcp_conn_t *conn,
                          fd_set *read_fds,
                          fd_set *write_fds);
 
 /**
    @brief Reports timeouts.
+   @param[in] s ::rexmpp
    @param[in] conn An active connection structure.
    @param[in] max_tv An existing maximum timeout.
    @param[out] tv A timeval structure to store a new timeout in.
    @returns A pointer to either max_tv or tv, depending on which one
    is smaller.
 */
-struct timeval *rexmpp_tcp_conn_timeout (rexmpp_tcp_conn_t *conn,
+struct timeval *rexmpp_tcp_conn_timeout (rexmpp_t *s,
+                                         rexmpp_tcp_conn_t *conn,
                                          struct timeval *max_tv,
                                          struct timeval *tv);
 
