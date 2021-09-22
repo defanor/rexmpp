@@ -13,9 +13,12 @@
 
 #if defined(USE_UNBOUND)
 #include <unbound.h>
+#elif defined(USE_CARES)
+#include <ares.h>
 #else
-#include <netdb.h>
 #endif
+#include <netdb.h>
+
 
 #include "rexmpp.h"
 #include "rexmpp_dns.h"
@@ -74,11 +77,25 @@ void rexmpp_dns_result_free (rexmpp_dns_result_t *result) {
     free(result->len);
     result->len = NULL;
   }
-  if (result->qname != NULL) {
-    free(result->qname);
-    result->qname = NULL;
-  }
   free(result);
+}
+
+rexmpp_dns_result_t *result_from_hostent (struct hostent *hostinfo) {
+  rexmpp_dns_result_t *r = malloc(sizeof(rexmpp_dns_result_t));
+  r->secure = 0;
+  int i, size = 0;
+  while (hostinfo->h_addr_list[size] != NULL) {
+    size++;
+  }
+  r->data = malloc(sizeof(void *) * (size + 1));
+  r->len = malloc(sizeof(int) * size);
+  for (i = 0; i < size; i++) {
+    r->len[i] = hostinfo->h_length;
+    r->data[i] = malloc(r->len[i]);
+    memcpy(r->data[i], hostinfo->h_addr_list[i], hostinfo->h_length);
+  }
+  r->data[size] = NULL;
+  return r;
 }
 
 
@@ -106,6 +123,21 @@ int rexmpp_dns_ctx_init (rexmpp_t *s) {
                ub_strerror(err));
   }
   return 0;
+#elif defined(USE_CARES)
+  int err = ares_library_init(ARES_LIB_INIT_ALL);
+  if (err != 0) {
+    rexmpp_log(s, LOG_CRIT, "ares library initialisation error: %s",
+               ares_strerror(err));
+    return 1;
+  }
+  err = ares_init(&(s->resolver.channel));
+  if (err) {
+    rexmpp_log(s, LOG_CRIT, "ares channel initialisation error: %s",
+               ares_strerror(err));
+    ares_library_cleanup();
+    return 1;
+  }
+  return 0;
 #else
   (void)s;
   return 0;
@@ -113,13 +145,8 @@ int rexmpp_dns_ctx_init (rexmpp_t *s) {
 }
 
 void rexmpp_dns_ctx_cleanup (rexmpp_t *s) {
-#if defined(USE_UNBOUND)
   (void)s;
   return;
-#else
-  (void)s;
-  return;
-#endif
 }
 
 void rexmpp_dns_ctx_deinit (rexmpp_t *s) {
@@ -128,6 +155,9 @@ void rexmpp_dns_ctx_deinit (rexmpp_t *s) {
     ub_ctx_delete(s->resolver.ctx);
     s->resolver.ctx = NULL;
   }
+#elif defined(USE_CARES)
+  ares_destroy(s->resolver.channel);
+  ares_library_cleanup();
 #else
   (void)s;
 #endif
@@ -141,6 +171,8 @@ int rexmpp_dns_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     FD_SET(max_fd - 1, read_fds);
   }
   return max_fd;
+#elif defined(USE_CARES)
+  return ares_fds(s->resolver.channel, read_fds, write_fds);
 #else
   (void)s;
   (void)read_fds;
@@ -157,6 +189,8 @@ struct timeval * rexmpp_dns_timeout (rexmpp_t *s,
   (void)s;
   (void)tv;
   return max_tv;
+#elif defined(USE_CARES)
+  return ares_timeout(s->resolver.channel, max_tv, tv);
 #else
   (void)s;
   (void)max_tv;
@@ -174,8 +208,8 @@ void rexmpp_dns_cb (void *ptr,
   rexmpp_t *s = d->s;
 
   if (err != 0) {
-    rexmpp_log(s, LOG_WARNING, "%s DNS query failure: %s",
-               result->qname, ub_strerror(err));
+    rexmpp_log(s, LOG_WARNING, "DNS query failure: %s",
+               ub_strerror(err));
     ub_resolve_free(result);
     d->cb(s, d->ptr, NULL);
     return;
@@ -183,15 +217,14 @@ void rexmpp_dns_cb (void *ptr,
 
   if (result->bogus) {
     rexmpp_log(s, LOG_WARNING,
-               "Received a bogus DNS resolution result for %s",
-               result->qname);
+               "Received a bogus DNS resolution result");
     ub_resolve_free(result);
     d->cb(s, d->ptr, NULL);
     return;
   }
 
   if (! result->havedata) {
-    rexmpp_log(s, LOG_DEBUG, "No data in the %s query result", result->qname);
+    rexmpp_log(s, LOG_DEBUG, "No data in the query result");
     ub_resolve_free(result);
     d->cb(s, d->ptr, NULL);
     return;
@@ -202,19 +235,84 @@ void rexmpp_dns_cb (void *ptr,
     size++;
   }
   rexmpp_dns_result_t *res = malloc(sizeof(rexmpp_dns_result_t));
-  res->data = malloc(sizeof(char *) * (size + 1));
+  res->data = malloc(sizeof(void *) * (size + 1));
   res->len = malloc(sizeof(int) * size);
   for (i = 0; i < size; i++) {
-    res->len[i] = result->len[i];
-    res->data[i] = malloc(res->len[i]);
-    memcpy(res->data[i], result->data[i], res->len[i]);
+    if (result->qtype == 33) {
+      /* SRV */
+      res->len[i] = sizeof(rexmpp_dns_srv_t);
+      res->data[i] = malloc(res->len[i]);
+      int err = rexmpp_parse_srv(result->data[i], result->len[i],
+                                 (rexmpp_dns_srv_t*)res->data[i]);
+      if (err) {
+        rexmpp_log(s, LOG_WARNING, "Failed to parse an SRV record");
+        res->data[i + 1] = NULL;
+        rexmpp_dns_result_free(res);
+        d->cb(s, d->ptr, NULL);
+        return;
+      }
+    } else {
+      /* Non-SRV, for now that's just A or AAAA */
+      res->len[i] = result->len[i];
+      res->data[i] = malloc(res->len[i]);
+      memcpy(res->data[i], result->data[i], res->len[i]);
+    }
   }
   res->data[size] = NULL;
   res->secure = result->secure;
-  res->qname = strdup(result->qname);
   ub_resolve_free(result);
   d->cb(s, d->ptr, res);
   free(d);
+}
+#elif defined(USE_CARES)
+void rexmpp_dns_cb (void *ptr,
+                    int err,
+                    int timeouts,
+                    unsigned char *abuf,
+                    int alen)
+{
+  (void)timeouts;
+  struct rexmpp_dns_query_cb_data *d = ptr;
+  rexmpp_t *s = d->s;
+  if (err != ARES_SUCCESS) {
+    rexmpp_log(s, LOG_WARNING, "A DNS query failure: %s",
+               ares_strerror(err));
+    d->cb(s, d->ptr, NULL);
+    return;
+  }
+  /* c-ares won't just tell us the type, but it does check for it in
+     the parsing functions, so we just try them out. */
+  struct hostent *hostinfo;
+  struct ares_srv_reply *srv, *cur_srv;
+  if (ares_parse_a_reply(abuf, alen, &hostinfo, NULL, NULL) == ARES_SUCCESS ||
+      ares_parse_aaaa_reply(abuf, alen, &hostinfo, NULL, NULL) == ARES_SUCCESS) {
+    rexmpp_dns_result_t *r = result_from_hostent(hostinfo);
+    ares_free_hostent(hostinfo);
+    d->cb(s, d->ptr, r);
+  } else if (ares_parse_srv_reply(abuf, alen, &srv) == ARES_SUCCESS) {
+    int i, size;
+    for (size = 0, cur_srv = srv; cur_srv != NULL; size++, cur_srv = cur_srv->next);
+    rexmpp_dns_result_t *r = malloc(sizeof(rexmpp_dns_result_t));
+    r->secure = 0;
+    r->data = malloc(sizeof(void*) * (size + 1));
+    r->len = malloc(sizeof(int) * size);
+    for (cur_srv = srv, i = 0; i < size; i++, cur_srv = cur_srv->next) {
+      r->len[i] = sizeof(rexmpp_dns_srv_t);
+      rexmpp_dns_srv_t *r_srv = malloc(sizeof(rexmpp_dns_srv_t));
+      r_srv->priority = cur_srv->priority;
+      r_srv->weight = cur_srv->weight;
+      r_srv->port = cur_srv->port;
+      strncpy(r_srv->target, cur_srv->host, 255);
+      r_srv->target[255] = '\0';
+      r->data[i] = r_srv;
+    }
+    r->data[size] = NULL;
+    ares_free_data(srv);
+    d->cb(s, d->ptr, r);
+  }else {
+    rexmpp_log(s, LOG_ERR, "Failed to parse a query");
+    d->cb(s, d->ptr, NULL);
+  }
 }
 #endif
 
@@ -239,8 +337,14 @@ int rexmpp_dns_resolve (rexmpp_t *s,
                query, ub_strerror(err));
     return 1;
   }
+#elif defined(USE_CARES)
+  struct rexmpp_dns_query_cb_data *d =
+    malloc(sizeof(struct rexmpp_dns_query_cb_data));
+  d->s = s;
+  d->cb = callback;
+  d->ptr = ptr;
+  ares_query(s->resolver.channel, query, rrclass, rrtype, rexmpp_dns_cb, d);
 #else
-  rexmpp_dns_result_t *r = malloc(sizeof(rexmpp_dns_result_t));;
   if (rrclass == 1) {
     if (rrtype == 1 || rrtype == 28) {
       struct hostent *hostinfo = gethostbyname(query);
@@ -248,20 +352,7 @@ int rexmpp_dns_resolve (rexmpp_t *s,
         rexmpp_log(s, LOG_ERR, "Failed to lookup %s", query);
         callback(s, ptr, NULL);
       } else {
-        r->qname = strdup(query);
-        r->secure = 0;
-        int i, size = 0;
-        while (hostinfo->h_addr_list[size] != NULL) {
-          size++;
-        }
-        r->data = malloc(sizeof(char *) * (size + 1));
-        r->len = malloc(sizeof(int) * size);
-        for (i = 0; i < size; i++) {
-          r->len[i] = hostinfo->h_length;
-          r->data[i] = malloc(r->len[i]);
-          memcpy(r->data[i], hostinfo->h_addr_list[i], hostinfo->h_length);
-        }
-        r->data[size] = NULL;
+        rexmpp_dns_result_t *r = result_from_hostent(hostinfo);
         callback(s, ptr, r);
       }
     } else if (rrtype == 33) {
@@ -293,6 +384,9 @@ int rexmpp_dns_process (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       return 1;
     }
   }
+  return 0;
+#elif defined(USE_CARES)
+  ares_process(s->resolver.channel, read_fds, write_fds);
   return 0;
 #else
   (void)s;

@@ -1184,17 +1184,10 @@ rexmpp_err_t rexmpp_try_next_host (rexmpp_t *s) {
     return REXMPP_E_AGAIN;
   }
 
-  int err = rexmpp_parse_srv(cur_result->data[cur_number],
-                             cur_result->len[cur_number],
-                             &(s->server_active_srv));
-  if (err) {
-    rexmpp_log(s, LOG_ERR, "Failed to parse an SRV record");
-    rexmpp_cleanup(s);
-    rexmpp_schedule_reconnect(s);
-    return REXMPP_E_DNS;
-  }
-  s->server_host = s->server_active_srv.target;
-  s->server_port = s->server_active_srv.port;
+  s->server_active_srv = (rexmpp_dns_srv_t *)cur_result->data[cur_number];
+
+  s->server_host = s->server_active_srv->target;
+  s->server_port = s->server_active_srv->port;
   return rexmpp_start_connecting(s);
 }
 
@@ -1286,13 +1279,13 @@ void rexmpp_srv_cb (rexmpp_t *s,
                     void *ptr,
                     rexmpp_dns_result_t *result)
 {
-  (void)ptr;
+  char *type = ptr;
   if (result != NULL) {
     rexmpp_log(s,
                result->secure ? LOG_DEBUG : LOG_WARNING,
-               "Resolved %s SRV record (%s)",
-               result->qname, result->secure ? "secure" : "not secure");
-    if (strncmp("_xmpp-", result->qname, 6) == 0) {
+               "Resolved a %s SRV record (%s)",
+               type, result->secure ? "secure" : "not secure");
+    if (strncmp("xmpp", type, 5) == 0) {
       s->server_srv = result;
     } else {
       s->server_srv_tls = result;
@@ -2230,11 +2223,11 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       snprintf(srv_query, srv_query_buf_len,
                "_xmpps-client._tcp.%s.", s->initial_jid.domain);
       rexmpp_dns_resolve(s, srv_query, 33, 1,
-                         NULL, rexmpp_srv_cb);
+                         "xmpps", rexmpp_srv_cb);
       snprintf(srv_query, srv_query_buf_len,
                "_xmpp-client._tcp.%s.", s->initial_jid.domain);
       rexmpp_dns_resolve(s, srv_query, 33, 1,
-                         NULL, rexmpp_srv_cb);
+                         "xmpp", rexmpp_srv_cb);
       free(srv_query);
     } else {
       /* A host is configured manually, connect there. */

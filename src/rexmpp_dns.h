@@ -20,6 +20,11 @@
 struct rexmpp_dns_ctx {
   struct ub_ctx *ctx;
 };
+#elif defined(USE_CARES)
+#include <ares.h>
+struct rexmpp_dns_ctx {
+  ares_channel channel;
+};
 #else
 struct rexmpp_dns_ctx {
   int dummy;
@@ -35,10 +40,11 @@ struct rexmpp_dns_srv {
   char target[256];
 };
 
+typedef struct rexmpp_dns_srv rexmpp_dns_srv_t;
+
 struct rexmpp_dns_result {
-  char **data;
+  void **data;
   int *len;
-  char *qname;
   int secure;
 };
 

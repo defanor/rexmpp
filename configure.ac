@@ -24,7 +24,7 @@ PKG_CHECK_MODULES([GSASL], [libgsasl])
 PKG_CHECK_MODULES([NETTLE], [nettle])
 
 
-# DNS: libunbound, optional
+# DNS: libunbound or c-ares, optional
 
 AC_ARG_VAR([DNSSEC_TRUST_ANCHOR_FILE],
         [A DNSSEC trust anchor, containing DNSKEY in zone file format])
@@ -36,10 +36,15 @@ AC_DEFINE_UNQUOTED([DNSSEC_TRUST_ANCHOR_FILE],
 
 AC_ARG_WITH([unbound],
         AS_HELP_STRING([--without-unbound], [don't use libunbound]))
+AC_ARG_WITH([cares],
+        AS_HELP_STRING([--with-cares], [use c-ares]))
 
 AS_IF([test "x$with_unbound" != "xno"],
       [PKG_CHECK_MODULES([UNBOUND], [libunbound],
         [AC_DEFINE([USE_UNBOUND], [1], [Use libunbound])])])
+AS_IF([test "x$with_cares" == "xyes"],
+      [PKG_CHECK_MODULES([CARES], [libcares],
+        [AC_DEFINE([USE_CARES], [1], [Use c-ares])])])
 
 # GPGME, optional
 

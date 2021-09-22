@@ -320,7 +320,7 @@ struct rexmpp
   int server_srv_cur;
   rexmpp_dns_result_t *server_srv_tls;
   int server_srv_tls_cur;
-  struct rexmpp_dns_srv server_active_srv;
+  struct rexmpp_dns_srv *server_active_srv;
 
   /* The XMPP server we are connecting to. */
   const char *server_host;
