@@ -783,7 +783,7 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   } else if (mode == REXMPP_OX_CRYPT) {
     err = gpgme_op_encrypt(s->pgp_ctx, keys, GPGME_ENCRYPT_NO_ENCRYPT_TO,
                            plain_dh, cipher_dh);
-  } else if (mode == REXMPP_OX_SIGN) {
+  } else {                      /* if (mode == REXMPP_OX_SIGN) */
     err = gpgme_op_sign(s->pgp_ctx, plain_dh, cipher_dh, GPGME_SIG_MODE_NORMAL);
   }
   if (keys != NULL) {

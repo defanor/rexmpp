@@ -796,8 +796,10 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
   }
   ssize_t ret;
   rexmpp_tls_err_t err;
+  int tls_was_active;
   while (1) {
-    if (s->tls_state == REXMPP_TLS_ACTIVE) {
+    tls_was_active = (s->tls_state == REXMPP_TLS_ACTIVE);
+    if (tls_was_active) {
       err = rexmpp_tls_send (s,
                              s->send_buffer,
                              s->send_buffer_len,
@@ -829,7 +831,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
         }
       }
     } else {
-      if (s->tls_state == REXMPP_TLS_ACTIVE) {
+      if (tls_was_active) {
         if (err != REXMPP_TLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
@@ -1024,10 +1026,12 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
   int sasl_err;
   rexmpp_tls_err_t recv_err;
   rexmpp_err_t err = REXMPP_SUCCESS;
+  int tls_was_active;
   /* Loop here in order to consume data from TLS buffers, which
      wouldn't show up on select(). */
   do {
-    if (s->tls_state == REXMPP_TLS_ACTIVE) {
+    tls_was_active = (s->tls_state == REXMPP_TLS_ACTIVE);
+    if (tls_was_active) {
       recv_err = rexmpp_tls_recv(s, chunk_raw, 4096, &chunk_raw_len);
     } else {
       chunk_raw_len = recv(s->server_socket, chunk_raw, 4096, 0);
@@ -1075,7 +1079,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
         return err;
       }
     } else if (chunk_raw_len == 0) {
-      if (s->tls_state == REXMPP_TLS_ACTIVE) {
+      if (tls_was_active) {
         s->tls_state = REXMPP_TLS_CLOSED;
         rexmpp_log(s, LOG_INFO, "TLS disconnected");
       }
@@ -1089,7 +1093,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
         s->tcp_state = REXMPP_TCP_CLOSED;
       }
     } else {
-      if (s->tls_state == REXMPP_TLS_ACTIVE) {
+      if (tls_was_active) {
         if (recv_err != REXMPP_TLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */

@@ -56,7 +56,7 @@ int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid) {
   }
 
   /* Copy all the parts. */
-  strncpy(jid->full, str, full_len);
+  strncpy(jid->full, str, 3072);
   jid->full[full_len] = '\0';
   strncpy(jid->bare, str, bare_len);
   jid->bare[bare_len] = '\0';

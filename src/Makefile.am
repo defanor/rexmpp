@@ -1,18 +1,11 @@
 AM_CFLAGS = -Werror -Wall -Wextra -pedantic -std=gnu99 \
-	-Wno-pointer-sign \
-	-Wno-stringop-truncation -Wno-stringop-overflow -Wno-maybe-uninitialized
+	-Wno-pointer-sign
 
 # -Wno-pointer-sign is used to suppress libxml2-related warnings.
 # Since we only care about UTF-8, and in almost all cases just its
 # ASCII subset (comparing or setting fixed namespaces, element names,
 # etc), it shouldn't matter. Later it would be nice to abstract XML
 # manipulations anyway, to allow libexpat as an alternative.
-
-# -Wno-stringop-truncation, -Wno-stringop-overflow, and
-# -Wno-maybe-uninitialized are added because newer GCC versions
-# started complaining about the bits that are fine, though rewriting
-# those bits in a way that doesn't make GCC unhappy may be useful for
-# catching actual bugs with those warnings.
 
 
 lib_LTLIBRARIES = librexmpp.la
