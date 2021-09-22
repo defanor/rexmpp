@@ -33,6 +33,9 @@ enum rexmpp_tls_err {
 
 typedef enum rexmpp_tls_err rexmpp_tls_err_t;
 
+/**
+   @brief TLS context.
+*/
 #if defined(USE_GNUTLS)
 #include <gnutls/gnutls.h>
 struct rexmpp_tls {
