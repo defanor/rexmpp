@@ -266,6 +266,9 @@ struct rexmpp
   int retrieve_openpgp_keys;    /* XEP-0373 */
   int autojoin_bookmarked_mucs; /* XEP-0402 */
   enum tls_pol tls_policy;
+  const char *client_name;      /* XEP-0030, XEP-0092 */
+  const char *client_type;      /* XEP-0030 */
+  const char *client_version;   /* XEP-0092 */
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -310,11 +313,6 @@ struct rexmpp
   time_t last_network_activity;
 
   /* DNS-related structures. */
-  /* struct ub_ctx *resolver_ctx; */
-  /* struct ub_result *server_srv; */
-  /* int server_srv_cur; */
-  /* struct ub_result *server_srv_tls; */
-  /* int server_srv_tls_cur; */
   rexmpp_dns_ctx_t resolver;
   rexmpp_dns_result_t *server_srv;
   int server_srv_cur;

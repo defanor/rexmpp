@@ -323,8 +323,8 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
      advanced one would adjust and/or extend them. */
   s->disco_info = xmlNewNode(NULL, "identity");
   xmlNewProp(s->disco_info, "category", "client");
-  xmlNewProp(s->disco_info, "type", "console");
-  xmlNewProp(s->disco_info, "name", "rexmpp");
+  xmlNewProp(s->disco_info, "type", s->client_type);
+  xmlNewProp(s->disco_info, "name", s->client_name);
   prev = s->disco_info;
   cur = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   prev->next = cur;
@@ -398,6 +398,9 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
 #endif
   s->autojoin_bookmarked_mucs = 1;
   s->tls_policy = REXMPP_TLS_REQUIRE;
+  s->client_name = PACKAGE_NAME;
+  s->client_type = "console";
+  s->client_version = PACKAGE_VERSION;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -1761,6 +1764,16 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         }
       } else if (rexmpp_xml_match(query, "urn:xmpp:ping", "ping")) {
         rexmpp_iq_reply(s, elem, "result", NULL);
+      } else if (rexmpp_xml_match(query, "jabber:iq:version", "query")) {
+        xmlNodePtr reply = xmlNewNode(NULL, "query");
+        xmlNewNs(reply, "jabber:iq:version", NULL);
+        xmlNodePtr name = xmlNewNode(NULL, "name");
+        xmlNodeAddContent(name, s->client_name);
+        xmlAddChild(reply, name);
+        xmlNodePtr version = xmlNewNode(NULL, "version");
+        xmlNodeAddContent(version, s->client_version);
+        xmlAddChild(reply, version);
+        rexmpp_iq_reply(s, elem, "result", reply);
       } else {
         /* An unknown request. */
         rexmpp_iq_reply(s, elem, "error",
