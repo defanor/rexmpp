@@ -12,7 +12,8 @@ rexmpp_pubsub_iq (rexmpp_t *s,
                   const char *pubsub_namespace,
                   const char *service_jid,
                   xmlNodePtr payload,
-                  rexmpp_iq_callback_t callback);
+                  rexmpp_iq_callback_t callback,
+                  void *cb_data);
 
 void
 rexmpp_pubsub_item_publish (rexmpp_t *s,
@@ -20,17 +21,20 @@ rexmpp_pubsub_item_publish (rexmpp_t *s,
                             const char *node,
                             const char *item_id,
                             xmlNodePtr payload,
-                            rexmpp_iq_callback_t callback);
+                            rexmpp_iq_callback_t callback,
+                            void *cb_data);
 
 void
 rexmpp_pubsub_item_retract (rexmpp_t *s,
                             const char *service_jid,
                             const char *node,
                             const char *item_id,
-                            rexmpp_iq_callback_t callback);
+                            rexmpp_iq_callback_t callback,
+                            void *cb_data);
 
 void
 rexmpp_pubsub_node_delete (rexmpp_t *s,
                            const char *service_jid,
                            const char *node,
-                           rexmpp_iq_callback_t callback);
+                           rexmpp_iq_callback_t callback,
+                           void *cb_data);

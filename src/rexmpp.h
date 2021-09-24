@@ -38,6 +38,7 @@ typedef struct rexmpp rexmpp_t;
    inspect those and react.
 */
 typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s,
+                                      void *cb_data,
                                       xmlNodePtr request,
                                       xmlNodePtr response,
                                       int success);
@@ -51,6 +52,8 @@ struct rexmpp_iq
   xmlNodePtr request;
   /** @brief A callback to call on reply. */
   rexmpp_iq_callback_t cb;
+  /** @brief User-supplied data, to pass to a callback function. */
+  void *cb_data;
   /** @brief Next pending IQ. */
   rexmpp_iq_t *next;
 };
@@ -424,7 +427,8 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
                             const char *type,
                             const char *to,
                             xmlNodePtr payload,
-                            rexmpp_iq_callback_t cb);
+                            rexmpp_iq_callback_t cb,
+                            void *cb_data);
 
 /**
    @brief Determines the maximum time to wait before the next

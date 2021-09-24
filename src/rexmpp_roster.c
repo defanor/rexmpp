@@ -138,10 +138,12 @@ void rexmpp_roster_cache_write (rexmpp_t *s) {
 }
 
 void rexmpp_iq_roster_get (rexmpp_t *s,
+                           void *ptr,
                            xmlNodePtr req,
                            xmlNodePtr response,
                            int success)
 {
+  (void)ptr;
   (void)req;     /* Nothing interesting in the request. */
   if (! success) {
     rexmpp_log(s, LOG_ERR, "Roster loading failed.");

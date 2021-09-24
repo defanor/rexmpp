@@ -559,6 +559,18 @@ void rexmpp_cleanup (rexmpp_t *s) {
   s->ping_requested = 0;
 }
 
+void rexmpp_iq_finish (rexmpp_t *s,
+                       rexmpp_iq_t *iq,
+                       int success,
+                       xmlNodePtr response)
+{
+  if (iq->cb != NULL) {
+    iq->cb(s, iq->cb_data, iq->request, response, success);
+  }
+  xmlFreeNode(iq->request);
+  free(iq);
+}
+
 /* Frees the things that persist through reconnects. */
 void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
@@ -599,9 +611,9 @@ void rexmpp_done (rexmpp_t *s) {
   }
   while (s->active_iq != NULL) {
     rexmpp_iq_t *next = s->active_iq->next;
-    xmlFreeNode(s->active_iq->request);
-    free(s->active_iq);
+    rexmpp_iq_t *iq = s->active_iq;
     s->active_iq = next;
+    rexmpp_iq_finish(s, iq, 0, NULL);
   }
 }
 
@@ -969,7 +981,8 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
                             const char *type,
                             const char *to,
                             xmlNodePtr payload,
-                            rexmpp_iq_callback_t cb)
+                            rexmpp_iq_callback_t cb,
+                            void *cb_data)
 {
   unsigned int i;
   rexmpp_iq_t *prev = NULL, *last = s->active_iq;
@@ -981,11 +994,7 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
     rexmpp_log(s, LOG_WARNING,
                "The IQ queue limit is reached, giving up on the oldest IQ.");
     prev->next = NULL;
-    if (last->cb != NULL) {
-      last->cb(s, last->request, NULL, 0);
-    }
-    xmlFreeNode(last->request);
-    free(last);
+    rexmpp_iq_finish(s, last, 0, NULL);
   }
 
   xmlNodePtr iq_stanza = rexmpp_xml_add_id(s, xmlNewNode(NULL, "iq"));
@@ -1001,6 +1010,7 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
   rexmpp_iq_t *iq = malloc(sizeof(rexmpp_iq_t));
   iq->request = xmlCopyNode(iq_stanza, 1);
   iq->cb = cb;
+  iq->cb_data = cb_data;
   iq->next = s->active_iq;
   s->active_iq = iq;
   return rexmpp_send(s, iq_stanza);
@@ -1363,10 +1373,12 @@ void rexmpp_sm_handle_ack (rexmpp_t *s, xmlNodePtr elem) {
 }
 
 void rexmpp_carbons_enabled (rexmpp_t *s,
+                             void *ptr,
                              xmlNodePtr req,
                              xmlNodePtr response,
                              int success)
 {
+  (void)ptr;
   (void)req; /* The request is always the same. */
   (void)response; /* Only checking whether it's a success. */
   if (success) {
@@ -1379,10 +1391,12 @@ void rexmpp_carbons_enabled (rexmpp_t *s,
 }
 
 void rexmpp_pong (rexmpp_t *s,
+                  void *ptr,
                   xmlNodePtr req,
                   xmlNodePtr response,
                   int success)
 {
+  (void)ptr;
   (void)req;
   (void)response;
   (void)success;
@@ -1390,10 +1404,12 @@ void rexmpp_pong (rexmpp_t *s,
 }
 
 void rexmpp_iq_discovery_info (rexmpp_t *s,
+                               void *ptr,
                                xmlNodePtr req,
                                xmlNodePtr response,
                                int success)
 {
+  (void)ptr;
   (void)req;
   if (! success) {
     rexmpp_log(s, LOG_ERR, "Failed to discover features");
@@ -1416,7 +1432,7 @@ void rexmpp_iq_discovery_info (rexmpp_t *s,
             xmlNewNs(carbons_enable, "urn:xmpp:carbons:2", NULL);
             s->carbons_state = REXMPP_CARBONS_NEGOTIATION;
             rexmpp_iq_new(s, "set", NULL, carbons_enable,
-                          rexmpp_carbons_enabled);
+                          rexmpp_carbons_enabled, NULL);
           }
           free(var);
         }
@@ -1432,7 +1448,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
     xmlNodePtr disco_query = xmlNewNode(NULL, "query");
     xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
     rexmpp_iq_new(s, "get", s->initial_jid.domain,
-                  disco_query, rexmpp_iq_discovery_info);
+                  disco_query, rexmpp_iq_discovery_info, NULL);
   }
   if (s->manage_roster) {
     if (s->roster_cache_file != NULL) {
@@ -1446,7 +1462,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
       xmlNewProp(roster_query, "ver", "");
     }
     rexmpp_iq_new(s, "get", NULL,
-                  roster_query, rexmpp_iq_roster_get);
+                  roster_query, rexmpp_iq_roster_get, NULL);
   }
   xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
   char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
@@ -1464,7 +1480,13 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
 
 /* Resource binding,
    https://tools.ietf.org/html/rfc6120#section-7 */
-void rexmpp_bound (rexmpp_t *s, xmlNodePtr req, xmlNodePtr response, int success) {
+void rexmpp_bound (rexmpp_t *s,
+                   void *ptr,
+                   xmlNodePtr req,
+                   xmlNodePtr response,
+                   int success)
+{
+  (void)ptr;
   (void)req;
   if (! success) {
     /* todo: reconnect here? */
@@ -1506,7 +1528,7 @@ rexmpp_err_t rexmpp_stream_bind (rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_BIND;
   xmlNodePtr bind_cmd = xmlNewNode(NULL, "bind");
   xmlNewNs(bind_cmd, "urn:ietf:params:xml:ns:xmpp-bind", NULL);
-  return rexmpp_iq_new(s, "set", NULL, bind_cmd, rexmpp_bound);
+  return rexmpp_iq_new(s, "set", NULL, bind_cmd, rexmpp_bound, NULL);
 }
 
 rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
@@ -1643,12 +1665,13 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     /* IQ responses. */
     if (strcmp(type, "result") == 0 || strcmp(type, "error") == 0) {
       char *id = xmlGetProp(elem, "id");
-      rexmpp_iq_t *req = s->active_iq;
+      rexmpp_iq_t *req = s->active_iq, *prev_req = NULL;
       int found = 0;
       while (req != NULL && found == 0) {
         char *req_id = xmlGetProp(req->request, "id");
         char *req_to = xmlGetProp(req->request, "to");
         char *rep_from = xmlGetProp(elem, "from");
+        rexmpp_iq_t *req_next = req->next;
         int id_matches = (strcmp(id, req_id) == 0);
         int jid_matches = 0;
         if (rep_from == NULL) {
@@ -1658,33 +1681,18 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         }
         if (id_matches && jid_matches) {
           found = 1;
-          if (req->cb != NULL) {
-            char *iq_type = xmlGetProp(elem, "type");
-            int success = 0;
-            if (strcmp(type, "result") == 0) {
-              success = 1;
-            }
-            free(iq_type);
-            req->cb(s, req->request, elem, success);
+          int success = 0;
+          if (strcmp(type, "result") == 0) {
+            success = 1;
           }
-          /* Remove the callback from the list, but keep in mind that
-             it could have added more entries. */
-          if (s->active_iq == req) {
-            s->active_iq = req->next;
+          /* Remove the callback from the list. */
+          if (prev_req == NULL) {
+            s->active_iq = req_next;
           } else {
-            rexmpp_iq_t *prev_req = s->active_iq;
-            for (prev_req = s->active_iq;
-                 prev_req != NULL;
-                 prev_req = prev_req->next)
-              {
-                if (prev_req->next == req) {
-                  prev_req->next = req->next;
-                  break;
-                }
-              }
+            prev_req->next = req_next;
           }
-          xmlFreeNode(req->request);
-          free(req);
+          /* Finish and free the IQ request structure. */
+          rexmpp_iq_finish(s, req, success, elem);
         }
         if (req_to != NULL) {
           free(req_to);
@@ -1693,7 +1701,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           free(rep_from);
         }
         free(req_id);
-        req = req->next;
+        prev_req = req;
+        req = req_next;
       }
       free(id);
     }
@@ -2062,9 +2071,9 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       while (s->active_iq != NULL) {
         /* todo: check that those are not queued for resending? */
         rexmpp_iq_t *next = s->active_iq->next;
-        xmlFreeNode(s->active_iq->request);
-        free(s->active_iq);
+        rexmpp_iq_t *iq = s->active_iq;
         s->active_iq = next;
+        rexmpp_iq_finish(s, iq, 0, NULL);
       }
       xmlNodePtr child =
         rexmpp_xml_find_child(s->stream_features,
@@ -2339,7 +2348,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       xmlNodePtr ping_cmd = xmlNewNode(NULL, "ping");
       xmlNewNs(ping_cmd, "urn:xmpp:ping", NULL);
       rexmpp_iq_new(s, "get", s->initial_jid.domain,
-                    ping_cmd, rexmpp_pong);
+                    ping_cmd, rexmpp_pong, NULL);
     } else {
       rexmpp_log(s, LOG_WARNING, "Ping timeout, reconnecting.");
       rexmpp_cleanup(s);

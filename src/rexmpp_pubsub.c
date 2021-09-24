@@ -14,7 +14,8 @@ rexmpp_pubsub_iq (rexmpp_t *s,
                   const char *pubsub_namespace,
                   const char *service_jid,
                   xmlNodePtr payload,
-                  rexmpp_iq_callback_t callback)
+                  rexmpp_iq_callback_t callback,
+                  void *cb_data)
 {
   xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
   if (pubsub_namespace == NULL) {
@@ -25,7 +26,7 @@ rexmpp_pubsub_iq (rexmpp_t *s,
 
   xmlAddChild(pubsub, payload);
 
-  rexmpp_iq_new(s, iq_type, service_jid, pubsub, callback);
+  rexmpp_iq_new(s, iq_type, service_jid, pubsub, callback, cb_data);
 }
 
 void
@@ -34,7 +35,8 @@ rexmpp_pubsub_item_publish (rexmpp_t *s,
                             const char *node,
                             const char *item_id,
                             xmlNodePtr payload,
-                            rexmpp_iq_callback_t callback)
+                            rexmpp_iq_callback_t callback,
+                            void *cb_data)
 {
   xmlNodePtr item = xmlNewNode(NULL, "item");
   xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
@@ -48,7 +50,7 @@ rexmpp_pubsub_item_publish (rexmpp_t *s,
   xmlNewProp(publish, "node", node);
   xmlAddChild(publish, item);
 
-  rexmpp_pubsub_iq(s, "set", NULL, service_jid, publish, callback);
+  rexmpp_pubsub_iq(s, "set", NULL, service_jid, publish, callback, cb_data);
 }
 
 void
@@ -56,7 +58,8 @@ rexmpp_pubsub_item_retract (rexmpp_t *s,
                             const char *service_jid,
                             const char *node,
                             const char *item_id,
-                            rexmpp_iq_callback_t callback)
+                            rexmpp_iq_callback_t callback,
+                            void *cb_data)
 {
   xmlNodePtr item = xmlNewNode(NULL, "item");
   xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
@@ -69,19 +72,20 @@ rexmpp_pubsub_item_retract (rexmpp_t *s,
   xmlNewProp(retract, "node", node);
   xmlAddChild(retract, item);
 
-  rexmpp_pubsub_iq(s, "set", NULL, service_jid, retract, callback);
+  rexmpp_pubsub_iq(s, "set", NULL, service_jid, retract, callback, cb_data);
 }
 
 void
 rexmpp_pubsub_node_delete (rexmpp_t *s,
                            const char *service_jid,
                            const char *node,
-                           rexmpp_iq_callback_t callback)
+                           rexmpp_iq_callback_t callback,
+                           void *cb_data)
 {
   xmlNodePtr delete = xmlNewNode(NULL, "delete");
   xmlNewNs(delete, "http://jabber.org/protocol/pubsub#owner", NULL);
   xmlNewProp(delete, "node", node);
 
   rexmpp_pubsub_iq(s, "set", "http://jabber.org/protocol/pubsub#owner",
-                   service_jid, delete, callback);
+                   service_jid, delete, callback, cb_data);
 }

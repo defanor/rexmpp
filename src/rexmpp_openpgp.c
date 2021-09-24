@@ -59,10 +59,12 @@ Possible future improvements:
 #ifdef HAVE_GPGME
 
 void rexmpp_pgp_fp_reply (rexmpp_t *s,
+                          void *ptr,
                           xmlNodePtr req,
                           xmlNodePtr response,
                           int success)
 {
+  (void)ptr;
   (void)req;                    /* Not of interest. */
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to retrieve an OpenpPGP key");
@@ -168,7 +170,7 @@ rexmpp_openpgp_check_keys (rexmpp_t *s,
       snprintf(key_node, 72, "urn:xmpp:openpgp:0:public-keys:%s", fingerprint);
       xmlNewProp(fp_req_items, "node", key_node);
       xmlAddChild(fp_req, fp_req_items);
-      rexmpp_iq_new(s, "get", jid, fp_req, rexmpp_pgp_fp_reply);
+      rexmpp_iq_new(s, "get", jid, fp_req, rexmpp_pgp_fp_reply, NULL);
     } else if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
       rexmpp_log(s, LOG_WARNING,
                  "OpenPGP error when looking for a key: %s",
@@ -258,10 +260,12 @@ rexmpp_openpgp_remove_key_from_list (rexmpp_t *s,
 }
 
 void rexmpp_pgp_key_publish_list_iq (rexmpp_t *s,
+                                     void *ptr,
                                      xmlNodePtr req,
                                      xmlNodePtr response,
                                      int success)
 {
+  (void)ptr;
   (void)req;
   (void)response;
   if (! success) {
@@ -276,14 +280,16 @@ void rexmpp_pgp_key_fp_list_upload (rexmpp_t *s, xmlNodePtr metadata) {
   xmlNewNs(keylist, "urn:xmpp:openpgp:0", NULL);
   xmlAddChild(keylist, metadata);
   rexmpp_pubsub_item_publish(s, NULL, "urn:xmpp:openpgp:0:public-keys",
-                             NULL, keylist, rexmpp_pgp_key_publish_list_iq);
+                             NULL, keylist, rexmpp_pgp_key_publish_list_iq, NULL);
 }
 
 void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
+                               void *ptr,
                                xmlNodePtr req,
                                xmlNodePtr response,
                                int success)
 {
+  (void)ptr;
   (void)response;
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to delete an OpenpPGP key");
@@ -298,10 +304,12 @@ void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
 }
 
 void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
+                                void *ptr,
                                 xmlNodePtr req,
                                 xmlNodePtr response,
                                 int success)
 {
+  (void)ptr;
   (void)response;
   if (! success) {
     rexmpp_log(s, LOG_WARNING, "Failed to publish an OpenpPGP key");
@@ -340,7 +348,7 @@ void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
   }
   char node_str[72];
   snprintf(node_str, 72, "urn:xmpp:openpgp:0:public-keys:%s", fp);
-  rexmpp_pubsub_node_delete(s, NULL, node_str, rexmpp_pgp_key_delete_iq);
+  rexmpp_pubsub_node_delete(s, NULL, node_str, rexmpp_pgp_key_delete_iq, NULL);
 }
 
 rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
@@ -391,7 +399,7 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
   char node_str[72];
   snprintf(node_str, 72, "urn:xmpp:openpgp:0:public-keys:%s", fp);
   rexmpp_pubsub_item_publish(s, NULL, node_str, time_str,
-                             pubkey, rexmpp_pgp_key_publish_iq);
+                             pubkey, rexmpp_pgp_key_publish_iq, NULL);
   return REXMPP_SUCCESS;
 }
 

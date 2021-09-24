@@ -207,10 +207,12 @@ void rexmpp_console_on_recv (rexmpp_t *s, xmlNodePtr node) {
 
 
 void rexmpp_console_roster_deleted (rexmpp_t *s,
+                                    void *ptr,
                                     xmlNodePtr req,
                                     xmlNodePtr response,
                                     int success)
 {
+  (void)ptr;
   (void)response;
   xmlNodePtr item =
     rexmpp_xml_find_child(rexmpp_xml_find_child(req,
@@ -227,10 +229,12 @@ void rexmpp_console_roster_deleted (rexmpp_t *s,
 }
 
 void rexmpp_console_roster_added (rexmpp_t *s,
+                                  void *ptr,
                                   xmlNodePtr req,
                                   xmlNodePtr response,
                                   int success)
 {
+  (void)ptr;
   (void)response;
   xmlNodePtr item =
     rexmpp_xml_find_child(rexmpp_xml_find_child(req,
@@ -482,7 +486,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       delete_query->ns = xmlNewNs(delete_query, "jabber:iq:roster", NULL);
       xmlAddChild(delete_query, delete_item);
       rexmpp_iq_new(s, "set", NULL, delete_query,
-                    rexmpp_console_roster_deleted);
+                    rexmpp_console_roster_deleted, NULL);
     } else if (! strcmp(word, "add")) {
       word = strtok_r(NULL, " ", &words_save_ptr);
       if (word == NULL) {
@@ -495,7 +499,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       delete_query->ns = xmlNewNs(delete_query, "jabber:iq:roster", NULL);
       xmlAddChild(delete_query, delete_item);
       rexmpp_iq_new(s, "set", NULL, delete_query,
-                    rexmpp_console_roster_added);
+                    rexmpp_console_roster_added, NULL);
     }
   }
 
