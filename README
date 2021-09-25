@@ -76,17 +76,20 @@ A rough roadmap:
 [ ] XEP-0363: HTTP File Upload?
 [ ] XEP-0184: Message Delivery Receipts?
 [ ] OTR/OMEMO/MLS encryption?
+[ ] A/V calls?
 
 
 - Additional state tracking:
 
 [+] XMPP IM (RFC 6121): track presences of contacts.
-[+] XEP-0163 v1.2: Personal Eventing Protocol: track contacts' published items.
+[+] XEP-0163 v1.2: Personal Eventing Protocol: track contacts'
+    published items.
+[+] IQ response caching.
 [ ] XEP-0030: Service Discovery: track features provided by known
-    entities.
+    entities?
 [ ] XEP-0115: Entity Capabilities: maintain a capability database,
-    track capabilities of known entities.
-[ ] XEP-0045: Multi-User Chat: tracking of related states/presences.
+    track capabilities of known entities?
+[ ] XEP-0045: Multi-User Chat: tracking of related states/presences?
 
 
 - Various utility functions:

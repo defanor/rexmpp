@@ -277,6 +277,7 @@ struct rexmpp
   uint32_t stanza_queue_size;
   uint32_t send_queue_size;
   uint32_t iq_queue_size;
+  uint32_t iq_cache_size;
 
   /* Callbacks. */
   log_function_t log_function;
@@ -299,6 +300,9 @@ struct rexmpp
 
   /* IQs we're waiting for responses to. */
   rexmpp_iq_t *active_iq;
+
+  /* Cached IQ requests and responses. */
+  xmlNodePtr iq_cache;
 
   /* Connection and stream management. */
   unsigned int reconnect_number;
@@ -431,6 +435,19 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
                             void *cb_data);
 
 /**
+   @brief Same as ::rexmpp_iq_new, but caches responses, and can use
+   cached ones.
+   @param[in] fresh Do not read cache, make a new request.
+*/
+rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
+                                   const char *type,
+                                   const char *to,
+                                   xmlNodePtr payload,
+                                   rexmpp_iq_callback_t cb,
+                                   void *cb_data,
+                                   int fresh);
+
+/**
    @brief Determines the maximum time to wait before the next
    ::rexmpp_run call.
    @param[in] s ::rexmpp
@@ -497,6 +514,11 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
    error.
 */
 char *rexmpp_get_name (rexmpp_t *s, const char *jid_str);
+
+/**
+   @brief Compares two XML elements.
+*/
+int rexmpp_xml_eq (xmlNodePtr n1, xmlNodePtr n2);
 
 /**
    @brief Matches an XML node against a namespace and an element name.

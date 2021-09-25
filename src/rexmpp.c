@@ -35,6 +35,11 @@
 #include "rexmpp_openpgp.h"
 #include "rexmpp_console.h"
 
+struct rexmpp_iq_cacher {
+  rexmpp_iq_callback_t cb;
+  void *cb_data;
+};
+
 const char *rexmpp_strerror (rexmpp_err_t error) {
   switch (error) {
   case REXMPP_SUCCESS: return "No error";
@@ -420,6 +425,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->stanza_queue = NULL;
   s->stream_id = NULL;
   s->active_iq = NULL;
+  s->iq_cache = NULL;
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
@@ -428,6 +434,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->stanza_queue_size = 1024;
   s->send_queue_size = 1024;
   s->iq_queue_size = 1024;
+  s->iq_cache_size = 1024;
   s->log_function = log_func;
   s->sasl_property_cb = NULL;
   s->xml_in_cb = NULL;
@@ -615,6 +622,10 @@ void rexmpp_done (rexmpp_t *s) {
     s->active_iq = next;
     rexmpp_iq_finish(s, iq, 0, NULL);
   }
+  if (s->iq_cache != NULL) {
+    xmlFreeNodeList(s->iq_cache);
+    s->iq_cache = NULL;
+  }
 }
 
 void rexmpp_schedule_reconnect (rexmpp_t *s) {
@@ -709,6 +720,17 @@ int rexmpp_xml_match (xmlNodePtr node,
     }
   }
   return 1;
+}
+
+int rexmpp_xml_eq (xmlNodePtr n1, xmlNodePtr n2) {
+  /* Just serialize and compare strings for now: awkward, but
+     simple. */
+  char *n1str = rexmpp_xml_serialize(n1);
+  char *n2str = rexmpp_xml_serialize(n2);
+  int eq = (strcmp(n1str, n2str) == 0);
+  free(n1str);
+  free(n2str);
+  return eq;
 }
 
 xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
@@ -1015,6 +1037,75 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
   s->active_iq = iq;
   return rexmpp_send(s, iq_stanza);
 }
+
+void rexmpp_iq_cache_cb (rexmpp_t *s,
+                         void *cb_data,
+                         xmlNodePtr request,
+                         xmlNodePtr response,
+                         int success)
+{
+  if (success && response != NULL) {
+    xmlNodePtr prev_last = NULL, last = NULL, ciq = s->iq_cache;
+    uint32_t size = 0;
+    while (ciq != NULL && ciq->next != NULL) {
+      prev_last = last;
+      last = ciq;
+      size++;
+      ciq = ciq->next->next;
+    }
+    if (size >= s->iq_queue_size && prev_last != NULL) {
+      xmlFreeNode(last->next);
+      xmlFreeNode(last);
+      prev_last->next->next = NULL;
+    }
+    xmlNodePtr req = xmlCopyNode(request, 1);
+    xmlNodePtr resp = xmlCopyNode(response, 1);
+    req->next = resp;
+    resp->next = s->iq_cache;
+    s->iq_cache = req;
+  }
+  struct rexmpp_iq_cacher *cacher = cb_data;
+  if (cacher->cb != NULL) {
+    cacher->cb(s, cacher->cb_data, request, response, success);
+  }
+  free(cacher);
+}
+
+rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
+                                   const char *type,
+                                   const char *to,
+                                   xmlNodePtr payload,
+                                   rexmpp_iq_callback_t cb,
+                                   void *cb_data,
+                                   int fresh)
+{
+  if (! fresh) {
+    xmlNodePtr ciq = s->iq_cache;
+    while (ciq != NULL && ciq->next != NULL) {
+      xmlNodePtr ciq_pl = xmlFirstElementChild(ciq);
+      char *ciq_type = xmlGetProp(ciq, "type");
+      char *ciq_to = xmlGetProp(ciq, "to");
+      int matches = (rexmpp_xml_eq(ciq_pl, payload) &&
+                     strcmp(ciq_type, type) == 0 &&
+                     strcmp(ciq_to, to) == 0);
+      free(ciq_to);
+      free(ciq_type);
+      if (matches) {
+        xmlFreeNode(payload);
+        if (cb != NULL) {
+          cb(s, cb_data, ciq, ciq->next, 1);
+        }
+        return REXMPP_SUCCESS;
+      }
+      ciq = ciq->next->next;
+    }
+  }
+  struct rexmpp_iq_cacher *cacher = malloc(sizeof(struct rexmpp_iq_cacher));
+  cacher->cb = cb;
+  cacher->cb_data = cb_data;
+  return rexmpp_iq_new(s, type, to, payload, rexmpp_iq_cache_cb, cacher);
+}
+
 
 rexmpp_err_t rexmpp_sm_ack (rexmpp_t *s) {
   char buf[11];
