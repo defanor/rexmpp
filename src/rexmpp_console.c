@@ -14,6 +14,7 @@
 
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
+#include "rexmpp_http_upload.h"
 #include "rexmpp_console.h"
 
 
@@ -257,6 +258,16 @@ void rexmpp_console_on_run (rexmpp_t *s, rexmpp_err_t result) {
   }
 }
 
+void rexmpp_console_on_upload (rexmpp_t *s, void *cb_data, const char *url) {
+  char *fpath = cb_data;
+  if (url == NULL) {
+    rexmpp_console_printf(s, "Failed to upload %s.\n", fpath);
+  } else {
+    rexmpp_console_printf(s, "Uploaded %s to <%s>.\n", fpath, url);
+  }
+  free(fpath);
+}
+
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   /* todo: buffering */
   (void)str_len;                /* Unused for now (todo). */
@@ -288,6 +299,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "subscription request <jid>\n"
     "subscription approve <jid>\n"
     "subscription deny <jid>\n"
+    "http-upload <file path>\n"
     ;
 
   if (! strcmp(word, "help")) {
@@ -538,5 +550,11 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       xmlNewProp(presence, "type", "unsubscribed");
       rexmpp_send(s, presence);
     }
+  }
+
+  if (! strcmp(word, "http-upload")) {
+    char *fpath = strtok_r(NULL, " ", &words_save_ptr);
+    rexmpp_http_upload_path(s, NULL, fpath, NULL,
+                            rexmpp_console_on_upload, strdup(fpath));
   }
 }

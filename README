@@ -15,7 +15,7 @@ of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
 Current dependencies: libxml2, gsasl, nettle. Optionally libunbound or
-c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme.
+c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl.
 
 
 A rough roadmap:
@@ -69,12 +69,12 @@ A rough roadmap:
 [+] XEP-0172 v1.1: User Nickname
 [+] XEP-0373 v0.6: OpenPGP for XMPP
 [+] XEP-0402 v1.1: PEP Native Bookmarks (autojoin conferences)
+[+] XEP-0363 v1.0: HTTP File Upload (when built with curl)
 [ ] XEP-0166: Jingle
 [ ] XEP-0234: Jingle File Transfer
 [ ] XEP-0261: Jingle In-Band Bytestreams Transport Method
 [ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method?
 [ ] XEP-0391: Jingle Encrypted Transports?
-[ ] XEP-0363: HTTP File Upload?
 [ ] XEP-0184: Message Delivery Receipts?
 [ ] OTR/OMEMO/MLS encryption?
 [ ] A/V calls?

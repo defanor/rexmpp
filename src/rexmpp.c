@@ -17,6 +17,7 @@
 
 #include "config.h"
 
+#include <nettle/sha1.h>
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include <gsasl.h>
@@ -24,7 +25,9 @@
 #ifdef HAVE_GPGME
 #include <gpgme.h>
 #endif
-#include <nettle/sha1.h>
+#ifdef HAVE_CURL
+#include <curl/curl.h>
+#endif
 
 #include "rexmpp.h"
 #include "rexmpp_tcp.h"
@@ -34,6 +37,7 @@
 #include "rexmpp_jid.h"
 #include "rexmpp_openpgp.h"
 #include "rexmpp_console.h"
+#include "rexmpp_http_upload.h"
 
 struct rexmpp_iq_cacher {
   rexmpp_iq_callback_t cb;
@@ -432,6 +436,9 @@ rexmpp_disco_find_feature (rexmpp_t *s,
   search->feature_var = feature_var;
   xmlNodePtr query =
     rexmpp_xml_new_node("query", "http://jabber.org/protocol/disco#info");
+  if (jid == NULL) {
+    jid = s->initial_jid.domain;
+  }
   return rexmpp_cached_iq_new(s, "get", jid, query,
                               rexmpp_disco_find_feature_cb, search, fresh);
 }
@@ -620,6 +627,16 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_PGP;
   }
 #endif
+#ifdef HAVE_CURL
+  if (curl_global_init(CURL_GLOBAL_ALL) != 0) {
+    rexmpp_log(s, LOG_CRIT, "Failed to initialize curl");
+  }
+  s->curl_multi = curl_multi_init();
+  if (s->curl_multi == NULL) {
+    rexmpp_log(s, LOG_CRIT, "Failed to initialize curl_multi");
+    /* todo: free other structures and fail */
+  }
+#endif
 
   return REXMPP_SUCCESS;
 }
@@ -698,6 +715,10 @@ void rexmpp_iq_finish (rexmpp_t *s,
 /* Frees the things that persist through reconnects. */
 void rexmpp_done (rexmpp_t *s) {
   rexmpp_cleanup(s);
+#ifdef HAVE_CURL
+  curl_multi_cleanup(s->curl_multi);
+  curl_global_cleanup();
+#endif
 #ifdef HAVE_GPGME
   gpgme_release(s->pgp_ctx);
 #endif
@@ -2417,6 +2438,28 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     return REXMPP_E_OTHER;
   }
 
+#ifdef HAVE_CURL
+  /* curl may work independently from everything else. */
+  int curl_running_handles;
+  CURLMcode curl_code;
+  do {
+    curl_code = curl_multi_perform(s->curl_multi, &curl_running_handles);
+  } while (curl_code == CURLM_CALL_MULTI_PERFORM);
+  CURLMsg *cmsg;
+  int curl_queue;
+  do {
+    cmsg = curl_multi_info_read(s->curl_multi, &curl_queue);
+    if (cmsg != NULL && cmsg->msg == CURLMSG_DONE) {
+      CURL *e = cmsg->easy_handle;
+      struct rexmpp_http_upload_task *task;
+      curl_easy_getinfo(e, CURLINFO_PRIVATE, &task);
+      rexmpp_upload_task_finish(task);
+      curl_multi_remove_handle(s->curl_multi, e);
+      curl_easy_cleanup(e);
+    }
+  } while (cmsg != NULL);
+#endif
+
   /* Inactive: start or reconnect. */
   if ((s->resolver_state == REXMPP_RESOLVER_NONE ||
        s->resolver_state == REXMPP_RESOLVER_READY) &&
@@ -2608,13 +2651,21 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
 }
 
-int rexmpp_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
+int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   int conn_fd, tls_fd, max_fd = 0;
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
     max_fd = rexmpp_dns_fds(s, read_fds, write_fds);
   }
+
+#ifdef HAVE_CURL
+  int curl_fd;
+  curl_multi_fdset(s->curl_multi, read_fds, write_fds, NULL, &curl_fd);
+  if (curl_fd >= max_fd) {
+    max_fd = curl_fd + 1;
+  }
+#endif
 
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
     conn_fd = rexmpp_tcp_conn_fds(s, &s->server_connection, read_fds, write_fds);
@@ -2686,6 +2737,19 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
       ret = tv;
     }
   }
+
+#ifdef HAVE_CURL
+  long curl_timeout;
+  curl_multi_timeout(s->curl_multi, &curl_timeout);
+  if (curl_timeout >= 0 &&
+      (curl_timeout / 1000 < ret->tv_sec ||
+       (curl_timeout / 1000 == ret->tv_sec &&
+        (curl_timeout % 1000) * 1000 < ret->tv_usec))) {
+    tv->tv_sec = curl_timeout / 1000;
+    tv->tv_usec = (curl_timeout % 1000) * 1000;
+    ret = tv;
+  }
+#endif
 
   return ret;
 }

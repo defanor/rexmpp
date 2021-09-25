@@ -85,6 +85,14 @@ AS_IF([test "x$with_icu" != "xno"],
       [PKG_CHECK_MODULES([ICU_I18N], [icu-i18n],
         AC_DEFINE([HAVE_ICU], [1], [icu-i18n is available]))])
 
+# curl, optional
+
+AC_ARG_WITH([curl],
+        AS_HELP_STRING([--without-curl], [don't use curl for HTTP file upload]))
+AS_IF([test "x$with_curl" != "xno"],
+      [PKG_CHECK_MODULES([CURL], [libcurl],
+        AC_DEFINE([HAVE_CURL], [1], [curl is available]))])
+
 
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h netdb.h netinet/in.h sys/socket.h syslog.h])

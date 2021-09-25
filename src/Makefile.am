@@ -19,15 +19,16 @@ librexmpp_la_SOURCES = rexmpp_roster.h rexmpp_roster.c \
 	rexmpp_jid.h rexmpp_jid.c \
 	rexmpp_openpgp.h rexmpp_openpgp.c \
 	rexmpp_console.h rexmpp_console.c \
-	rexmpp_pubsub.h rexmpp_pubsub.c
+	rexmpp_pubsub.h rexmpp_pubsub.c \
+	rexmpp_http_upload.h rexmpp_http_upload.c
 include_HEADERS = config.h rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h \
 	rexmpp_dns.h rexmpp_tls.h rexmpp_jid.h rexmpp_openpgp.h rexmpp_console.h \
-	rexmpp_pubsub.h
+	rexmpp_pubsub.h rexmpp_http_upload.h
 librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) \
 	$(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(OPENSSL_CFLAGS) \
 	$(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(CARES_CFLAGS) $(GPGME_CFLAGS) \
-	$(ICU_I18N_CFLAGS) $(NETTLE_CFLAGS)
+	$(ICU_I18N_CFLAGS) $(NETTLE_CFLAGS) $(CURL_CFLAGS)
 librexmpp_la_LIBADD = $(LIBXML_LIBS) \
 	$(GNUTLS_LIBS) $(LIBDANE_LIBS) $(OPENSSL_LIBS) \
 	$(GSASL_LIBS) $(UNBOUND_LIBS) $(CARES_LIBS) $(GPGME_LIBS) $(ICU_I18N_LIBS) \
-	$(NETTLE_LIBS)
+	$(NETTLE_LIBS) $(CURL_LIBS)
