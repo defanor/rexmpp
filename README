@@ -62,7 +62,8 @@ A rough roadmap:
 
 [+] XMPP IM (RFC 6121): roster management (loading and pushes, with
     versioning and caching)
-[+] XEP-0030 v2.5: Service Discovery (replying to queries)
+[+] XEP-0030 v2.5: Service Discovery (replying to queries, recursively
+    searching for features)
 [+] XEP-0115 v1.5: Entity Capabilities (including into initial presence)
 [+] XEP-0092 v1.1: Software Version
 [+] XEP-0172 v1.1: User Nickname

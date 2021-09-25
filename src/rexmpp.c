@@ -40,6 +40,16 @@ struct rexmpp_iq_cacher {
   void *cb_data;
 };
 
+struct rexmpp_feature_search {
+  const char *feature_var;
+  int max_requests;
+  int pending;
+  rexmpp_iq_callback_t cb;
+  void *cb_data;
+  int fresh;
+  int found;
+};
+
 const char *rexmpp_strerror (rexmpp_err_t error) {
   switch (error) {
   case REXMPP_SUCCESS: return "No error";
@@ -309,6 +319,12 @@ xmlNodePtr rexmpp_xml_feature (const char *var) {
   return feature;
 }
 
+xmlNodePtr rexmpp_xml_new_node (const char *name, const char *namespace) {
+  xmlNodePtr node = xmlNewNode(NULL, name);
+  xmlNewNs(node, namespace, NULL);
+  return node;
+}
+
 xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
   xmlNodePtr error = xmlNewNode(NULL, "error");
   xmlNewProp(error, "type", type);
@@ -316,6 +332,108 @@ xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
   xmlNewNs(cond, "urn:ietf:params:xml:ns:xmpp-stanzas", NULL);
   xmlAddChild(error, cond);
   return error;
+}
+
+void rexmpp_disco_find_feature_cb (rexmpp_t *s,
+                                   void *ptr,
+                                   xmlNodePtr request,
+                                   xmlNodePtr response,
+                                   int success)
+{
+  struct rexmpp_feature_search *search = ptr;
+  if (! success) {
+    char *to = xmlGetProp(request, "to");
+    xmlNodePtr query = xmlFirstElementChild(request);
+    rexmpp_log(s, LOG_ERR, "Failed to query %s for %s.", to, query->nsDef->href);
+    free(to);
+  } else if (! search->found) {
+    xmlNodePtr query = xmlFirstElementChild(response);
+    if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info",
+                         "query")) {
+      xmlNodePtr child = xmlFirstElementChild(query);
+      while (child != NULL && (! search->found)) {
+        if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
+                             "feature")) {
+          char *var = xmlGetProp(child, "var");
+          if (var != NULL) {
+            if (strcmp(var, search->feature_var) == 0) {
+              search->cb(s, search->cb_data, request, response, success);
+              search->found = 1;
+            }
+            free(var);
+          }
+        }
+        child = child->next;
+      }
+      if ((! search->found) && (search->max_requests > 0)) {
+        /* Still not found, request items */
+        char *jid = xmlGetProp(request, "to");
+        if (jid != NULL) {
+          search->pending++;
+          search->max_requests--;
+          xmlNodePtr query =
+            rexmpp_xml_new_node("query",
+                                "http://jabber.org/protocol/disco#items");
+          rexmpp_cached_iq_new(s, "get", jid, query,
+                               rexmpp_disco_find_feature_cb,
+                               search, search->fresh);
+          free(jid);
+        }
+      }
+    } else if (rexmpp_xml_match(query,
+                                "http://jabber.org/protocol/disco#items",
+                                "query")) {
+      xmlNodePtr child = xmlFirstElementChild(query);
+      while (child != NULL && (search->max_requests > 0)) {
+        if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#items",
+                             "item")) {
+          char *jid = xmlGetProp(child, "jid");
+          if (jid != NULL) {
+            search->pending++;
+            search->max_requests--;
+            xmlNodePtr query =
+              rexmpp_xml_new_node("query",
+                                  "http://jabber.org/protocol/disco#info");
+            rexmpp_cached_iq_new(s, "get", jid, query,
+                                 rexmpp_disco_find_feature_cb,
+                                 search, search->fresh);
+          }
+        }
+        child = child->next;
+      }
+    }
+  }
+  search->pending--;
+  if (search->pending == 0) {
+    if (! search->found) {
+      search->cb(s, search->cb_data, NULL, NULL, 0);
+    }
+    free(search);
+  }
+}
+
+rexmpp_err_t
+rexmpp_disco_find_feature (rexmpp_t *s,
+                           const char *jid,
+                           const char *feature_var,
+                           rexmpp_iq_callback_t cb,
+                           void *cb_data,
+                           int fresh,
+                           int max_requests)
+{
+  struct rexmpp_feature_search *search =
+    malloc(sizeof(struct rexmpp_feature_search));
+  search->max_requests = max_requests - 1;
+  search->found = 0;
+  search->pending = 1;
+  search->cb = cb;
+  search->cb_data = cb_data;
+  search->fresh = fresh;
+  search->feature_var = feature_var;
+  xmlNodePtr query =
+    rexmpp_xml_new_node("query", "http://jabber.org/protocol/disco#info");
+  return rexmpp_cached_iq_new(s, "get", jid, query,
+                              rexmpp_disco_find_feature_cb, search, fresh);
 }
 
 xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
@@ -390,7 +508,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->socks_host = NULL;
   s->server_host = NULL;
   s->enable_carbons = 1;
-  s->enable_service_discovery = 1;
   s->manage_roster = 1;
   s->roster_cache_file = NULL;
   s->track_roster_presence = 1;
@@ -714,7 +831,7 @@ int rexmpp_xml_match (xmlNodePtr node,
         return 0;
       }
     } else {
-      if (strcmp(namespace, node->ns->href) != 0) {
+      if (strcmp(namespace, node->nsDef->href) != 0) {
         return 0;
       }
     }
@@ -1494,40 +1611,22 @@ void rexmpp_pong (rexmpp_t *s,
   s->ping_requested = 0;
 }
 
-void rexmpp_iq_discovery_info (rexmpp_t *s,
-                               void *ptr,
-                               xmlNodePtr req,
-                               xmlNodePtr response,
-                               int success)
-{
+void rexmpp_disco_carbons_cb (rexmpp_t *s,
+                              void *ptr,
+                              xmlNodePtr req,
+                              xmlNodePtr response,
+                              int success) {
   (void)ptr;
   (void)req;
-  if (! success) {
-    rexmpp_log(s, LOG_ERR, "Failed to discover features");
-    return;
-  }
-  xmlNodePtr query = xmlFirstElementChild(response);
-  if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info",
-                       "query")) {
-    xmlNodePtr child;
-    for (child = xmlFirstElementChild(query);
-         child != NULL;
-         child = xmlNextElementSibling(child))
-      {
-        if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
-                             "feature")) {
-          char *var = xmlGetProp(child, "var");
-          if (s->enable_carbons &&
-              strcmp(var, "urn:xmpp:carbons:2") == 0) {
-            xmlNodePtr carbons_enable = xmlNewNode(NULL, "enable");
-            xmlNewNs(carbons_enable, "urn:xmpp:carbons:2", NULL);
-            s->carbons_state = REXMPP_CARBONS_NEGOTIATION;
-            rexmpp_iq_new(s, "set", NULL, carbons_enable,
-                          rexmpp_carbons_enabled, NULL);
-          }
-          free(var);
-        }
-      }
+  (void)response;
+  if (success) {
+    xmlNodePtr carbons_enable =
+      rexmpp_xml_new_node("enable", "urn:xmpp:carbons:2");
+    s->carbons_state = REXMPP_CARBONS_NEGOTIATION;
+    rexmpp_iq_new(s, "set", NULL, carbons_enable,
+                  rexmpp_carbons_enabled, NULL);
+  } else {
+    rexmpp_log(s, LOG_WARNING, "Failed to discover the carbons feature.");
   }
 }
 
@@ -1535,11 +1634,11 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
   s->stream_state = REXMPP_STREAM_READY;
   rexmpp_resend_stanzas(s);
 
-  if (s->enable_service_discovery) {
-    xmlNodePtr disco_query = xmlNewNode(NULL, "query");
-    xmlNewNs(disco_query, "http://jabber.org/protocol/disco#info", NULL);
-    rexmpp_iq_new(s, "get", s->initial_jid.domain,
-                  disco_query, rexmpp_iq_discovery_info, NULL);
+  if (s->enable_carbons) {
+    rexmpp_disco_find_feature (s, s->initial_jid.domain,
+                               "urn:xmpp:carbons:2",
+                               rexmpp_disco_carbons_cb,
+                               NULL, 0, 1);
   }
   if (s->manage_roster) {
     if (s->roster_cache_file != NULL) {

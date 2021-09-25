@@ -260,7 +260,6 @@ struct rexmpp
 
   /* Various knobs (these are used instead of loadable modules). */
   int enable_carbons;           /* XEP-0280 */
-  int enable_service_discovery; /* XEP-0030 */
   int manage_roster;
   const char *roster_cache_file;
   int track_roster_presence;
@@ -422,6 +421,7 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node);
    @param[in] payload IQ payload, the library assumes ownership of it.
    @param[in] cb A ::rexmpp_iq_callback_t function to call on reply
    (or if we will give up on it), can be NULL.
+   @param[in] cb_data A data pointer to pass to cb.
 
    This function is specifically for IQs that should be tracked by the
    library. If an application wants to track replies on its own, it
@@ -547,6 +547,8 @@ xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
                                   const char *namespace,
                                   const char *name);
 
+xmlNodePtr rexmpp_xml_new_node (const char *name, const char *namespace);
+
 /**
    @brief Finds a PEP event.
    @param[in] s ::rexmpp
@@ -569,5 +571,32 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len);
    @returns A string explaining the error.
 */
 const char *rexmpp_strerror (rexmpp_err_t error);
+
+
+/**
+   @brief Recurisevly searches for a given feature, using service
+   discovery, starting from a given JID. If it finds such a feature,
+   it call the provided callback, providing it both IQ request and
+   response for the entity that provided the feature; if the feature
+   isn't found, it calls the callback with NULL values.
+
+   @param[in,out] s ::rexmpp
+   @param[in] jid An XMPP address to start searching from.
+   @param[in] feature_var A feature to search for.
+   @param[in] cb A ::rexmpp_iq_callback_t function to call on reply.
+   @param[in] cb_data A data pointer to pass to cb.
+   @param[in] fresh Force a new request, instead of looking up the
+   cache.
+   @param[in] max_requests Maximum number of IQ requests to perform
+   before giving up.
+*/
+rexmpp_err_t
+rexmpp_disco_find_feature (rexmpp_t *s,
+                           const char *jid,
+                           const char *feature_var,
+                           rexmpp_iq_callback_t cb,
+                           void *cb_data,
+                           int fresh,
+                           int max_requests);
 
 #endif
