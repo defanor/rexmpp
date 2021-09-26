@@ -385,7 +385,14 @@ its printing--which doesn't handle namespaces--can be used too."
                  (xmpp-proc-write '((response nil "0")) proc)))
          (`(xml-out nil ,xml-out)
           (progn (xmpp-process-output proc xml-out)
-                 (xmpp-proc-write '((response nil "0")) proc)))))
+                 (xmpp-proc-write '((response nil "0")) proc)))
+         (`(http-upload ,prop)
+          (let ((path (cdr (assq 'path prop)))
+                (url (cdr (assq 'url prop))))
+            (if url
+                (progn (kill-new url)
+                       (message "Uploaded %s to %s" path url))
+              (message "Failed to upload %s" path))))))
       ('log
        (with-current-buffer log-buf
          (goto-char (point-max))
@@ -416,6 +423,10 @@ its printing--which doesn't handle namespaces--can be used too."
 
 (defun xmpp-with-name (jid cb &optional proc)
   (xmpp-request `(get-name nil ,jid) cb proc))
+
+(defun xmpp-http-upload (path &optional proc)
+  (interactive "fFile path: ")
+  (xmpp-request `(http-upload nil ,path) nil proc))
 
 (defun xmpp-stop (&optional proc)
   (interactive)

@@ -74,6 +74,17 @@ xmlNodePtr req_block (xmlNodePtr req) {
   return read_response();
 }
 
+void on_http_upload (rexmpp_t *s, void *cb_data, const char *url) {
+  char *fpath = cb_data;
+  xmlNodePtr payload = xmlNewNode(NULL, "http-upload");
+  xmlNewProp(payload, "path", fpath);
+  if (url != NULL) {
+    xmlNewProp(payload, "url", url);
+  }
+  free(fpath);
+  request(payload);
+}
+
 void req_process (rexmpp_t *s,
                   xmlNodePtr elem)
 {
@@ -150,6 +161,11 @@ void req_process (rexmpp_t *s,
       }
       free(jid);
     }
+  }
+  if (rexmpp_xml_match(child, NULL, "http-upload")) {
+    char *in = xmlNodeGetContent(child);
+    rexmpp_http_upload_path(s, NULL, in, NULL, on_http_upload, strdup(in));
+    free(in);
   }
   print_xml(rep);
   xmlFreeNode(rep);

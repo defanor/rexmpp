@@ -2453,6 +2453,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       CURL *e = cmsg->easy_handle;
       struct rexmpp_http_upload_task *task;
       curl_easy_getinfo(e, CURLINFO_PRIVATE, &task);
+      rexmpp_log(s, LOG_DEBUG, "%s upload is finished", task->fname);
       rexmpp_upload_task_finish(task);
       curl_multi_remove_handle(s->curl_multi, e);
       curl_easy_cleanup(e);
