@@ -1,0 +1,25 @@
+xmpp.el - an Emacs interface to rexmpp
+
+Since Emacs can't poll sockets and use rexmpp directly, this works by
+introducing a program which basically serializes library calls and
+callbacks into XML, and which xmpp.el runs as a subprocess.
+
+Once rexmpp_xml_interface is built, and possibly the path to it is
+adjusted in the xmpp-command variable, one can load xmpp.el, set a
+password in ~/.authinfo (or elsewhere auth-source will be able to read
+it from, with "port xmpp"), perhaps enable tracking-mode, and run M-x
+xmpp RET <JID> RET.
+
+The buffers it creates are an XML console, a text console (using
+rexmpp's console module, type "help" to see the available commands), a
+process buffer, a log buffer. The xmpp-query function (or just
+incoming messages) will create query buffers for one-to-one chats,
+xmpp-muc-join creates MUC ones.
+
+The used XML interface will probably be changed to allow asynchronous
+requests in both ways, and there's still a lot to add or improve in
+xmpp.el, but it is fairly usable (i.e., replaces bitlbee + rcirc for
+me) since September 2021.
+
+Possibly in the future it will work with other libraries as well,
+and/or will be moved out of the rexmpp's repository.
