@@ -16,10 +16,9 @@ process buffer, a log buffer. The xmpp-query function (or just
 incoming messages) will create query buffers for one-to-one chats,
 xmpp-muc-join creates MUC ones.
 
-The used XML interface will probably be changed to allow asynchronous
-requests in both ways, and there's still a lot to add or improve in
-xmpp.el, but it is fairly usable (i.e., replaces bitlbee + rcirc for
-me) since September 2021.
+The used XML interface will probably be adjusted, and there's still a
+lot to add or improve in xmpp.el, but it is fairly usable (i.e.,
+replaces bitlbee + rcirc for me) since September 2021.
 
 Possibly in the future it will work with other libraries as well,
 and/or will be moved out of the rexmpp's repository.

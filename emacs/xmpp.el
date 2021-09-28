@@ -112,9 +112,9 @@
   "An XMPP XML console buffer.")
 (make-variable-buffer-local 'xmpp-xml-buffer)
 
-(defvar xmpp-request-queue nil
-  "A subprocess request queue.")
-(make-variable-buffer-local 'xmpp-request-queue)
+(defvar xmpp-active-requests nil
+  "Active requests for a subprocess.")
+(make-variable-buffer-local 'xmpp-active-requests)
 
 (defvar xmpp-truncate-buffer-at 100000
   "The buffer size at which to truncate an XMPP-related buffer by
@@ -361,38 +361,32 @@ its printing--which doesn't handle namespaces--can be used too."
          (xml-elem (car xml)))
     (pcase (xml-node-name xml-elem)
       ('request
-       (pcase (car (xml-node-children xml-elem))
-         (`(sasl ((property . ,prop)))
-          (let ((resp
-                 (if (equal prop "password")
-                     (let ((secret
-                            (plist-get
-                             (car
-                              (auth-source-search
-                               :max 1
-                               :user my-jid
-                               :port "xmpp"
-                               :require '(:user :secret))) :secret)))
-                       (if (functionp secret)
-                           (funcall secret)
-                         secret))
-                   (read-passwd
-                    (concat "SASL " prop ": ")))))
-            (xmpp-proc-write `((response nil ,resp))
-                             proc)))
-         (`(xml-in nil ,xml-in)
-          (progn (xmpp-process-input proc xml-in)
-                 (xmpp-proc-write '((response nil "0")) proc)))
-         (`(xml-out nil ,xml-out)
-          (progn (xmpp-process-output proc xml-out)
-                 (xmpp-proc-write '((response nil "0")) proc)))
-         (`(http-upload ,prop)
-          (let ((path (cdr (assq 'path prop)))
-                (url (cdr (assq 'url prop))))
-            (if url
-                (progn (kill-new url)
-                       (message "Uploaded %s to %s" path url))
-              (message "Failed to upload %s" path))))))
+       (let ((rid (xml-get-attribute xml-elem 'id)))
+         (pcase (car (xml-node-children xml-elem))
+           (`(sasl ((property . ,prop)))
+            (let ((resp
+                   (if (equal prop "password")
+                       (let ((secret
+                              (plist-get
+                               (car
+                                (auth-source-search
+                                 :max 1
+                                 :user my-jid
+                                 :port "xmpp"
+                                 :require '(:user :secret))) :secret)))
+                         (if (functionp secret)
+                             (funcall secret)
+                           secret))
+                     (read-passwd
+                      (concat "SASL " prop ": ")))))
+              (xmpp-proc-write `((response ((id . ,rid)) ,resp))
+                               proc)))
+           (`(xml-in nil ,xml-in)
+            (progn (xmpp-process-input proc xml-in)
+                   (xmpp-proc-write `((response ((id . ,rid)) "0")) proc)))
+           (`(xml-out nil ,xml-out)
+            (progn (xmpp-process-output proc xml-out)
+                   (xmpp-proc-write `((response ((id . ,rid)) "0")) proc))))))
       ('log
        (with-current-buffer log-buf
          (goto-char (point-max))
@@ -404,29 +398,31 @@ its printing--which doesn't handle namespaces--can be used too."
          (xmpp-insert (car (xml-node-children xml-elem)))))
       ('response
        (with-current-buffer buf
-         (when (cdar (last xmpp-request-queue))
-           (funcall (cdar (last xmpp-request-queue))
-                    (car (xml-node-children xml-elem))))
-         (setq-local xmpp-request-queue
-                     (reverse (cdr (reverse xmpp-request-queue))))
-         ;; send the next request if we have any queued
-         (when xmpp-request-queue
-           (xmpp-proc-write `((request nil ,(caar (last xmpp-request-queue))))
-                            xmpp-proc)))))))
+         (let* ((rid (xml-get-attribute xml-elem 'id))
+                (cb (alist-get rid xmpp-active-requests nil nil 'string-equal)))
+           (setq xmpp-active-requests
+                 (assoc-delete-all rid xmpp-active-requests))
+           (when cb
+             (funcall cb (car (xml-node-children xml-elem))))))))))
 
 (defun xmpp-request (req cb &optional proc)
-  (let ((cur-proc (or proc xmpp-proc)))
+  (let ((cur-proc (or proc xmpp-proc))
+        (req-id (xmpp-gen-id)))
     (with-current-buffer (process-buffer cur-proc)
-      (when (not xmpp-request-queue)
-        (xmpp-proc-write `((request nil ,req)) cur-proc))
-      (push (cons req cb) xmpp-request-queue))))
+      (xmpp-proc-write `((request ((id . ,req-id)) ,req)) cur-proc)
+      (push (cons req-id cb) xmpp-active-requests))))
 
 (defun xmpp-with-name (jid cb &optional proc)
   (xmpp-request `(get-name nil ,jid) cb proc))
 
 (defun xmpp-http-upload (path &optional proc)
   (interactive "fFile path: ")
-  (xmpp-request `(http-upload nil ,path) nil proc))
+  (xmpp-request
+   `(http-upload nil ,path)
+   (lambda (url)
+     (kill-new url)
+     (message "Uploaded the file to %s" url))
+   proc))
 
 (defun xmpp-stop (&optional proc)
   (interactive)
@@ -469,7 +465,7 @@ its printing--which doesn't handle namespaces--can be used too."
                     (concat "*xmpp:" bare-jid " process*"))))
     (with-current-buffer proc-buf
       (setq-local xmpp-jid bare-jid)
-      (setq-local xmpp-request-queue nil)
+      (setq-local xmpp-active-requests nil)
       (setq-local xmpp-query-buffers '())
       (setq-local xmpp-muc-buffers '())
       (setq-local xmpp-log-buffer

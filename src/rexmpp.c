@@ -852,8 +852,14 @@ int rexmpp_xml_match (xmlNodePtr node,
         return 0;
       }
     } else {
-      if (strcmp(namespace, node->nsDef->href) != 0) {
-        return 0;
+      if (node->nsDef) {
+        if (strcmp(namespace, node->nsDef->href) != 0) {
+          return 0;
+        }
+      } else {
+        if (namespace != NULL) {
+          return 0;
+        }
       }
     }
   }
