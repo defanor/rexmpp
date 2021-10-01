@@ -18,6 +18,7 @@ The following XEPs are handled here so far:
 #include <libgen.h>
 #include <gsasl.h>
 #include <nettle/sha2.h>
+#include <nettle/sha3.h>
 
 #include "rexmpp.h"
 #include "rexmpp_jingle.h"
@@ -278,20 +279,34 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   char buf[4096];
 
-  char hash_raw[SHA512_DIGEST_SIZE];
-  struct sha512_ctx ctx;
-  sha512_init(&ctx);
+  char hash_sha256[SHA256_DIGEST_SIZE];
+  struct sha256_ctx sha2_ctx;
+  sha256_init(&sha2_ctx);
+  char hash_sha3_256[SHA3_256_DIGEST_SIZE];
+  struct sha3_256_ctx sha3_ctx;
+  sha3_256_init(&sha3_ctx);
   size_t len = fread(buf, 1, 4096, fh);
   while (len > 0) {
-    sha512_update(&ctx, len, buf);
+    sha256_update(&sha2_ctx, len, buf);
+    sha3_256_update(&sha3_ctx, len, buf);
     len = fread(buf, 1, 4096, fh);
   }
-  sha512_digest(&ctx, SHA512_DIGEST_SIZE, hash_raw);
+  sha256_digest(&sha2_ctx, SHA256_DIGEST_SIZE, hash_sha256);
   char *hash_base64 = NULL;
   size_t hash_base64_len = 0;
-  gsasl_base64_to(hash_raw, SHA512_DIGEST_SIZE, &hash_base64, &hash_base64_len);
+  gsasl_base64_to(hash_sha256, SHA256_DIGEST_SIZE, &hash_base64, &hash_base64_len);
   xmlNodePtr file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
-  xmlNewProp(file_hash, "algo", "sha-512");
+  xmlNewProp(file_hash, "algo", "sha-256");
+  xmlNodeAddContent(file_hash, hash_base64);
+  free(hash_base64);
+  xmlAddChild(file, file_hash);
+
+  sha3_256_digest(&sha3_ctx, SHA3_256_DIGEST_SIZE, hash_sha3_256);
+  hash_base64 = NULL;
+  hash_base64_len = 0;
+  gsasl_base64_to(hash_sha3_256, SHA3_256_DIGEST_SIZE, &hash_base64, &hash_base64_len);
+  file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
+  xmlNewProp(file_hash, "algo", "sha3-256");
   xmlNodeAddContent(file_hash, hash_base64);
   free(hash_base64);
   xmlAddChild(file, file_hash);
