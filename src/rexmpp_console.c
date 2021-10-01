@@ -15,6 +15,7 @@
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
 #include "rexmpp_http_upload.h"
+#include "rexmpp_jingle.h"
 #include "rexmpp_console.h"
 
 
@@ -300,6 +301,8 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "subscription approve <jid>\n"
     "subscription deny <jid>\n"
     "http-upload <file path>\n"
+    "jingle accept-file <sid> <file path>\n"
+    "jingle send-file <jid> <file path>\n"
     ;
 
   if (! strcmp(word, "help")) {
@@ -556,5 +559,21 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     char *fpath = strtok_r(NULL, " ", &words_save_ptr);
     rexmpp_http_upload_path(s, NULL, fpath, NULL,
                             rexmpp_console_on_upload, strdup(fpath));
+  }
+
+  if (! strcmp(word, "jingle")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (word == NULL) {
+      return;
+    }
+    if (! strcmp(word, "accept-file")) {
+      char *sid = strtok_r(NULL, " ", &words_save_ptr);
+      char *fpath = strtok_r(NULL, " ", &words_save_ptr);
+      rexmpp_jingle_accept_file_by_id(s, sid, fpath);
+    } else if (! strcmp(word, "send-file")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      char *fpath = strtok_r(NULL, " ", &words_save_ptr);
+      rexmpp_jingle_send_file(s, jid, fpath);
+    }
   }
 }

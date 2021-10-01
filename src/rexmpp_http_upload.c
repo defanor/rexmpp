@@ -187,7 +187,7 @@ rexmpp_http_upload_path (rexmpp_t *s,
                          http_upload_cb cb,
                          void *cb_data)
 {
-  FILE *fh = fopen(fpath, "r");
+  FILE *fh = fopen(fpath, "rb");
   if (fh == NULL) {
     rexmpp_log(s, LOG_ERR, "Failed to open %s for reading: %s.\n",
                fpath, strerror(errno));

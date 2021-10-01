@@ -22,11 +22,61 @@
 
 typedef struct rexmpp rexmpp_t;
 
+/** Error codes. */
+enum rexmpp_err {
+  /** An operation is finished. */
+  REXMPP_SUCCESS,
+  /** An operation is in progress. */
+  REXMPP_E_AGAIN,
+  /** A message can't be queued for sending, because the queue is
+      full. */
+  REXMPP_E_SEND_QUEUE_FULL,
+  /** The library can't take responsibility for message delivery (and
+      doesn't try to send it), because XEP-0198 stanza queue is
+      full. */
+  REXMPP_E_STANZA_QUEUE_FULL,
+  /** An operation (reading or sending) was cancelled by a user. */
+  REXMPP_E_CANCELLED,
+  /** An attempt to send while send buffer is empty. */
+  REXMPP_E_SEND_BUFFER_EMPTY,
+  /** An attempt to start sending while send buffer is not empty. */
+  REXMPP_E_SEND_BUFFER_NOT_EMPTY,
+  /** SASL-related error. */
+  REXMPP_E_SASL,
+  /** OpenPGP-related error. */
+  REXMPP_E_PGP,
+  /** TLS-related error. */
+  REXMPP_E_TLS,
+  /** TCP-related error. */
+  REXMPP_E_TCP,
+  /** DNS-related error. */
+  REXMPP_E_DNS,
+  /** XML-related error. */
+  REXMPP_E_XML,
+  /** JID-related error. */
+  REXMPP_E_JID,
+  /** Failure to allocate memory. */
+  REXMPP_E_MALLOC,
+  /** Roster-related error. */
+  REXMPP_E_ROSTER,
+  /** A roster item is not found. */
+  REXMPP_E_ROSTER_ITEM_NOT_FOUND,
+  /** An erroneous parameter is supplied. */
+  REXMPP_E_PARAM,
+  /** A stream error. */
+  REXMPP_E_STREAM,
+  /** An unspecified error. */
+  REXMPP_E_OTHER
+};
+
+typedef enum rexmpp_err rexmpp_err_t;
+
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
 #include "rexmpp_tls.h"
 #include "rexmpp_jid.h"
+#include "rexmpp_jingle.h"
 
 /**
    @brief An info/query callback function type.
@@ -168,54 +218,6 @@ enum carbons_st {
   REXMPP_CARBONS_ACTIVE
 };
 
-/** Error codes. */
-enum rexmpp_err {
-  /** An operation is finished. */
-  REXMPP_SUCCESS,
-  /** An operation is in progress. */
-  REXMPP_E_AGAIN,
-  /** A message can't be queued for sending, because the queue is
-      full. */
-  REXMPP_E_SEND_QUEUE_FULL,
-  /** The library can't take responsibility for message delivery (and
-      doesn't try to send it), because XEP-0198 stanza queue is
-      full. */
-  REXMPP_E_STANZA_QUEUE_FULL,
-  /** An operation (reading or sending) was cancelled by a user. */
-  REXMPP_E_CANCELLED,
-  /** An attempt to send while send buffer is empty. */
-  REXMPP_E_SEND_BUFFER_EMPTY,
-  /** An attempt to start sending while send buffer is not empty. */
-  REXMPP_E_SEND_BUFFER_NOT_EMPTY,
-  /** SASL-related error. */
-  REXMPP_E_SASL,
-  /** OpenPGP-related error. */
-  REXMPP_E_PGP,
-  /** TLS-related error. */
-  REXMPP_E_TLS,
-  /** TCP-related error. */
-  REXMPP_E_TCP,
-  /** DNS-related error. */
-  REXMPP_E_DNS,
-  /** XML-related error. */
-  REXMPP_E_XML,
-  /** JID-related error. */
-  REXMPP_E_JID,
-  /** Failure to allocate memory. */
-  REXMPP_E_MALLOC,
-  /** Roster-related error. */
-  REXMPP_E_ROSTER,
-  /** A roster item is not found. */
-  REXMPP_E_ROSTER_ITEM_NOT_FOUND,
-  /** An erroneous parameter is supplied. */
-  REXMPP_E_PARAM,
-  /** A stream error. */
-  REXMPP_E_STREAM,
-  /** An unspecified error. */
-  REXMPP_E_OTHER
-};
-typedef enum rexmpp_err rexmpp_err_t;
-
 /** @brief TLS policy */
 enum tls_pol {
   REXMPP_TLS_REQUIRE,
@@ -269,6 +271,7 @@ struct rexmpp
   int retrieve_openpgp_keys;    /* XEP-0373 */
   int autojoin_bookmarked_mucs; /* XEP-0402 */
   enum tls_pol tls_policy;
+  int enable_jingle;
   const char *client_name;      /* XEP-0030, XEP-0092 */
   const char *client_type;      /* XEP-0030 */
   const char *client_version;   /* XEP-0092 */
@@ -278,6 +281,7 @@ struct rexmpp
   uint32_t send_queue_size;
   uint32_t iq_queue_size;
   uint32_t iq_cache_size;
+  uint32_t max_jingle_sessions;
 
   /* Callbacks. */
   log_function_t log_function;
@@ -303,6 +307,9 @@ struct rexmpp
 
   /* Cached IQ requests and responses. */
   xmlNodePtr iq_cache;
+
+  /* Active Jingle sessions. */
+  rexmpp_jingle_session_t *jingle;
 
   /* Connection and stream management. */
   unsigned int reconnect_number;
@@ -452,6 +459,14 @@ rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
                                    int fresh);
 
 /**
+   @brief Reply to an IQ.
+*/
+void rexmpp_iq_reply (rexmpp_t *s,
+                      xmlNodePtr req,
+                      const char *type,
+                      xmlNodePtr payload);
+
+/**
    @brief Determines the maximum time to wait before the next
    ::rexmpp_run call.
    @param[in] s ::rexmpp
@@ -476,6 +491,11 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
    select(2) calls.
 */
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
+
+/**
+   @brief Compose an 'error' element.
+*/
+xmlNodePtr rexmpp_xml_error (const char *type, const char *condition);
 
 /**
    @brief A helper function for XML parsing.
@@ -552,6 +572,8 @@ xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
                                   const char *name);
 
 xmlNodePtr rexmpp_xml_new_node (const char *name, const char *namespace);
+
+char *rexmpp_gen_id (rexmpp_t *s);
 
 /**
    @brief Finds a PEP event.

@@ -70,9 +70,10 @@ A rough roadmap:
 [+] XEP-0373 v0.6: OpenPGP for XMPP
 [+] XEP-0402 v1.1: PEP Native Bookmarks (autojoin conferences)
 [+] XEP-0363 v1.0: HTTP File Upload (when built with curl)
-[ ] XEP-0166: Jingle
-[ ] XEP-0234: Jingle File Transfer
-[ ] XEP-0261: Jingle In-Band Bytestreams Transport Method
+[+] XEP-0166 v1.1: Jingle (only file transfers over IBB for now)
+[+] XEP-0234 v0.19: Jingle File Transfer (sending and accepting, but
+    no requests and no ranged transfers)
+[+] XEP-0261 v1.0: Jingle In-Band Bytestreams Transport Method
 [ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method?
 [ ] XEP-0391: Jingle Encrypted Transports?
 [ ] XEP-0184: Message Delivery Receipts?
@@ -96,12 +97,12 @@ A rough roadmap:
 - Various utility functions:
 
 [+] Display name establishment.
-[.] A console module.
-[.] XEP-0060 v1.19: Publish-Subscribe: helper functions.
+[+] A console module.
+[+] XEP-0060 v1.19: Publish-Subscribe: helper functions.
 
 
 - Examples and application:
 
 [+] Basic usage example.
 [.] WeeChat plugin.
-[+] Emacs mode (and an XML-based interface).
+[+] Emacs mode (and an XML-based interface). See emacs/README.
