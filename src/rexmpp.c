@@ -39,6 +39,7 @@
 #include "rexmpp_console.h"
 #include "rexmpp_http_upload.h"
 #include "rexmpp_jingle.h"
+#include "rexmpp_base64.h"
 
 struct rexmpp_iq_cacher {
   rexmpp_iq_callback_t cb;
@@ -224,7 +225,7 @@ char *rexmpp_capabilities_hash (rexmpp_t *s,
     char *sha1 = malloc(sha1_len);
     if (sha1 != NULL) {
       gcry_md_hash_buffer(GCRY_MD_SHA1, sha1, str, strlen(str));
-      gsasl_base64_to(sha1, sha1_len, &out, &out_len);
+      rexmpp_base64_to(sha1, sha1_len, &out, &out_len);
       free(sha1);
     }
     free(str);
@@ -835,16 +836,11 @@ const char *jid_bare_to_host (const char *jid_bare) {
 }
 
 char *rexmpp_gen_id (rexmpp_t *s) {
-  int sasl_err;
+  (void)s;
   char buf_raw[18], *buf_base64 = NULL;
   size_t buf_base64_len = 0;
   gcry_create_nonce(buf_raw, 18);
-  sasl_err = gsasl_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
-               gsasl_strerror(sasl_err));
-    return NULL;
-  }
+  rexmpp_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
   return buf_base64;
 }
 

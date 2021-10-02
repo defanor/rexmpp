@@ -21,10 +21,11 @@ librexmpp_la_SOURCES = rexmpp_roster.h rexmpp_roster.c \
 	rexmpp_console.h rexmpp_console.c \
 	rexmpp_pubsub.h rexmpp_pubsub.c \
 	rexmpp_http_upload.h rexmpp_http_upload.c \
-	rexmpp_jingle.h rexmpp_jingle.c
+	rexmpp_jingle.h rexmpp_jingle.c \
+	rexmpp_base64.h rexmpp_base64.c
 include_HEADERS = config.h rexmpp_roster.h rexmpp_tcp.h rexmpp_socks.h rexmpp.h \
 	rexmpp_dns.h rexmpp_tls.h rexmpp_jid.h rexmpp_openpgp.h rexmpp_console.h \
-	rexmpp_pubsub.h rexmpp_http_upload.h rexmpp_jingle.h
+	rexmpp_pubsub.h rexmpp_http_upload.h rexmpp_jingle.h rexmpp_base64.h
 librexmpp_la_CFLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) \
 	$(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(OPENSSL_CFLAGS) \
 	$(GSASL_CFLAGS) $(UNBOUND_CFLAGS) $(CARES_CFLAGS) $(GPGME_CFLAGS) \

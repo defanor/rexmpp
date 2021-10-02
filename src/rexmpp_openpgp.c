@@ -49,12 +49,12 @@ Possible future improvements:
 #endif
 #include <libxml/tree.h>
 #include <gcrypt.h>
-#include <gsasl.h>
 
 #include "rexmpp.h"
 #include "rexmpp_openpgp.h"
 #include "rexmpp_jid.h"
 #include "rexmpp_pubsub.h"
+#include "rexmpp_base64.h"
 
 
 #ifdef HAVE_GPGME
@@ -107,12 +107,11 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
   char *key_raw = NULL;
   size_t key_raw_len = 0;
   char *key_base64 = xmlNodeGetContent(data);
-  int sasl_err =
-    gsasl_base64_from(key_base64, strlen(key_base64), &key_raw, &key_raw_len);
+  int base64_err =
+    rexmpp_base64_from(key_base64, strlen(key_base64), &key_raw, &key_raw_len);
   free(key_base64);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Base-64 key decoding failure: %s",
-               gsasl_strerror(sasl_err));
+  if (base64_err != 0) {
+    rexmpp_log(s, LOG_ERR, "Base-64 key decoding failure");
     return;
   }
 
@@ -381,7 +380,7 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
   char *key_raw, *key_base64 = NULL;
   size_t key_raw_len, key_base64_len = 0;
   key_raw = gpgme_data_release_and_get_mem(key_dh, &key_raw_len);
-  gsasl_base64_to(key_raw, key_raw_len, &key_base64, &key_base64_len);
+  rexmpp_base64_to(key_raw, key_raw_len, &key_base64, &key_base64_len);
   free(key_raw);
   xmlNodePtr data = xmlNewNode(NULL, "data");
   xmlNewNs(data, "urn:xmpp:openpgp:0", NULL);
@@ -579,11 +578,10 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
   gpgme_data_t cipher_dh, plain_dh;
   char *cipher_raw = NULL, *plain;
   size_t cipher_raw_len = 0, plain_len;
-  int sasl_err = gsasl_base64_from(cipher_base64, strlen(cipher_base64),
-                                   &cipher_raw, &cipher_raw_len);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Base-64 cipher decoding failure: %s",
-               gsasl_strerror(sasl_err));
+  int base64_err = rexmpp_base64_from(cipher_base64, strlen(cipher_base64),
+                                      &cipher_raw, &cipher_raw_len);
+  if (base64_err != 0) {
+    rexmpp_log(s, LOG_ERR, "Base-64 cipher decoding failure");
     return NULL;
   }
   gpgme_data_new_from_mem(&cipher_dh, cipher_raw, cipher_raw_len, 0);
@@ -683,7 +681,6 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
                               enum rexmpp_ox_mode mode)
 {
   gpgme_error_t err;
-  int sasl_err;
   int i, nkeys = 0, allocated = 0;
   gpgme_key_t *keys = NULL;
 
@@ -759,12 +756,7 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
     gcry_create_nonce(rand, 1);
     size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
     gcry_create_nonce(rand, rand_len);
-    sasl_err = gsasl_base64_to(rand, rand_len, &rand_str, &rand_str_len);
-    if (sasl_err != GSASL_OK) {
-      rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
-                 gsasl_strerror(sasl_err));
-      return NULL;
-    }
+    rexmpp_base64_to(rand, rand_len, &rand_str, &rand_str_len);
 
     xmlNodePtr rpad = xmlNewNode(NULL, "rpad");
     xmlNewNs(rpad, "urn:xmpp:openpgp:0", NULL);
@@ -806,8 +798,8 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   char *cipher_raw = NULL, *cipher_base64 = NULL;
   size_t cipher_raw_len = 0, cipher_base64_len = 0;
   cipher_raw = gpgme_data_release_and_get_mem(cipher_dh, &cipher_raw_len);
-  gsasl_base64_to(cipher_raw, cipher_raw_len,
-                  &cipher_base64, &cipher_base64_len);
+  rexmpp_base64_to(cipher_raw, cipher_raw_len,
+                   &cipher_base64, &cipher_base64_len);
   free(cipher_raw);
 
   return cipher_base64;

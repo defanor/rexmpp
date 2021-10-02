@@ -16,11 +16,11 @@ The following XEPs are handled here so far:
 #include <syslog.h>
 #include <errno.h>
 #include <libgen.h>
-#include <gsasl.h>
 #include <gcrypt.h>
 
 #include "rexmpp.h"
 #include "rexmpp_jingle.h"
+#include "rexmpp_base64.h"
 
 
 rexmpp_jingle_session_t *
@@ -291,10 +291,10 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   char *hash_base64 = NULL;
   size_t hash_base64_len = 0;
-  gsasl_base64_to(gcry_md_read(hd, GCRY_MD_SHA256),
-                  gcry_md_get_algo_dlen(GCRY_MD_SHA256),
-                  &hash_base64,
-                  &hash_base64_len);
+  rexmpp_base64_to(gcry_md_read(hd, GCRY_MD_SHA256),
+                   gcry_md_get_algo_dlen(GCRY_MD_SHA256),
+                   &hash_base64,
+                   &hash_base64_len);
   xmlNodePtr file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
   xmlNewProp(file_hash, "algo", "sha-256");
   xmlNodeAddContent(file_hash, hash_base64);
@@ -303,10 +303,10 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   hash_base64 = NULL;
   hash_base64_len = 0;
-  gsasl_base64_to(gcry_md_read(hd, GCRY_MD_SHA3_256),
-                  gcry_md_get_algo_dlen(GCRY_MD_SHA3_256),
-                  &hash_base64,
-                  &hash_base64_len);
+  rexmpp_base64_to(gcry_md_read(hd, GCRY_MD_SHA3_256),
+                   gcry_md_get_algo_dlen(GCRY_MD_SHA3_256),
+                   &hash_base64,
+                   &hash_base64_len);
   file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
   xmlNewProp(file_hash, "algo", "sha3-256");
   xmlNodeAddContent(file_hash, hash_base64);
@@ -390,7 +390,7 @@ void rexmpp_jingle_send_cb (rexmpp_t *s,
       xmlNewProp(data, "sid", session->ibb_sid);
       char *out = NULL;
       size_t out_len = 0;
-      gsasl_base64_to(buf, len, &out, &out_len);
+      rexmpp_base64_to(buf, len, &out, &out_len);
       xmlNodeAddContent(data, out);
       free(out);
       snprintf(buf, 11, "%u", session->ibb_seq);
@@ -535,12 +535,11 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
         char *data = NULL, *data_base64 = xmlNodeGetContent(ibb_data);
         if (data_base64 != NULL) {
           size_t data_len = 0;
-          int sasl_err = gsasl_base64_from(data_base64, strlen(data_base64),
-                                           &data, &data_len);
+          int base64_err = rexmpp_base64_from(data_base64, strlen(data_base64),
+                                            &data, &data_len);
           free(data_base64);
-          if (sasl_err != GSASL_OK) {
-            rexmpp_log(s, LOG_ERR, "Base-64 decoding failure: %s",
-                       gsasl_strerror(sasl_err));
+          if (base64_err != 0) {
+            rexmpp_log(s, LOG_ERR, "Base-64 decoding failure");
           } else {
             size_t written = fwrite(data, 1, data_len, session->f);
             if (written != data_len) {
