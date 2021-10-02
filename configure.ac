@@ -19,10 +19,15 @@ LT_INIT
 
 PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
 
-PKG_CHECK_MODULES([GSASL], [libgsasl])
-
 AM_PATH_LIBGCRYPT
 
+
+# GSASL, optional
+
+AC_ARG_WITH([gsasl],
+        AS_HELP_STRING([--without-gsasl], [Don't use libgsasl for SASL]))
+AS_IF([test "x$with_gsasl" != "xno"],
+      [PKG_CHECK_MODULES([GSASL], [libgsasl], [AC_DEFINE([HAVE_GSASL], [1], [GSASL is available])])])
 
 # DNS: libunbound or c-ares, optional
 

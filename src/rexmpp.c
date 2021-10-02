@@ -20,7 +20,6 @@
 #include <gcrypt.h>
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
-#include <gsasl.h>
 #include <unbound.h>
 #ifdef HAVE_GPGME
 #include <gpgme.h>
@@ -40,6 +39,7 @@
 #include "rexmpp_http_upload.h"
 #include "rexmpp_jingle.h"
 #include "rexmpp_base64.h"
+#include "rexmpp_sasl.h"
 
 struct rexmpp_iq_cacher {
   rexmpp_iq_callback_t cb;
@@ -497,15 +497,6 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
   return s->disco_info;
 }
 
-int rexmpp_sasl_cb (Gsasl *ctx, Gsasl_session *sctx, Gsasl_property prop) {
-  (void)sctx;      /* The session should already be in rexmpp_t. */
-  rexmpp_t *s = gsasl_callback_hook_get(ctx);
-  if (s == NULL || s->sasl_property_cb == NULL) {
-    return GSASL_NO_CALLBACK;
-  }
-  return s->sasl_property_cb(s, prop);
-}
-
 rexmpp_err_t rexmpp_init (rexmpp_t *s,
                           const char *jid,
                           log_function_t log_func)
@@ -631,17 +622,13 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_TLS;
   }
 
-  err = gsasl_init(&(s->sasl_ctx));
+  err = rexmpp_sasl_ctx_init(s);
   if (err) {
-    rexmpp_log(s, LOG_CRIT, "gsasl initialisation error: %s",
-               gsasl_strerror(err));
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_SASL;
   }
-  gsasl_callback_hook_set(s->sasl_ctx, s);
-  gsasl_callback_set(s->sasl_ctx, rexmpp_sasl_cb);
 
 #ifdef HAVE_GPGME
   gpgme_check_version(NULL);
@@ -649,7 +636,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
     rexmpp_log(s, LOG_CRIT, "gpgme initialisation error: %s",
                gpgme_strerror(err));
-    gsasl_done(s->sasl_ctx);
+    rexmpp_sasl_ctx_deinit(s);
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
     xmlFreeParserCtxt(s->xml_parser);
@@ -677,8 +664,7 @@ void rexmpp_cleanup (rexmpp_t *s) {
   rexmpp_tls_cleanup(s);
   s->tls_state = REXMPP_TLS_INACTIVE;
   if (s->sasl_state != REXMPP_SASL_INACTIVE) {
-    gsasl_finish(s->sasl_session);
-    s->sasl_session = NULL;
+    rexmpp_sasl_ctx_cleanup(s);
     s->sasl_state = REXMPP_SASL_INACTIVE;
   }
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
@@ -751,7 +737,7 @@ void rexmpp_done (rexmpp_t *s) {
 #ifdef HAVE_GPGME
   gpgme_release(s->pgp_ctx);
 #endif
-  gsasl_done(s->sasl_ctx);
+  rexmpp_sasl_ctx_deinit(s);
   rexmpp_tls_deinit(s);
   rexmpp_dns_ctx_deinit(s);
   xmlFreeParserCtxt(s->xml_parser);
@@ -977,11 +963,9 @@ rexmpp_err_t rexmpp_send_start (rexmpp_t *s, const void *data, size_t data_len)
     return REXMPP_E_SEND_BUFFER_NOT_EMPTY;
   }
   if (s->sasl_state == REXMPP_SASL_ACTIVE) {
-    sasl_err = gsasl_encode (s->sasl_session, data, data_len,
-                             &(s->send_buffer), &(s->send_buffer_len));
-    if (sasl_err != GSASL_OK) {
-      rexmpp_log(s, LOG_ERR, "SASL encoding error: %s",
-                 gsasl_strerror(sasl_err));
+    sasl_err = rexmpp_sasl_encode (s, data, data_len,
+                                   &(s->send_buffer), &(s->send_buffer_len));
+    if (sasl_err) {
       s->sasl_state = REXMPP_SASL_ERROR;
       return REXMPP_E_SASL;
     }
@@ -1315,11 +1299,9 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
     if (chunk_raw_len > 0) {
       s->last_network_activity = time(NULL);
       if (s->sasl_state == REXMPP_SASL_ACTIVE) {
-        sasl_err = gsasl_decode(s->sasl_session, chunk_raw, chunk_raw_len,
-                                &chunk, &chunk_len);
-        if (sasl_err != GSASL_OK) {
-          rexmpp_log(s, LOG_ERR, "SASL decoding error: %s",
-                     gsasl_strerror(sasl_err));
+        sasl_err = rexmpp_sasl_decode(s, chunk_raw, chunk_raw_len,
+                                      &chunk, &chunk_len);
+        if (sasl_err) {
           s->sasl_state = REXMPP_SASL_ERROR;
           return REXMPP_E_SASL;
         }
@@ -1848,28 +1830,21 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
             free(mech_str);
           }
         }
-        const char *mech =
-          gsasl_client_suggest_mechanism(s->sasl_ctx, mech_list);
-        rexmpp_log(s, LOG_INFO, "Selected SASL mechanism: %s", mech);
-        int sasl_err;
-        char *sasl_buf;
-        sasl_err = gsasl_client_start(s->sasl_ctx, mech, &(s->sasl_session));
-        if (sasl_err != GSASL_OK) {
-          rexmpp_log(s, LOG_CRIT, "Failed to initialise SASL session: %s",
-                     gsasl_strerror(sasl_err));
+        const char *mech = rexmpp_sasl_suggest_mechanism(s, mech_list);
+        if (mech == NULL) {
+          rexmpp_log(s, LOG_CRIT, "Failed to decide on a SASL mechanism");
           s->sasl_state = REXMPP_SASL_ERROR;
           return REXMPP_E_SASL;
         }
-        sasl_err = gsasl_step64 (s->sasl_session, "", (char**)&sasl_buf);
-        if (sasl_err != GSASL_OK) {
-          if (sasl_err == GSASL_NEEDS_MORE) {
-            rexmpp_log(s, LOG_DEBUG, "SASL needs more data");
-          } else {
-            rexmpp_log(s, LOG_ERR, "SASL error: %s",
-                       gsasl_strerror(sasl_err));
-            s->sasl_state = REXMPP_SASL_ERROR;
-            return REXMPP_E_SASL;
-          }
+        rexmpp_log(s, LOG_INFO, "Selected SASL mechanism: %s", mech);
+        char *sasl_buf;
+        if (rexmpp_sasl_start(s, mech)) {
+          s->sasl_state = REXMPP_SASL_ERROR;
+          return REXMPP_E_SASL;
+        }
+        if (rexmpp_sasl_step64(s, "", (char**)&sasl_buf)) {
+          s->sasl_state = REXMPP_SASL_ERROR;
+          return REXMPP_E_SASL;
         }
         xmlNodePtr auth_cmd = xmlNewNode(NULL, "auth");
         xmlNewProp(auth_cmd, "mechanism", mech);
@@ -2223,18 +2198,11 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                          "challenge")) {
       char *challenge = xmlNodeGetContent(elem);
-      sasl_err = gsasl_step64 (s->sasl_session, challenge,
-                               (char**)&sasl_buf);
+      sasl_err = rexmpp_sasl_step64 (s, challenge, (char**)&sasl_buf);
       free(challenge);
-      if (sasl_err != GSASL_OK) {
-        if (sasl_err == GSASL_NEEDS_MORE) {
-          rexmpp_log(s, LOG_DEBUG, "SASL needs more data");
-        } else {
-          rexmpp_log(s, LOG_ERR, "SASL error: %s",
-                     gsasl_strerror(sasl_err));
-          s->sasl_state = REXMPP_SASL_ERROR;
-          return REXMPP_E_SASL;
-        }
+      if (sasl_err) {
+        s->sasl_state = REXMPP_SASL_ERROR;
+        return REXMPP_E_SASL;
       }
       xmlNodePtr response = xmlNewNode(NULL, "response");
       xmlNewNs(response, "urn:ietf:params:xml:ns:xmpp-sasl", NULL);
@@ -2244,15 +2212,12 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     } else if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                                 "success")) {
       char *success = xmlNodeGetContent(elem);
-      sasl_err = gsasl_step64 (s->sasl_session, success,
-                               (char**)&sasl_buf);
+      sasl_err = rexmpp_sasl_step64 (s, success, (char**)&sasl_buf);
       free(success);
       free(sasl_buf);
-      if (sasl_err == GSASL_OK) {
+      if (! sasl_err) {
         rexmpp_log(s, LOG_DEBUG, "SASL success");
       } else {
-        rexmpp_log(s, LOG_ERR, "SASL error: %s",
-                   gsasl_strerror(sasl_err));
         s->sasl_state = REXMPP_SASL_ERROR;
         return REXMPP_E_SASL;
       }
@@ -2405,8 +2370,7 @@ void rexmpp_sax_end_elem_ns (rexmpp_t *s,
       strcmp(URI, "http://etherx.jabber.org/streams") == 0) {
     rexmpp_log(s, LOG_DEBUG, "stream end");
     if (s->sasl_state == REXMPP_SASL_ACTIVE) {
-      gsasl_finish(s->sasl_session);
-      s->sasl_session = NULL;
+      rexmpp_sasl_ctx_cleanup(s);
       s->sasl_state = REXMPP_SASL_INACTIVE;
     }
     s->stream_state = REXMPP_STREAM_CLOSED;

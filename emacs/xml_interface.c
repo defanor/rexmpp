@@ -19,7 +19,6 @@ and EOF ones, to simplify reading with libxml2.
 #include <errno.h>
 #include <syslog.h>
 #include <gnutls/gnutls.h>
-#include <gsasl.h>
 #include <rexmpp.h>
 #include <rexmpp_openpgp.h>
 
@@ -229,29 +228,29 @@ void my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
   xmlFreeNode(node);
 }
 
-int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
-  if (prop == GSASL_AUTHID) {
-    gsasl_property_set (s->sasl_session, GSASL_AUTHID, s->initial_jid.local);
-    return GSASL_OK;
+int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
+  if (prop == REXMPP_SASL_PROP_AUTHID) {
+    rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_AUTHID, s->initial_jid.local);
+    return 0;
   }
   char *prop_str = NULL;
   switch (prop) {
-  case GSASL_PASSWORD: prop_str = "password"; break;
-  case GSASL_AUTHID: prop_str = "authid"; break;
-  default: return GSASL_NO_CALLBACK;
+  case REXMPP_SASL_PROP_PASSWORD: prop_str = "password"; break;
+  case REXMPP_SASL_PROP_AUTHID: prop_str = "authid"; break;
+  default: return -1;
   }
   xmlNodePtr req = xmlNewNode(NULL, "sasl");
   xmlNewProp(req, "property", prop_str);
   xmlNodePtr rep = req_block(s, req);
   if (rep == NULL) {
-    return GSASL_NO_CALLBACK;
+    return -1;
   }
   char *val = xmlNodeGetContent(rep);
   xmlFreeNode(rep);
   if (val == NULL) {
-    return GSASL_NO_CALLBACK;
+    return -1;
   }
-  gsasl_property_set (s->sasl_session, prop, val);
+  rexmpp_sasl_property_set (s, prop, val);
   free(val);
   return GSASL_OK;
 }

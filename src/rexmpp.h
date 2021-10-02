@@ -13,7 +13,6 @@
 
 #include "config.h"
 
-#include <gsasl.h>
 #include <libxml/tree.h>
 #ifdef HAVE_GPGME
 #include <gpgme.h>
@@ -79,6 +78,7 @@ typedef enum rexmpp_err rexmpp_err_t;
 #include "rexmpp_tls.h"
 #include "rexmpp_jid.h"
 #include "rexmpp_jingle.h"
+#include "rexmpp_sasl.h"
 
 /**
    @brief An info/query callback function type.
@@ -228,7 +228,7 @@ enum tls_pol {
 };
 
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
-typedef int (*sasl_property_cb_t) (rexmpp_t *s, Gsasl_property prop);
+typedef int (*sasl_property_cb_t) (rexmpp_t *s, rexmpp_sasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
 typedef int (*xml_out_cb_t) (rexmpp_t *s, xmlNodePtr node);
 typedef void (*roster_modify_cb_t) (rexmpp_t *s, xmlNodePtr item);
@@ -373,8 +373,7 @@ struct rexmpp
   rexmpp_tls_t tls;
 
   /* SASL structures. */
-  Gsasl *sasl_ctx;
-  Gsasl_session *sasl_session;
+  rexmpp_sasl_ctx_t sasl;
 
   /* OpenPGP structures */
 #ifdef HAVE_GPGME

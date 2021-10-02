@@ -12,6 +12,7 @@
 #include <syslog.h>
 #include <gsasl.h>
 #include <rexmpp.h>
+#include <rexmpp_sasl.h>
 
 int log_level = 8;
 
@@ -40,8 +41,8 @@ void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
 /* A SASL property callback, used to retrieve credentials. This one
    just asks user for a password and provides AUTHID based on the
    initial JID. */
-int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
-  if (prop == GSASL_PASSWORD) {
+int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
+  if (prop == REXMPP_SASL_PROP_PASSWORD) {
     char *buf = NULL;
     size_t buf_len = 4096;
     printf("password: ");
@@ -50,17 +51,17 @@ int my_sasl_property_cb (rexmpp_t *s, Gsasl_property prop) {
       if (buf[strlen(buf) - 1] == '\n') {
         buf[strlen(buf) - 1] = '\0';
       }
-      gsasl_property_set (s->sasl_session, GSASL_PASSWORD, buf);
+      rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_PASSWORD, buf);
       free(buf);
     }
-    return GSASL_OK;
+    return 0;
   }
-  if (prop == GSASL_AUTHID) {
-    gsasl_property_set (s->sasl_session, GSASL_AUTHID, s->initial_jid.local);
-    return GSASL_OK;
+  if (prop == REXMPP_SASL_PROP_AUTHID) {
+    rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_AUTHID, s->initial_jid.local);
+    return 0;
   }
-  printf("unhandled gsasl property: %d\n", prop);
-  return GSASL_NO_CALLBACK;
+  printf("unhandled SASL property: %d\n", prop);
+  return -1;
 }
 
 /* An XML in callback, printing what was received. */

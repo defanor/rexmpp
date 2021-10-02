@@ -14,7 +14,7 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libxml2, gsasl, libgcrypt. Optionally libunbound
+Current dependencies: libxml2, libgcrypt. Optionally gsasl, libunbound
 or c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl.
 
 
@@ -51,10 +51,9 @@ A rough roadmap:
 [.] Doxygen documentation.
 [.] Texinfo manual.
 [.] Proper JID handling (RFC 7622).
-[.] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
-    optional usage of alternative ones. Though maybe shouldn't
-    abstract out XML functions and structures: could reuse existing
-    libxml2 bindings that way.
+[+] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
+    optional usage of alternative ones. Though left libxml2 for now:
+    could reuse existing libxml2 bindings that way.
 [ ] Automated testing.
 
 
