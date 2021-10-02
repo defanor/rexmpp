@@ -21,7 +21,7 @@ PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
 
 PKG_CHECK_MODULES([GSASL], [libgsasl])
 
-PKG_CHECK_MODULES([NETTLE], [nettle])
+AM_PATH_LIBGCRYPT
 
 
 # DNS: libunbound or c-ares, optional

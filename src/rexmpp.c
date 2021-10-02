@@ -17,7 +17,7 @@
 
 #include "config.h"
 
-#include <nettle/sha1.h>
+#include <gcrypt.h>
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include <gsasl.h>
@@ -216,15 +216,19 @@ char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
 char *rexmpp_capabilities_hash (rexmpp_t *s,
                                 xmlNodePtr info)
 {
-  struct sha1_ctx ctx;
-  sha1_init(&ctx);
-  char hash[SHA1_DIGEST_SIZE];
-  char *str = rexmpp_capabilities_string(s, info);
-  sha1_update(&ctx, strlen(str), str);
-  sha1_digest(&ctx, SHA1_DIGEST_SIZE, hash);
   char *out = NULL;
   size_t out_len = 0;
-  gsasl_base64_to(hash, SHA1_DIGEST_SIZE, &out, &out_len);
+  char *str = rexmpp_capabilities_string(s, info);
+  if (str != NULL) {
+    unsigned int sha1_len = gcry_md_get_algo_dlen(GCRY_MD_SHA1);
+    char *sha1 = malloc(sha1_len);
+    if (sha1 != NULL) {
+      gcry_md_hash_buffer(GCRY_MD_SHA1, sha1, str, strlen(str));
+      gsasl_base64_to(sha1, sha1_len, &out, &out_len);
+      free(sha1);
+    }
+    free(str);
+  }
   return out;
 }
 
@@ -599,6 +603,15 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_JID;
   }
 
+  if (! gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P)) {
+    rexmpp_log(s, LOG_DEBUG, "Initializing libgcrypt");
+    if (gcry_check_version(NULL) == NULL) {
+      rexmpp_log(s, LOG_CRIT, "Failed to initialize libgcrypt");
+      return REXMPP_E_OTHER;
+    }
+    gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
+  }
+
   s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
 
   if (s->xml_parser == NULL) {
@@ -790,7 +803,7 @@ void rexmpp_schedule_reconnect (rexmpp_t *s) {
     return;
   }
   if (s->reconnect_number == 0) {
-    gsasl_nonce((char*)&s->reconnect_seconds, sizeof(time_t));
+    gcry_create_nonce((char*)&s->reconnect_seconds, sizeof(time_t));
     if (s->reconnect_seconds < 0) {
       s->reconnect_seconds = - s->reconnect_seconds;
     }
@@ -825,12 +838,7 @@ char *rexmpp_gen_id (rexmpp_t *s) {
   int sasl_err;
   char buf_raw[18], *buf_base64 = NULL;
   size_t buf_base64_len = 0;
-  sasl_err = gsasl_nonce(buf_raw, 18);
-  if (sasl_err != GSASL_OK) {
-    rexmpp_log(s, LOG_ERR, "Random generation failure: %s",
-               gsasl_strerror(sasl_err));
-    return NULL;
-  }
+  gcry_create_nonce(buf_raw, 18);
   sasl_err = gsasl_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
   if (sasl_err != GSASL_OK) {
     rexmpp_log(s, LOG_ERR, "Base-64 encoding failure: %s",
