@@ -18,7 +18,9 @@
 #ifdef HAVE_GPGME
 #include <gpgme.h>
 #endif
+#ifdef HAVE_CURL
 #include <curl/curl.h>
+#endif
 
 typedef struct rexmpp rexmpp_t;
 
@@ -380,7 +382,9 @@ struct rexmpp
 #endif
 
   /* curl structures */
+#ifdef HAVE_CURL
   CURLM *curl_multi;
+#endif
 };
 
 /**
