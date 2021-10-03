@@ -143,10 +143,12 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
     conn->connection_attempts++;
     return REXMPP_CONN_IN_PROGRESS;
   }
-  struct sockaddr_in addr_v6;
+  struct sockaddr_in6 addr_v6;
   if (inet_pton(AF_INET6, host, &addr_v6)) {
-    addr_v6.sin_family = AF_INET6;
-    addr_v6.sin_port = htons(port);
+    addr_v6.sin6_family = AF_INET6;
+    addr_v6.sin6_port = htons(port);
+    addr_v6.sin6_flowinfo = 0;
+    addr_v6.sin6_scope_id = 0;
     conn->sockets[conn->connection_attempts] =
       socket(AF_INET6, SOCK_STREAM, 0);
     flags = fcntl(conn->sockets[conn->connection_attempts], F_GETFL, 0);
@@ -272,6 +274,8 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
                  len);
           addr_v6.sin6_family = AF_INET6;
           addr_v6.sin6_port = htons(conn->port);
+          addr_v6.sin6_flowinfo = 0;
+          addr_v6.sin6_scope_id = 0;
           domain = AF_INET6;
           addr = (struct sockaddr*)&addr_v6;
           addrlen = sizeof(addr_v6);
