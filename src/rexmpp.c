@@ -1031,7 +1031,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
-          return REXMPP_E_TLS;
+          return REXMPP_E_AGAIN;
         }
       } else {
         if (errno != EAGAIN) {
@@ -1039,7 +1039,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
-          return REXMPP_E_TCP;
+          return REXMPP_E_AGAIN;
         }
       }
       return REXMPP_E_AGAIN;
@@ -1347,6 +1347,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
           s->stream_state == REXMPP_STREAM_ERROR_RECONNECT) {
         s->tcp_state = REXMPP_TCP_NONE;
         rexmpp_schedule_reconnect(s);
+        return REXMPP_E_AGAIN;
       } else {
         s->tcp_state = REXMPP_TCP_CLOSED;
       }
@@ -1358,12 +1359,14 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
+          return REXMPP_E_AGAIN;
         }
       } else if (errno != EAGAIN) {
         rexmpp_log(s, LOG_ERR, "TCP recv error: %s", strerror(errno));
         rexmpp_cleanup(s);
         s->tcp_state = REXMPP_TCP_ERROR;
         rexmpp_schedule_reconnect(s);
+        return REXMPP_E_AGAIN;
       }
     }
   } while (chunk_raw_len > 0 && s->tcp_state == REXMPP_TCP_CONNECTED);
@@ -1461,7 +1464,7 @@ rexmpp_process_tls_conn_err (rexmpp_t *s,
     s->tls_state = REXMPP_TLS_ERROR;
     rexmpp_cleanup(s);
     rexmpp_schedule_reconnect(s);
-    return REXMPP_E_TLS;
+    return REXMPP_E_AGAIN;
   } else if (err == REXMPP_TLS_SUCCESS) {
     rexmpp_log(s, LOG_DEBUG, "A TLS connection is established");
     s->tls_state = REXMPP_TLS_ACTIVE;
@@ -2583,6 +2586,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       rexmpp_log(s, LOG_WARNING, "Ping timeout, reconnecting.");
       rexmpp_cleanup(s);
       rexmpp_schedule_reconnect(s);
+      return REXMPP_E_AGAIN;
     }
   }
 
