@@ -212,6 +212,7 @@ void rexmpp_dns_cb (void *ptr,
                ub_strerror(err));
     ub_resolve_free(result);
     d->cb(s, d->ptr, NULL);
+    free(d);
     return;
   }
 
@@ -227,6 +228,7 @@ void rexmpp_dns_cb (void *ptr,
     rexmpp_log(s, LOG_DEBUG, "No data in the query result");
     ub_resolve_free(result);
     d->cb(s, d->ptr, NULL);
+    free(d);
     return;
   }
 
@@ -249,6 +251,7 @@ void rexmpp_dns_cb (void *ptr,
         res->data[i + 1] = NULL;
         rexmpp_dns_result_free(res);
         d->cb(s, d->ptr, NULL);
+        free(d);
         return;
       }
     } else {
@@ -278,6 +281,7 @@ void rexmpp_dns_cb (void *ptr,
     rexmpp_log(s, LOG_WARNING, "A DNS query failure: %s",
                ares_strerror(err));
     d->cb(s, d->ptr, NULL);
+    free(d);
     return;
   }
   /* c-ares won't just tell us the type, but it does check for it in
@@ -309,10 +313,11 @@ void rexmpp_dns_cb (void *ptr,
     r->data[size] = NULL;
     ares_free_data(srv);
     d->cb(s, d->ptr, r);
-  }else {
+  } else {
     rexmpp_log(s, LOG_ERR, "Failed to parse a query");
     d->cb(s, d->ptr, NULL);
   }
+  free(d);
 }
 #endif
 
