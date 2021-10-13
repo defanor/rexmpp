@@ -70,48 +70,6 @@ enum rexmpp_err {
   REXMPP_E_OTHER
 };
 
-typedef enum rexmpp_err rexmpp_err_t;
-
-#include "rexmpp_tcp.h"
-#include "rexmpp_socks.h"
-#include "rexmpp_dns.h"
-#include "rexmpp_tls.h"
-#include "rexmpp_jid.h"
-#include "rexmpp_jingle.h"
-#include "rexmpp_sasl.h"
-
-/**
-   @brief An info/query callback function type.
-   @param[in,out] s A ::rexmpp structure.
-   @param[in] request A request that was made.
-   @param[in] response A response we have received. @c NULL if we are
-   giving up on this IQ.
-
-   A callback must not free the request or the response, but merely
-   inspect those and react.
-*/
-typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s,
-                                      void *cb_data,
-                                      xmlNodePtr request,
-                                      xmlNodePtr response,
-                                      int success);
-
-typedef struct rexmpp_iq rexmpp_iq_t;
-
-/** @brief A pending info/query request. */
-struct rexmpp_iq
-{
-  /** @brief The sent request. */
-  xmlNodePtr request;
-  /** @brief A callback to call on reply. */
-  rexmpp_iq_callback_t cb;
-  /** @brief User-supplied data, to pass to a callback function. */
-  void *cb_data;
-  /** @brief Next pending IQ. */
-  rexmpp_iq_t *next;
-};
-
-
 /** @brief DNS resolver state */
 enum resolver_st {
   REXMPP_RESOLVER_NONE,
@@ -227,6 +185,47 @@ enum tls_pol {
   REXMPP_TLS_AVOID
 };
 
+typedef enum rexmpp_err rexmpp_err_t;
+
+#include "rexmpp_tcp.h"
+#include "rexmpp_socks.h"
+#include "rexmpp_dns.h"
+#include "rexmpp_tls.h"
+#include "rexmpp_jid.h"
+#include "rexmpp_jingle.h"
+#include "rexmpp_sasl.h"
+
+/**
+   @brief An info/query callback function type.
+   @param[in,out] s A ::rexmpp structure.
+   @param[in] request A request that was made.
+   @param[in] response A response we have received. @c NULL if we are
+   giving up on this IQ.
+
+   A callback must not free the request or the response, but merely
+   inspect those and react.
+*/
+typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s,
+                                      void *cb_data,
+                                      xmlNodePtr request,
+                                      xmlNodePtr response,
+                                      int success);
+
+typedef struct rexmpp_iq rexmpp_iq_t;
+
+/** @brief A pending info/query request. */
+struct rexmpp_iq
+{
+  /** @brief The sent request. */
+  xmlNodePtr request;
+  /** @brief A callback to call on reply. */
+  rexmpp_iq_callback_t cb;
+  /** @brief User-supplied data, to pass to a callback function. */
+  void *cb_data;
+  /** @brief Next pending IQ. */
+  rexmpp_iq_t *next;
+};
+
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
 typedef int (*sasl_property_cb_t) (rexmpp_t *s, rexmpp_sasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
@@ -277,6 +276,8 @@ struct rexmpp
   const char *client_name;      /* XEP-0030, XEP-0092 */
   const char *client_type;      /* XEP-0030 */
   const char *client_version;   /* XEP-0092 */
+  const char *local_address;    /* For ICE, XEP-0176 */
+  int jingle_prefer_rtcp_mux;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -303,6 +304,9 @@ struct rexmpp
 
   /* Other dynamic data. */
   xmlNodePtr disco_info;
+  /* Includes Jingle RTP session candidates; rexmpp prioritizes the
+     ones listed earlier on incoming calls. */
+  xmlNodePtr jingle_rtp_description;
 
   /* IQs we're waiting for responses to. */
   rexmpp_iq_t *active_iq;
@@ -310,8 +314,8 @@ struct rexmpp
   /* Cached IQ requests and responses. */
   xmlNodePtr iq_cache;
 
-  /* Active Jingle sessions. */
-  rexmpp_jingle_session_t *jingle;
+  /* Jingle context. */
+  rexmpp_jingle_ctx_t jingle;
 
   /* Connection and stream management. */
   unsigned int reconnect_number;

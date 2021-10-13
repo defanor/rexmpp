@@ -15,7 +15,8 @@ of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
 Current dependencies: libxml2, libgcrypt. Optionally gsasl, libunbound
-or c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl.
+or c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl,
+libnice (with glib), libsrtp2.
 
 
 A rough roadmap:
@@ -69,15 +70,22 @@ A rough roadmap:
 [+] XEP-0373 v0.6: OpenPGP for XMPP
 [+] XEP-0402 v1.1: PEP Native Bookmarks (autojoin conferences)
 [+] XEP-0363 v1.0: HTTP File Upload (when built with curl)
-[+] XEP-0166 v1.1: Jingle (only file transfers over IBB for now)
+[+] XEP-0166 v1.1: Jingle
 [+] XEP-0234 v0.19: Jingle File Transfer (sending and accepting, but
     no requests and no ranged transfers)
 [+] XEP-0261 v1.0: Jingle In-Band Bytestreams Transport Method
+[+] XEP-0167 v1.2: Jingle RTP Sessions (relaying RTP packets over an
+    encrypted channel to/from local UDP ports, for use with external
+    players and streamers)
+[+] XEP-0176 v1.1: Jingle ICE-UDP Transport Method (uses libnice,
+    discovers TURN/STUN servers with XEP-0215: External Service
+    Discovery)
+[+] XEP-0320 v1.0: Use of DTLS-SRTP in Jingle Sessions (uses gnutls
+    and libsrtp2)
 [ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method?
 [ ] XEP-0391: Jingle Encrypted Transports?
 [ ] XEP-0184: Message Delivery Receipts?
 [ ] OTR/OMEMO/MLS encryption?
-[ ] A/V calls?
 
 
 - Additional state tracking:

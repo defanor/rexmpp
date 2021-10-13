@@ -301,8 +301,12 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "subscription approve <jid>\n"
     "subscription deny <jid>\n"
     "http-upload <file path>\n"
+    "jingle terminate <sid>\n"
+    "jingle decline <sid>\n"
     "jingle accept-file <sid> <file path>\n"
     "jingle send-file <jid> <file path>\n"
+    "jingle accept-call <sid> <in port> <out port>\n"
+    "jingle call <jid> <in port> <out port>\n"
     ;
 
   if (! strcmp(word, "help")) {
@@ -566,14 +570,48 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     if (word == NULL) {
       return;
     }
-    if (! strcmp(word, "accept-file")) {
+    if (! strcmp(word, "terminate")) {
+      char *sid = strtok_r(NULL, " ", &words_save_ptr);
+      if (sid != NULL) {
+        rexmpp_jingle_session_terminate(s, sid,
+                                        rexmpp_xml_new_node("success",
+                                                            "urn:xmpp:jingle:1"),
+                                        NULL);
+      }
+    } else if (! strcmp(word, "decline")) {
+      char *sid = strtok_r(NULL, " ", &words_save_ptr);
+      if (sid != NULL) {
+        rexmpp_jingle_session_terminate(s, sid,
+                                        rexmpp_xml_new_node("decline",
+                                                            "urn:xmpp:jingle:1"),
+                                        NULL);
+      }
+    } else if (! strcmp(word, "accept-file")) {
       char *sid = strtok_r(NULL, " ", &words_save_ptr);
       char *fpath = strtok_r(NULL, " ", &words_save_ptr);
-      rexmpp_jingle_accept_file_by_id(s, sid, fpath);
+      if (sid != NULL && fpath != NULL) {
+        rexmpp_jingle_accept_file_by_id(s, sid, fpath);
+      }
     } else if (! strcmp(word, "send-file")) {
       char *jid = strtok_r(NULL, " ", &words_save_ptr);
       char *fpath = strtok_r(NULL, " ", &words_save_ptr);
-      rexmpp_jingle_send_file(s, jid, fpath);
+      if (jid != NULL && fpath != NULL) {
+        rexmpp_jingle_send_file(s, jid, fpath);
+      }
+    } else if (! strcmp(word, "accept-call")) {
+      char *sid = strtok_r(NULL, " ", &words_save_ptr);
+      char *port_in = strtok_r(NULL, " ", &words_save_ptr);
+      char *port_out = strtok_r(NULL, " ", &words_save_ptr);
+      if (sid != NULL && port_in != NULL && port_out != NULL) {
+        rexmpp_jingle_call_accept(s, sid, atoi(port_in), atoi(port_out));
+      }
+    } else if (! strcmp(word, "call")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      char *port_in = strtok_r(NULL, " ", &words_save_ptr);
+      char *port_out = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid != NULL && port_in != NULL && port_out != NULL) {
+        rexmpp_jingle_call(s, jid, atoi(port_in), atoi(port_out));
+      }
     }
   }
 }

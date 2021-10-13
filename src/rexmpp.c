@@ -490,6 +490,20 @@ xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
     cur = rexmpp_xml_feature("urn:xmpp:jingle:transports:ibb:1");
     prev->next = cur;
     prev = cur;
+#ifdef ENABLE_CALLS
+    cur = rexmpp_xml_feature("urn:xmpp:jingle:apps:dtls:0");
+    prev->next = cur;
+    prev = cur;
+    cur = rexmpp_xml_feature("urn:xmpp:jingle:transports:ice-udp:1");
+    prev->next = cur;
+    prev = cur;
+    cur = rexmpp_xml_feature("urn:xmpp:jingle:apps:rtp:1");
+    prev->next = cur;
+    prev = cur;
+    cur = rexmpp_xml_feature("urn:xmpp:jingle:apps:rtp:audio");
+    prev->next = cur;
+    prev = cur;
+#endif
   }
   cur = rexmpp_xml_feature("urn:xmpp:ping");
   prev->next = cur;
@@ -539,6 +553,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->client_name = PACKAGE_NAME;
   s->client_type = "console";
   s->client_version = PACKAGE_VERSION;
+  s->local_address = NULL;
+  s->jingle_prefer_rtcp_mux = 1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -559,7 +575,6 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->stream_id = NULL;
   s->active_iq = NULL;
   s->iq_cache = NULL;
-  s->jingle = NULL;
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
   s->next_reconnect_time.tv_usec = 0;
@@ -580,6 +595,42 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->ping_requested = 0;
   s->last_network_activity = 0;
   s->disco_info = NULL;
+
+  /* The default description. Since the players and streamers are
+     external for now, this may be adjusted by an application or a
+     user. */
+  s->jingle_rtp_description =
+    rexmpp_xml_new_node("description", "urn:xmpp:jingle:apps:rtp:1");
+  xmlNewProp(s->jingle_rtp_description, "media", "audio");
+  xmlNodePtr pl_type;
+
+  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  xmlNewProp(pl_type, "id", "97");
+  xmlNewProp(pl_type, "name", "opus");
+  xmlNewProp(pl_type, "clockrate", "48000");
+  xmlNewProp(pl_type, "channels", "2");
+  xmlAddChild(s->jingle_rtp_description, pl_type);
+
+  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  xmlNewProp(pl_type, "id", "96");
+  xmlNewProp(pl_type, "name", "speex");
+  xmlNewProp(pl_type, "clockrate", "32000");
+  xmlNewProp(pl_type, "channels", "1");
+  xmlAddChild(s->jingle_rtp_description, pl_type);
+
+  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  xmlNewProp(pl_type, "id", "0");
+  xmlNewProp(pl_type, "name", "PCMU");
+  xmlNewProp(pl_type, "clockrate", "8000");
+  xmlNewProp(pl_type, "channels", "1");
+  xmlAddChild(s->jingle_rtp_description, pl_type);
+
+  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  xmlNewProp(pl_type, "id", "8");
+  xmlNewProp(pl_type, "name", "PCMA");
+  xmlNewProp(pl_type, "clockrate", "8000");
+  xmlNewProp(pl_type, "channels", "1");
+  xmlAddChild(s->jingle_rtp_description, pl_type);
 
   if (jid == NULL) {
     rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
@@ -630,6 +681,13 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_SASL;
   }
 
+  if (rexmpp_jingle_init(s)) {
+    rexmpp_sasl_ctx_deinit(s);
+    rexmpp_tls_deinit(s);
+    rexmpp_dns_ctx_deinit(s);
+    xmlFreeParserCtxt(s->xml_parser);
+  }
+
 #ifdef HAVE_GPGME
   gpgme_check_version(NULL);
   err = gpgme_new(&(s->pgp_ctx));
@@ -639,6 +697,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_sasl_ctx_deinit(s);
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
+    rexmpp_jingle_stop(s);
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_PGP;
   }
@@ -729,6 +788,7 @@ void rexmpp_iq_finish (rexmpp_t *s,
 
 /* Frees the things that persist through reconnects. */
 void rexmpp_done (rexmpp_t *s) {
+  rexmpp_jingle_stop(s);
   rexmpp_cleanup(s);
 #ifdef HAVE_CURL
   curl_multi_cleanup(s->curl_multi);
@@ -741,6 +801,10 @@ void rexmpp_done (rexmpp_t *s) {
   rexmpp_tls_deinit(s);
   rexmpp_dns_ctx_deinit(s);
   xmlFreeParserCtxt(s->xml_parser);
+  if (s->jingle_rtp_description != NULL) {
+    xmlFreeNode(s->jingle_rtp_description);
+    s->jingle_rtp_description = NULL;
+  }
   if (s->stream_id != NULL) {
     free(s->stream_id);
     s->stream_id = NULL;
@@ -779,7 +843,6 @@ void rexmpp_done (rexmpp_t *s) {
     xmlFreeNodeList(s->iq_cache);
     s->iq_cache = NULL;
   }
-  rexmpp_jingle_stop(s);
 }
 
 void rexmpp_schedule_reconnect (rexmpp_t *s) {
@@ -861,7 +924,7 @@ int rexmpp_xml_match (xmlNodePtr node,
     }
   }
   if (namespace != NULL) {
-    if (node->ns == NULL) {
+    if (node->nsDef == NULL || node->nsDef->href == NULL) {
       if (strcmp(namespace, "jabber:client") != 0) {
         return 0;
       }
@@ -2513,11 +2576,8 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 
   /* Resolving SRV records. This continues in rexmpp_srv_tls_cb,
      rexmpp_srv_cb. */
-  if (s->resolver_state != REXMPP_RESOLVER_NONE &&
-      s->resolver_state != REXMPP_RESOLVER_READY) {
-    if (rexmpp_dns_process(s, read_fds, write_fds)) {
-      return REXMPP_E_DNS;
-    }
+  if (rexmpp_dns_process(s, read_fds, write_fds)) {
+    return REXMPP_E_DNS;
   }
 
   /* Initiating a connection after SRV resolution. */
@@ -2554,6 +2614,9 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       return err;
     }
   }
+
+  /* Jingle activity. */
+  rexmpp_jingle_run(s, read_fds, write_fds);
 
   /* The things we do while connected. */
 
@@ -2653,11 +2716,13 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 }
 
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
-  int conn_fd, tls_fd, max_fd = 0;
+  int conn_fd, tls_fd, jingle_fd, max_fd = 0;
 
-  if (s->resolver_state != REXMPP_RESOLVER_NONE &&
-      s->resolver_state != REXMPP_RESOLVER_READY) {
-    max_fd = rexmpp_dns_fds(s, read_fds, write_fds);
+  max_fd = rexmpp_dns_fds(s, read_fds, write_fds);
+
+  jingle_fd = rexmpp_jingle_fds(s, read_fds, write_fds);
+  if (jingle_fd > max_fd) {
+    max_fd = jingle_fd;
   }
 
 #ifdef HAVE_CURL
@@ -2718,6 +2783,9 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
   } else if (s->tcp_state == REXMPP_TCP_CONNECTING) {
     ret = rexmpp_tcp_conn_timeout(s, &s->server_connection, max_tv, tv);
   }
+
+  ret = rexmpp_jingle_timeout(s, ret, tv);
+
   struct timeval now;
   gettimeofday(&now, NULL);
   if (s->reconnect_number > 0 &&

@@ -60,6 +60,15 @@ int rexmpp_tls_init (rexmpp_t *s) {
                gnutls_strerror(err));
     return 1;
   }
+#ifdef ENABLE_CALLS
+  err = gnutls_certificate_allocate_credentials(&(s->jingle.dtls_cred));
+  if (err) {
+    gnutls_certificate_free_credentials(s->tls.gnutls_cred);
+    rexmpp_log(s, LOG_CRIT, "gnutls credentials allocation error: %s",
+               gnutls_strerror(err));
+    return 1;
+  }
+#endif
   return 0;
 #elif defined(USE_OPENSSL)
   SSL_library_init();
@@ -110,6 +119,9 @@ void rexmpp_tls_deinit (rexmpp_t *s) {
     free(s->tls.tls_session_data);
     s->tls.tls_session_data = NULL;
   }
+#ifdef ENABLE_CALLS
+  gnutls_certificate_free_credentials(s->jingle.dtls_cred);
+#endif
 #elif defined(USE_OPENSSL)
   if (s->tls.openssl_ctx != NULL) {
     SSL_CTX_free(s->tls.openssl_ctx);
@@ -396,6 +408,12 @@ rexmpp_tls_set_x509_key_file (rexmpp_t *s,
                                                  cert_file,
                                                  key_file,
                                                  GNUTLS_X509_FMT_PEM);
+#ifdef ENABLE_CALLS
+  gnutls_certificate_set_x509_key_file(s->jingle.dtls_cred,
+                                       cert_file,
+                                       key_file,
+                                       GNUTLS_X509_FMT_PEM);
+#endif
   if (ret == 0) {
     return REXMPP_TLS_SUCCESS;
   } else {

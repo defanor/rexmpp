@@ -21,6 +21,19 @@ PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
 
 AM_PATH_LIBGCRYPT
 
+# libnice (+ glib) and libsrtp for media calls, optional
+
+AC_ARG_ENABLE([calls], AS_HELP_STRING([--disable-calls],
+                       [build without Jingle media call support]))
+
+AS_IF([test "x$enable_calls" != "xno"],
+      [PKG_CHECK_MODULES([NICE], [nice],
+         [AC_DEFINE([HAVE_NICE], [1], [libnice is available])])
+       PKG_CHECK_MODULES([GLIB], [glib-2.0],
+         [AC_DEFINE([HAVE_GLIB], [1], [glib is available])])
+       PKG_CHECK_MODULES([SRTP], [libsrtp2],
+         [AC_DEFINE([HAVE_SRTP], [1], [libsrtp2 is available])])
+       AC_DEFINE([ENABLE_CALLS], [1], [Jingle ICE-UDP DTLS-SRTP calls are enabled])])
 
 # GSASL, optional
 
