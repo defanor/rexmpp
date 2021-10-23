@@ -494,6 +494,27 @@ its printing--which doesn't handle namespaces--can be used too."
         (with-current-buffer xmpp-log-buffer
           (setq-local xmpp-proc new-proc))))))
 
+(defun xmpp-restart (&optional proc)
+  "Restarts an XMPP process."
+  (interactive)
+  (let* ((cur-proc (or proc xmpp-proc))
+         (proc-buf (process-buffer cur-proc)))
+    (when (and cur-proc (process-live-p cur-proc))
+      (xmpp-stop cur-proc))
+    (with-current-buffer proc-buf
+      (setq-local xmpp-active-requests nil)
+      (setq-local xmpp-proc
+                  (make-process :name "xmpp"
+                                :command (list xmpp-command xmpp-jid)
+                                :buffer proc-buf
+                                :filter 'xmpp-filter))
+      (let ((new-proc xmpp-proc))
+        (mapcar (lambda (b)
+                  (with-current-buffer b (setq-local xmpp-proc new-proc)))
+                (append (list xmpp-console-buffer xmpp-xml-buffer xmpp-log-buffer)
+                        (mapcar 'cdr xmpp-query-buffers)
+                        (mapcar 'cdr xmpp-muc-buffers)))))))
+
 (defun xmpp-insert (args)
   (save-excursion
     (when (and xmpp-truncate-buffer-at
