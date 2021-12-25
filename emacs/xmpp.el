@@ -413,7 +413,14 @@ its printing--which doesn't handle namespaces--can be used too."
       (push (cons req-id cb) xmpp-active-requests))))
 
 (defun xmpp-with-name (jid cb &optional proc)
-  (xmpp-request `(get-name nil ,jid) cb proc))
+  (let ((cur-proc (or proc xmpp-proc))
+        (bare-jid (xmpp-jid-to-bare jid)))
+    (with-current-buffer (process-buffer cur-proc)
+      ;; Use resource for MUC private messages, determine a nick
+      ;; otherwise.
+      (if (assoc bare-jid xmpp-muc-buffers)
+          (funcall cb (xmpp-jid-resource jid))
+        (xmpp-request `(get-name nil ,jid) cb proc)))))
 
 (defun xmpp-http-upload (path &optional proc)
   (interactive "fFile path: ")
@@ -603,22 +610,27 @@ its printing--which doesn't handle namespaces--can be used too."
 
 (defun xmpp-query (jid &optional proc)
   (interactive "sQuery JID: ")
-  (let ((process (or proc xmpp-proc))
-        (bare-jid (xmpp-jid-to-bare jid)))
+  (let ((process (or proc xmpp-proc)))
     (with-current-buffer (process-buffer process)
-      (let ((buf (if (assoc bare-jid xmpp-query-buffers)
-                     (cdr (assoc bare-jid xmpp-query-buffers))
-                   (let ((query-buf (generate-new-buffer
-                                     (concat "*xmpp:" bare-jid "*"))))
-                     (with-current-buffer query-buf
-                       (xmpp-query-mode)
-                       (setq-local xmpp-jid bare-jid)
-                       (setq-local xmpp-proc process)
-                       (setq-local kill-buffer-query-functions
-                                   (cons #'xmpp-query-buffer-on-close
-                                         kill-buffer-query-functions)))
-                     (push (cons bare-jid query-buf) xmpp-query-buffers)
-                     query-buf))))
+      ;; Use full JID for MUC private messages, but a bare JID for
+      ;; regular chats.
+      (let* ((bare-jid (xmpp-jid-to-bare jid))
+             (target-jid (if (assoc bare-jid xmpp-muc-buffers)
+                             jid
+                           bare-jid))
+             (buf (if (assoc target-jid xmpp-query-buffers)
+                      (cdr (assoc target-jid xmpp-query-buffers))
+                    (let ((query-buf (generate-new-buffer
+                                      (concat "*xmpp:" target-jid "*"))))
+                      (with-current-buffer query-buf
+                        (xmpp-query-mode)
+                        (setq-local xmpp-jid target-jid)
+                        (setq-local xmpp-proc process)
+                        (setq-local kill-buffer-query-functions
+                                    (cons #'xmpp-query-buffer-on-close
+                                          kill-buffer-query-functions)))
+                      (push (cons target-jid query-buf) xmpp-query-buffers)
+                      query-buf))))
         (when (interactive-p)
           (display-buffer buf))
         buf))))
