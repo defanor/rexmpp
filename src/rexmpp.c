@@ -1142,8 +1142,8 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
 
   if (rexmpp_xml_is_stanza(node)) {
     if (s->sm_state == REXMPP_SM_ACTIVE) {
-      if (s->stanzas_out_count - s->stanzas_out_acknowledged >=
-          s->stanza_queue_size) {
+      if (s->stanzas_out_count >=
+          s->stanza_queue_size + s->stanzas_out_acknowledged) {
         xmlFreeNode(node);
         rexmpp_log(s, LOG_ERR, "The stanza queue is full, not sending.");
         return REXMPP_E_STANZA_QUEUE_FULL;
