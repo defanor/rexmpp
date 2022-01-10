@@ -89,9 +89,9 @@ rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
   struct sockaddr sa;
   socklen_t sa_len = sizeof(sa);
   getsockname(fd, &sa, &sa_len);
-  if (sa.sa_family == AF_INET) {
+  if (sa.sa_family == AF_INET && conn->resolved_v4 != NULL) {
     conn->dns_secure = conn->resolved_v4->secure;
-  } else {
+  } else if (sa.sa_family == AF_INET6 && conn->resolved_v6 != NULL) {
     conn->dns_secure = conn->resolved_v6->secure;
   }
   conn->fd = fd;
