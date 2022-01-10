@@ -1,0 +1,8 @@
+rexmpp tests
+
+These tests make use of an external XMPP server. Environment variables
+used by the tests:
+
+- JID and PASS: credentials.
+
+- TLS_POLICY: "require", "prefer", or "avoid".

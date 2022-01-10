@@ -55,7 +55,7 @@ A rough roadmap:
 [+] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
     optional usage of alternative ones. Though left libxml2 for now:
     could reuse existing libxml2 bindings that way.
-[ ] Automated testing.
+[.] Automated testing.
 
 
 - IM features:
