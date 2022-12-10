@@ -16,6 +16,7 @@
 #include "rexmpp_openpgp.h"
 #include "rexmpp_http_upload.h"
 #include "rexmpp_jingle.h"
+#include "rexmpp_pubsub.h"
 #include "rexmpp_console.h"
 
 
@@ -269,6 +270,132 @@ void rexmpp_console_on_upload (rexmpp_t *s, void *cb_data, const char *url) {
   free(fpath);
 }
 
+void rexmpp_console_disco_info (rexmpp_t *s,
+                                void *ptr,
+                                xmlNodePtr req,
+                                xmlNodePtr response,
+                                int success)
+{
+  (void)ptr;
+  (void)req;
+  if (! success) {
+    rexmpp_console_printf(s, "Failed to discover info.\n");
+    return;
+  }
+  xmlNodePtr query =
+    rexmpp_xml_find_child(response, "http://jabber.org/protocol/disco#info",
+                          "query");
+  if (query == NULL) {
+    rexmpp_console_printf(s, "No disco#info query in response.\n");
+    return;
+  }
+  char *from = xmlGetProp(response, "from");
+  if (from == NULL) {
+    rexmpp_console_printf(s, "No 'from' property in response.\n");
+    return;
+  }
+  rexmpp_console_printf(s, "Discovered info for %s:\n", from);
+  xmlNodePtr child = xmlFirstElementChild(query);
+  while (child != NULL) {
+    if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
+                         "feature")) {
+      char *var = xmlGetProp(child, "var");
+      rexmpp_console_printf(s, "- feature var %s\n", var);
+      if (var != NULL) {
+        free(var);
+      }
+    } else if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
+                                "identity")) {
+      char *category = xmlGetProp(child, "category");
+      char *type = xmlGetProp(child, "type");
+      char *name = xmlGetProp(child, "name");
+      rexmpp_console_printf(s, "- identity name %s, type %s, category %s\n",
+                            name, type, category);
+      if (category != NULL) {
+        free(category);
+      }
+      if (type != NULL) {
+        free(type);
+      }
+      if (name != NULL) {
+        free(name);
+      }
+    } else {
+      rexmpp_console_printf(s, "Encountered an unknown disco#info element.\n");
+    }
+    child = child->next;
+  }
+  rexmpp_console_printf(s, "(end of discovered info for %s)\n", from);
+  free(from);
+}
+
+void rexmpp_console_disco_items (rexmpp_t *s,
+                                 void *ptr,
+                                 xmlNodePtr req,
+                                 xmlNodePtr response,
+                                 int success)
+{
+  (void)ptr;
+  (void)req;
+  if (! success) {
+    rexmpp_console_printf(s, "Failed to discover items.\n");
+    return;
+  }
+  xmlNodePtr query =
+    rexmpp_xml_find_child(response, "http://jabber.org/protocol/disco#items",
+                          "query");
+  if (query == NULL) {
+    rexmpp_console_printf(s, "No disco#items query in response.\n");
+    return;
+  }
+  char *from = xmlGetProp(response, "from");
+  if (from == NULL) {
+    rexmpp_console_printf(s, "No 'from' property in response.\n");
+    return;
+  }
+  rexmpp_console_printf(s, "Discovered items for %s:\n", from);
+  xmlNodePtr child = xmlFirstElementChild(query);
+  while (child != NULL) {
+    if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#items",
+                         "item")) {
+      char *jid = xmlGetProp(child, "jid");
+      char *name = xmlGetProp(child, "name");
+      char *node = xmlGetProp(child, "node");
+      rexmpp_console_printf(s, "- item jid %s, name %s, node %s\n", jid, name);
+      if (jid != NULL) {
+        free(jid);
+      }
+      if (name != NULL) {
+        free(name);
+      }
+      if (node != NULL) {
+        free(node);
+      }
+    } else {
+      rexmpp_console_printf(s, "Encountered an unknown disco#items element.\n");
+    }
+    child = child->next;
+  }
+  rexmpp_console_printf(s, "(end of discovered items for %s)\n", from);
+  free(from);
+}
+
+void rexmpp_console_pubsub_node_deleted (rexmpp_t *s,
+                                         void *ptr,
+                                         xmlNodePtr req,
+                                         xmlNodePtr response,
+                                         int success)
+{
+  (void)ptr;
+  (void)req;
+  (void)response;
+  if (success) {
+    rexmpp_console_printf(s, "Deleted the pubsub node.\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to delete the pubsub node.\n");
+  }
+}
+
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   /* todo: buffering */
   (void)str_len;                /* Unused for now (todo). */
@@ -307,6 +434,9 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "jingle send-file <jid> <file path>\n"
     "jingle accept-call <sid> <in port> <out port>\n"
     "jingle call <jid> <in port> <out port>\n"
+    "disco info <jid>\n"
+    "disco items <jid>\n"
+    "pubsub node delete <service_jid> <node>\n"
     ;
 
   if (! strcmp(word, "help")) {
@@ -611,6 +741,54 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       char *port_out = strtok_r(NULL, " ", &words_save_ptr);
       if (jid != NULL && port_in != NULL && port_out != NULL) {
         rexmpp_jingle_call(s, jid, atoi(port_in), atoi(port_out));
+      }
+    }
+  }
+
+  if (! strcmp(word, "disco")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (word == NULL) {
+      return;
+    }
+    if (! strcmp(word, "info")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid == NULL) {
+        return;
+      }
+      xmlNodePtr query =
+        rexmpp_xml_new_node("query",
+                            "http://jabber.org/protocol/disco#info");
+      rexmpp_iq_new(s, "get", jid, query, rexmpp_console_disco_info, NULL);
+    }
+    if (! strcmp(word, "items")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid == NULL) {
+        return;
+      }
+      xmlNodePtr query =
+        rexmpp_xml_new_node("query",
+                            "http://jabber.org/protocol/disco#items");
+      rexmpp_iq_new(s, "get", jid, query, rexmpp_console_disco_items, NULL);
+    }
+  }
+
+  if (! strcmp(word, "pubsub")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (word == NULL) {
+      return;
+    }
+    if (! strcmp(word, "node")) {
+      word = strtok_r(NULL, " ", &words_save_ptr);
+      if (word == NULL) {
+        return;
+      }
+      if (! strcmp(word, "delete")) {
+        char *service_jid = strtok_r(NULL, " ", &words_save_ptr);
+        char *node = strtok_r(NULL, " ", &words_save_ptr);
+        if (service_jid == NULL || node == NULL) {
+          return;
+        }
+        rexmpp_pubsub_node_delete(s, service_jid, node, rexmpp_console_pubsub_node_deleted, NULL);
       }
     }
   }
