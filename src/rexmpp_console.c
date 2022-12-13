@@ -396,6 +396,72 @@ void rexmpp_console_pubsub_node_deleted (rexmpp_t *s,
   }
 }
 
+void rexmpp_console_blocklist (rexmpp_t *s,
+                               void *ptr,
+                               xmlNodePtr req,
+                               xmlNodePtr response,
+                               int success)
+{
+  (void)ptr;
+  (void)req;
+  if (success) {
+    xmlNodePtr bl = rexmpp_xml_find_child(response, "urn:xmpp:blocking", "blocklist");
+    if (bl == NULL) {
+      rexmpp_console_printf(s, "No blocklist element in the response.\n");
+      return;
+    }
+    rexmpp_console_printf(s, "Block list:");
+    xmlNodePtr child = xmlFirstElementChild(bl);
+    while (child != NULL) {
+      if (rexmpp_xml_match(child, "urn:xmpp:blocking", "item")) {
+        char *jid = xmlGetProp(child, "jid");
+        rexmpp_console_printf(s, " %s", jid);
+        if (jid != NULL) {
+          free(jid);
+        }
+      } else {
+        rexmpp_console_printf(s, "Encountered an unknown blocklist child element.\n");
+      }
+      child = child->next;
+    }
+    rexmpp_console_printf(s, "\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to retrieve block list.\n");
+  }
+}
+
+void rexmpp_console_blocklist_blocked (rexmpp_t *s,
+                                       void *ptr,
+                                       xmlNodePtr req,
+                                       xmlNodePtr response,
+                                       int success)
+{
+  (void)ptr;
+  (void)req;
+  (void)response;
+  if (success) {
+    rexmpp_console_printf(s, "Blocklisted successfully.\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to blocklist.\n");
+  }
+}
+
+void rexmpp_console_blocklist_unblocked (rexmpp_t *s,
+                                         void *ptr,
+                                         xmlNodePtr req,
+                                         xmlNodePtr response,
+                                         int success)
+{
+  (void)ptr;
+  (void)req;
+  (void)response;
+  if (success) {
+    rexmpp_console_printf(s, "Un-blocklisted successfully.\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to un-blocklist.\n");
+  }
+}
+
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
   /* todo: buffering */
   (void)str_len;                /* Unused for now (todo). */
@@ -437,6 +503,9 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "disco info <jid>\n"
     "disco items <jid>\n"
     "pubsub node delete <service_jid> <node>\n"
+    "blocklist\n"
+    "blocklist block <jid>\n"
+    "blocklist unblock <jid>\n"
     ;
 
   if (! strcmp(word, "help")) {
@@ -790,6 +859,34 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         }
         rexmpp_pubsub_node_delete(s, service_jid, node, rexmpp_console_pubsub_node_deleted, NULL);
       }
+    }
+  }
+
+  if (! strcmp(word, "blocklist")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (word == NULL) {
+      xmlNodePtr bl = rexmpp_xml_new_node("blocklist", "urn:xmpp:blocking");
+      rexmpp_iq_new(s, "get", NULL, bl, rexmpp_console_blocklist, NULL);
+    } else if (! strcmp(word, "block")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid == NULL) {
+        return;
+      }
+      xmlNodePtr bl = rexmpp_xml_new_node("block", "urn:xmpp:blocking");
+      xmlNodePtr item = rexmpp_xml_new_node("item", "urn:xmpp:blocking");
+      xmlNewProp(item, "jid", jid);
+      xmlAddChild(bl, item);
+      rexmpp_iq_new(s, "set", NULL, bl, rexmpp_console_blocklist_blocked, NULL);
+    } else if (! strcmp(word, "unblock")) {
+      char *jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (jid == NULL) {
+        return;
+      }
+      xmlNodePtr bl = rexmpp_xml_new_node("unblock", "urn:xmpp:blocking");
+      xmlNodePtr item = rexmpp_xml_new_node("item", "urn:xmpp:blocking");
+      xmlNewProp(item, "jid", jid);
+      xmlAddChild(bl, item);
+      rexmpp_iq_new(s, "set", NULL, bl, rexmpp_console_blocklist_unblocked, NULL);
     }
   }
 }
