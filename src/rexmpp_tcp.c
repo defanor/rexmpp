@@ -123,7 +123,7 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
 
   struct sockaddr_in addr_v4;
   int flags;
-  if (inet_pton(AF_INET, host, &addr_v4)) {
+  if (inet_pton(AF_INET, host, &(addr_v4.sin_addr))) {
     addr_v4.sin_family = AF_INET;
     addr_v4.sin_port = htons(port);
     conn->sockets[conn->connection_attempts] =
@@ -144,7 +144,7 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
     return REXMPP_CONN_IN_PROGRESS;
   }
   struct sockaddr_in6 addr_v6;
-  if (inet_pton(AF_INET6, host, &addr_v6)) {
+  if (inet_pton(AF_INET6, host, &(addr_v6.sin6_addr))) {
     addr_v6.sin6_family = AF_INET6;
     addr_v6.sin6_port = htons(port);
     addr_v6.sin6_flowinfo = 0;
