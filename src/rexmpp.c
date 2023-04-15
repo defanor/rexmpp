@@ -555,6 +555,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->client_version = PACKAGE_VERSION;
   s->local_address = NULL;
   s->jingle_prefer_rtcp_mux = 1;
+  s->path_mtu_discovery = -1;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;

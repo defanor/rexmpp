@@ -278,6 +278,8 @@ struct rexmpp
   const char *client_version;   /* XEP-0092 */
   const char *local_address;    /* For ICE, XEP-0176 */
   int jingle_prefer_rtcp_mux;
+  int path_mtu_discovery;       /* An IP_MTU_DISCOVER parameter for
+                                   TCP sockets, or -1 to not set it */
 
   /* Resource limits. */
   uint32_t stanza_queue_size;

@@ -99,6 +99,22 @@ rexmpp_tcp_connected (rexmpp_tcp_conn_t *conn, int fd) {
   return REXMPP_CONN_DONE;
 }
 
+int rexmpp_tcp_socket(rexmpp_t *s, int domain) {
+  int sock = socket(domain, SOCK_STREAM, 0);
+
+  /* Make it non-blocking */
+  int flags = fcntl(sock, F_GETFL, 0);
+  fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+  /* Set path MTU discovery, if provided */
+  if (s->path_mtu_discovery != -1) {
+    setsockopt(sock, SOL_IP, IP_MTU_DISCOVER, &(s->path_mtu_discovery),
+               sizeof(s->path_mtu_discovery));
+  }
+
+  return sock;
+}
+
 rexmpp_tcp_conn_error_t
 rexmpp_tcp_conn_init (rexmpp_t *s,
                       rexmpp_tcp_conn_t *conn,
@@ -122,14 +138,10 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_INACTIVE;
 
   struct sockaddr_in addr_v4;
-  int flags;
   if (inet_pton(AF_INET, host, &(addr_v4.sin_addr))) {
     addr_v4.sin_family = AF_INET;
     addr_v4.sin_port = htons(port);
-    conn->sockets[conn->connection_attempts] =
-      socket(AF_INET, SOCK_STREAM, 0);
-    flags = fcntl(conn->sockets[conn->connection_attempts], F_GETFL, 0);
-    fcntl(conn->sockets[conn->connection_attempts], F_SETFL, flags | O_NONBLOCK);
+    conn->sockets[conn->connection_attempts] = rexmpp_tcp_socket(s, AF_INET);
     if (connect(conn->sockets[conn->connection_attempts],
                 (struct sockaddr*)&addr_v4,
                 sizeof(addr_v4))) {
@@ -149,10 +161,7 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
     addr_v6.sin6_port = htons(port);
     addr_v6.sin6_flowinfo = 0;
     addr_v6.sin6_scope_id = 0;
-    conn->sockets[conn->connection_attempts] =
-      socket(AF_INET6, SOCK_STREAM, 0);
-    flags = fcntl(conn->sockets[conn->connection_attempts], F_GETFL, 0);
-    fcntl(conn->sockets[conn->connection_attempts], F_SETFL, flags | O_NONBLOCK);
+    conn->sockets[conn->connection_attempts] = rexmpp_tcp_socket(s, AF_INET6);
     if (connect(conn->sockets[conn->connection_attempts],
                 (struct sockaddr*)&addr_v6,
                 sizeof(addr_v6))) {
@@ -295,10 +304,7 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
           addrlen = sizeof(addr_v4);
         }
 
-        conn->sockets[conn->connection_attempts] =
-          socket(domain, SOCK_STREAM, 0);
-        int flags = fcntl(conn->sockets[conn->connection_attempts], F_GETFL, 0);
-        fcntl(conn->sockets[conn->connection_attempts], F_SETFL, flags | O_NONBLOCK);
+        conn->sockets[conn->connection_attempts] = rexmpp_tcp_socket(s, domain);
         if (connect(conn->sockets[conn->connection_attempts], addr, addrlen)) {
           if (errno == EINPROGRESS) {
             gettimeofday(&(conn->next_connection_time), NULL);
