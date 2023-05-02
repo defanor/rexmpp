@@ -98,8 +98,8 @@ struct rexmpp_tcp_connection {
   /** @brief The number of connection attempts so far. */
   int connection_attempts;
 
-  /** @brief Next scheduled connection time. */
-  struct timeval next_connection_time;
+  /** @brief Next scheduled connection time (monotonic). */
+  struct timespec next_connection_time;
   /** @brief File descriptor of a connected socket. */
   int fd;
   /** @brief Whether the A or AAAA records used to establish the final
@@ -175,13 +175,13 @@ int rexmpp_tcp_conn_fds (rexmpp_t *s,
    @param[in] s ::rexmpp
    @param[in] conn An active connection structure.
    @param[in] max_tv An existing maximum timeout.
-   @param[out] tv A timeval structure to store a new timeout in.
+   @param[out] tv A timespec structure to store a new timeout in.
    @returns A pointer to either max_tv or tv, depending on which one
    is smaller.
 */
-struct timeval *rexmpp_tcp_conn_timeout (rexmpp_t *s,
-                                         rexmpp_tcp_conn_t *conn,
-                                         struct timeval *max_tv,
-                                         struct timeval *tv);
+struct timespec *rexmpp_tcp_conn_timeout (rexmpp_t *s,
+                                          rexmpp_tcp_conn_t *conn,
+                                          struct timespec *max_tv,
+                                          struct timespec *tv);
 
 #endif

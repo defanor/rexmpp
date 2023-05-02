@@ -1779,9 +1779,9 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   return (nfds + 1);
 }
 
-struct timeval * rexmpp_jingle_timeout (rexmpp_t *s,
-                                        struct timeval *max_tv,
-                                        struct timeval *tv) {
+struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
+                                         struct timespec *max_tv,
+                                         struct timespec *tv) {
 #ifdef ENABLE_CALLS
   gint poll_timeout;
   GPollFD poll_fds[10];
@@ -1811,12 +1811,12 @@ struct timeval * rexmpp_jingle_timeout (rexmpp_t *s,
 
     if (poll_timeout >= 0) {
       int sec = poll_timeout / 1000;
-      int usec = (poll_timeout % 1000) * 1000;
+      int nsec = (poll_timeout % 1000) * 1000000;
       if (max_tv == NULL ||
           (max_tv->tv_sec > sec ||
-           (max_tv->tv_sec == sec && max_tv->tv_usec > usec))) {
+           (max_tv->tv_sec == sec && max_tv->tv_nsec > nsec))) {
         tv->tv_sec = sec;
-        tv->tv_usec = usec;
+        tv->tv_nsec = nsec;
         max_tv = tv;
       }
     }

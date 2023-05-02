@@ -50,10 +50,10 @@ void rexmpp_tcp_dns_a_cb (rexmpp_t *s,
     conn->addr_cur_v4 = -1;
     if (conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
       /* Wait for 50 ms for IPv6. */
-      gettimeofday(&(conn->next_connection_time), NULL);
-      conn->next_connection_time.tv_usec += REXMPP_TCP_IPV6_DELAY_MS * 1000;
-      if (conn->next_connection_time.tv_usec >= 1000000) {
-        conn->next_connection_time.tv_usec -= 1000000;
+      clock_gettime(CLOCK_MONOTONIC, &(conn->next_connection_time));
+      conn->next_connection_time.tv_nsec += REXMPP_TCP_IPV6_DELAY_MS * 1000000;
+      if (conn->next_connection_time.tv_nsec >= 1000000000) {
+        conn->next_connection_time.tv_nsec -= 1000000000;
         conn->next_connection_time.tv_sec++;
       }
     }
@@ -132,7 +132,7 @@ rexmpp_tcp_conn_init (rexmpp_t *s,
   conn->fd = -1;
   conn->dns_secure = 0;
   conn->next_connection_time.tv_sec = 0;
-  conn->next_connection_time.tv_usec = 0;
+  conn->next_connection_time.tv_nsec = 0;
 
   conn->resolution_v4 = REXMPP_CONN_RESOLUTION_INACTIVE;
   conn->resolution_v6 = REXMPP_CONN_RESOLUTION_INACTIVE;
@@ -210,7 +210,7 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
                          fd_set *write_fds)
 {
   (void)read_fds;     /* Not checking any read FDs at the moment. */
-  struct timeval now;
+  struct timespec now;
   int i;
 
   /* Check for successful connections. */
@@ -250,10 +250,10 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
     if (conn->connection_attempts < REXMPP_TCP_MAX_CONNECTION_ATTEMPTS &&
         (rexmpp_tcp_conn_ipv4_available(conn) ||
          rexmpp_tcp_conn_ipv6_available(conn))) {
-      gettimeofday(&now, NULL);
+      clock_gettime(CLOCK_MONOTONIC, &now);
       if (now.tv_sec > conn->next_connection_time.tv_sec ||
           (now.tv_sec == conn->next_connection_time.tv_sec &&
-           now.tv_usec >= conn->next_connection_time.tv_usec)) {
+           now.tv_nsec >= conn->next_connection_time.tv_nsec)) {
         /* Time to attempt a new connection. */
         int use_ipv6 = 0;
         if (rexmpp_tcp_conn_ipv4_available(conn) &&
@@ -307,10 +307,10 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
         conn->sockets[conn->connection_attempts] = rexmpp_tcp_socket(s, domain);
         if (connect(conn->sockets[conn->connection_attempts], addr, addrlen)) {
           if (errno == EINPROGRESS) {
-            gettimeofday(&(conn->next_connection_time), NULL);
-            conn->next_connection_time.tv_usec += REXMPP_TCP_CONN_DELAY_MS * 1000;
-            if (conn->next_connection_time.tv_usec >= 1000000) {
-              conn->next_connection_time.tv_usec -= 1000000;
+            clock_gettime(CLOCK_MONOTONIC, &(conn->next_connection_time));
+            conn->next_connection_time.tv_nsec += REXMPP_TCP_CONN_DELAY_MS * 1000000;
+            if (conn->next_connection_time.tv_nsec >= 1000000000) {
+              conn->next_connection_time.tv_nsec -= 1000000000;
               conn->next_connection_time.tv_sec++;
             }
             conn->connection_attempts++;
@@ -339,14 +339,14 @@ rexmpp_tcp_conn_proceed (rexmpp_t *s,
     }
   }
 
-  gettimeofday(&now, NULL);
+  clock_gettime(CLOCK_MONOTONIC, &now);
 
   if (active_connections ||
       conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING ||
       (conn->next_connection_time.tv_sec > now.tv_sec ||
        (conn->next_connection_time.tv_sec == now.tv_sec &&
-        conn->next_connection_time.tv_usec > now.tv_usec))) {
+        conn->next_connection_time.tv_nsec > now.tv_nsec))) {
     return REXMPP_CONN_IN_PROGRESS;
   } else {
     return REXMPP_CONN_FAILURE;
@@ -374,13 +374,13 @@ int rexmpp_tcp_conn_fds (rexmpp_t *s,
   return max_fd;
 }
 
-struct timeval *rexmpp_tcp_conn_timeout (rexmpp_t *s,
-                                         rexmpp_tcp_conn_t *conn,
-                                         struct timeval *max_tv,
-                                         struct timeval *tv)
+struct timespec *rexmpp_tcp_conn_timeout (rexmpp_t *s,
+                                          rexmpp_tcp_conn_t *conn,
+                                          struct timespec *max_tv,
+                                          struct timespec *tv)
 {
-  struct timeval now;
-  struct timeval *ret = max_tv;
+  struct timespec now;
+  struct timespec *ret = max_tv;
   if (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_WAITING ||
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_WAITING) {
     ret = rexmpp_dns_timeout(s, max_tv, tv);
@@ -389,20 +389,20 @@ struct timeval *rexmpp_tcp_conn_timeout (rexmpp_t *s,
       conn->resolution_v6 == REXMPP_CONN_RESOLUTION_SUCCESS ||
       (conn->resolution_v4 == REXMPP_CONN_RESOLUTION_INACTIVE &&
        conn->resolution_v6 == REXMPP_CONN_RESOLUTION_INACTIVE)) {
-    gettimeofday(&now, NULL);
+    clock_gettime(CLOCK_MONOTONIC, &now);
     if (now.tv_sec < conn->next_connection_time.tv_sec ||
         (now.tv_sec == conn->next_connection_time.tv_sec &&
-         now.tv_usec <= conn->next_connection_time.tv_usec)) {
+         now.tv_nsec <= conn->next_connection_time.tv_nsec)) {
       if (ret == NULL ||
           ret->tv_sec > conn->next_connection_time.tv_sec - now.tv_sec ||
           (ret->tv_sec == conn->next_connection_time.tv_sec - now.tv_sec &&
-           ret->tv_usec > conn->next_connection_time.tv_usec - now.tv_usec)) {
+           ret->tv_nsec > conn->next_connection_time.tv_nsec - now.tv_nsec)) {
         ret = tv;
         tv->tv_sec = conn->next_connection_time.tv_sec - now.tv_sec;
-        if (conn->next_connection_time.tv_usec > now.tv_usec) {
-          tv->tv_usec = conn->next_connection_time.tv_usec - now.tv_usec;
+        if (conn->next_connection_time.tv_nsec > now.tv_nsec) {
+          tv->tv_nsec = conn->next_connection_time.tv_nsec - now.tv_nsec;
         } else {
-          tv->tv_usec = conn->next_connection_time.tv_usec + 1000000 - now.tv_usec;
+          tv->tv_nsec = conn->next_connection_time.tv_nsec + 1000000000 - now.tv_nsec;
           tv->tv_sec--;
         }
       }

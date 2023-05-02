@@ -181,16 +181,30 @@ int rexmpp_dns_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 #endif
 }
 
-struct timeval * rexmpp_dns_timeout (rexmpp_t *s,
-                                     struct timeval *max_tv,
-                                     struct timeval *tv)
+struct timespec * rexmpp_dns_timeout (rexmpp_t *s,
+                                      struct timespec *max_tv,
+                                      struct timespec *tv)
 {
 #if defined(USE_UNBOUND)
   (void)s;
   (void)tv;
   return max_tv;
 #elif defined(USE_CARES)
-  return ares_timeout(s->resolver.channel, max_tv, tv);
+  struct timeval tv_ms;
+  struct timeval *max_tv_ms = NULL;
+  if (max_tv != NULL) {
+    max_tv_ms = &tv_ms;
+    tv_ms.tv_sec = tv->tv_sec;
+    tv_ms.tv_usec = tv->tv_nsec / 1000;
+  }
+  struct timeval *ret_ms = ares_timeout(s->resolver.channel, max_tv_ms, &tv_ms);
+  if (ret_ms == max_tv_ms) {
+    return max_tv;
+  } else {
+    tv->tv_sec = tv_ms.tv_sec;
+    tv->tv_nsec = tv_ms.tv_usec * 1000;
+    return tv;
+  }
 #else
   (void)s;
   (void)max_tv;

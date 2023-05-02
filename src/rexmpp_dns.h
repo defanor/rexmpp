@@ -103,9 +103,9 @@ int rexmpp_dns_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 /**
    @brief Reports timeouts.
 */
-struct timeval * rexmpp_dns_timeout (rexmpp_t *s,
-                                     struct timeval *max_tv,
-                                     struct timeval *tv);
+struct timespec * rexmpp_dns_timeout (rexmpp_t *s,
+                                      struct timespec *max_tv,
+                                      struct timespec *tv);
 
 typedef void (*dns_query_cb_t) (rexmpp_t *s, void *ptr, rexmpp_dns_result_t *result);
 

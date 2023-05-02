@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <gsasl.h>
+#include <time.h>
 #include <rexmpp.h>
 #include <rexmpp_sasl.h>
 
@@ -155,8 +156,10 @@ int main (int argc, char **argv) {
 
   fd_set read_fds, write_fds;
   int nfds;
-  struct timeval tv;
-  struct timeval *mtv;
+  struct timespec tv;
+  struct timespec *mtv;
+  struct timeval tv_ms;
+  struct timeval *mtv_ms;
   int n = 0;
 
   do {
@@ -217,7 +220,13 @@ int main (int argc, char **argv) {
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     nfds = rexmpp_fds(&s, &read_fds, &write_fds);
-    mtv = rexmpp_timeout(&s, NULL, (struct timeval*)&tv);
+    mtv = rexmpp_timeout(&s, NULL, &tv);
+    mtv_ms = NULL;
+    if (mtv != NULL) {
+      tv_ms.tv_sec = mtv->tv_sec;
+      tv_ms.tv_usec = mtv->tv_nsec / 1000;
+      mtv_ms = &tv_ms;
+    }
 
     /* Add other file descriptors we are interested in, particularly
        stdin for user input. */
@@ -225,7 +234,7 @@ int main (int argc, char **argv) {
 
     /* Run select(2) with all those file descriptors and timeouts,
        waiting for either user input or some rexmpp event to occur. */
-    n = select(nfds, &read_fds, &write_fds, NULL, mtv);
+    n = select(nfds, &read_fds, &write_fds, NULL, mtv_ms);
     if (n == -1) {
       printf("select error: %s\n", strerror(errno));
       break;

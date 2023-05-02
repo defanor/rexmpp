@@ -322,7 +322,7 @@ struct rexmpp
   /* Connection and stream management. */
   unsigned int reconnect_number;
   time_t reconnect_seconds;
-  struct timeval next_reconnect_time;
+  struct timespec next_reconnect_time;
   xmlNodePtr stanza_queue;
   uint32_t stanzas_out_count;
   uint32_t stanzas_out_acknowledged;
@@ -481,13 +481,13 @@ void rexmpp_iq_reply (rexmpp_t *s,
    @param[in] s ::rexmpp
    @param[in] max_tv An existing timeout (can be NULL), to return if
    there's no more urgent timeouts.
-   @param[in,out] tv An allocated timeval structure, to store the time
-   in.
+   @param[in,out] tv An allocated timespec structure, to store the
+   time in.
    @returns A pointer to either max_tv or tv.
 */
-struct timeval *rexmpp_timeout (rexmpp_t *s,
-                                struct timeval *max_tv,
-                                struct timeval *tv);
+struct timespec *rexmpp_timeout (rexmpp_t *s,
+                                 struct timespec *max_tv,
+                                 struct timespec *tv);
 
 /**
    @brief Sets file descriptors to watch.

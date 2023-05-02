@@ -121,9 +121,9 @@ struct rexmpp_jingle_ctx {
 
 int rexmpp_jingle_init (rexmpp_t *s);
 rexmpp_err_t rexmpp_jingle_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
-struct timeval * rexmpp_jingle_timeout (rexmpp_t *s,
-                                        struct timeval *max_tv,
-                                        struct timeval *tv);
+struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
+                                         struct timespec *max_tv,
+                                         struct timespec *tv);
 int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
 rexmpp_err_t

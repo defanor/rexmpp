@@ -578,7 +578,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->iq_cache = NULL;
   s->reconnect_number = 0;
   s->next_reconnect_time.tv_sec = 0;
-  s->next_reconnect_time.tv_usec = 0;
+  s->next_reconnect_time.tv_nsec = 0;
   s->initial_jid.full[0] = '\0';
   s->assigned_jid.full[0] = '\0';
   s->stanza_queue_size = 1024;
@@ -867,7 +867,7 @@ void rexmpp_schedule_reconnect (rexmpp_t *s) {
   if (seconds > 3600) {
     seconds = 3600;
   }
-  gettimeofday(&(s->next_reconnect_time), NULL);
+  clock_gettime(CLOCK_MONOTONIC, &(s->next_reconnect_time));
   s->next_reconnect_time.tv_sec += seconds;
   rexmpp_log(s, LOG_DEBUG, "Scheduled reconnect number %d, in %d seconds",
              s->reconnect_number,
@@ -2495,8 +2495,8 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
 }
 
 rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
-  struct timeval now;
-  if (gettimeofday(&now, NULL) != 0) {
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
     rexmpp_log(s, LOG_ERR, "Failed to get time: %s", strerror(errno));
     return REXMPP_E_OTHER;
   }
@@ -2772,11 +2772,11 @@ int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   return max_fd;
 }
 
-struct timeval *rexmpp_timeout (rexmpp_t *s,
-                                struct timeval *max_tv,
-                                struct timeval *tv)
+struct timespec *rexmpp_timeout (rexmpp_t *s,
+                                 struct timespec *max_tv,
+                                 struct timespec *tv)
 {
-  struct timeval *ret = max_tv;
+  struct timespec *ret = max_tv;
 
   if (s->resolver_state != REXMPP_RESOLVER_NONE &&
       s->resolver_state != REXMPP_RESOLVER_READY) {
@@ -2787,14 +2787,14 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
 
   ret = rexmpp_jingle_timeout(s, ret, tv);
 
-  struct timeval now;
-  gettimeofday(&now, NULL);
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
   if (s->reconnect_number > 0 &&
       s->next_reconnect_time.tv_sec > now.tv_sec &&
       (ret == NULL ||
        s->next_reconnect_time.tv_sec - now.tv_sec < ret->tv_sec)) {
     tv->tv_sec = s->next_reconnect_time.tv_sec - now.tv_sec;
-    tv->tv_usec = 0;
+    tv->tv_nsec = 0;
     ret = tv;
   }
 
@@ -2803,20 +2803,20 @@ struct timeval *rexmpp_timeout (rexmpp_t *s,
     time_t next_ping = s->last_network_activity + s->ping_delay - now.tv_sec;
     if (ret == NULL || next_ping < ret->tv_sec) {
       tv->tv_sec = next_ping;
-      tv->tv_usec = 0;
+      tv->tv_nsec = 0;
       ret = tv;
     }
   }
 
 #ifdef HAVE_CURL
-  long curl_timeout;
+  long curl_timeout;            /* in milliseconds */
   curl_multi_timeout(s->curl_multi, &curl_timeout);
   if (curl_timeout >= 0 &&
       (curl_timeout / 1000 < ret->tv_sec ||
        (curl_timeout / 1000 == ret->tv_sec &&
-        (curl_timeout % 1000) * 1000 < ret->tv_usec))) {
+        (curl_timeout % 1000) * 1000000 < ret->tv_nsec))) {
     tv->tv_sec = curl_timeout / 1000;
-    tv->tv_usec = (curl_timeout % 1000) * 1000;
+    tv->tv_nsec = (curl_timeout % 1000) * 1000000;
     ret = tv;
   }
 #endif
