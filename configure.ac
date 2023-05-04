@@ -13,6 +13,15 @@ AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile rexmpp.pc Doxyfile])
 AC_PROG_CC
 AM_PROG_AR
 
+AC_ARG_WITH([rust],
+        AS_HELP_STRING([--with-rust],
+                [use available Rust implementations of modules]))
+
+AS_IF([test "x$with_rust" == "xyes"],
+      [AC_PATH_PROG([RUSTC], [rustc], [notfound])
+       AS_IF([test "x$RUSTC" == "xnotfound"], [AC_MSG_ERROR([rustc is required])])])
+AM_CONDITIONAL([USE_RUST], [test "x$with_rust" == "xyes"])
+
 LT_INIT
 
 # Checks for libraries and related parameters.

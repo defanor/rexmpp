@@ -16,7 +16,7 @@ it easy to implement a decent client application using it.
 
 Current dependencies: libxml2, libgcrypt. Optionally gsasl, libunbound
 or c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl,
-libnice (with glib), libsrtp2.
+libnice (with glib), libsrtp2, rustc.
 
 
 A rough roadmap:
@@ -56,6 +56,7 @@ A rough roadmap:
     optional usage of alternative ones. Though left libxml2 for now:
     could reuse existing libxml2 bindings that way.
 [.] Automated testing.
+[.] Alternative module implementations in Rust.
 
 
 - IM features:
