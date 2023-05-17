@@ -44,9 +44,7 @@ noinst_LIBRARIES = librexmpp_rust.a
 librexmpp_la_LIBADD += librexmpp_rust.a
 librexmpp_la_LDFLAGS += -L. -lpthread -ldl
 
-# todo: setup it properly, to rebuild whenever the sources are
-# changed.
-librexmpp_rust.a:
+librexmpp_rust.a: $(librexmpp_rust_a_SOURCES)
 	rustc --crate-type=staticlib -o $@ $(librexmpp_rust_a_SOURCES)
 
 else
