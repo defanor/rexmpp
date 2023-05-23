@@ -20,20 +20,22 @@ and EOF ones, to simplify reading with libxml2.
 #include <syslog.h>
 #include <gnutls/gnutls.h>
 #include <rexmpp.h>
+#include <rexmpp_xml.h>
 #include <rexmpp_openpgp.h>
+#include <rexmpp_http_upload.h>
 
 
-void print_xml (xmlNodePtr node) {
+void print_xml (rexmpp_xml_t *node) {
   char *s = rexmpp_xml_serialize(node);
   printf("%s%c\n", s, '\0');
   free(s);
 }
 
-xmlNodePtr read_xml () {
-  xmlNodePtr elem = NULL;
+rexmpp_xml_t *read_xml () {
+  rexmpp_xml_t *elem = NULL;
   xmlDocPtr doc = xmlReadFd(STDIN_FILENO, "", "utf-8", 0);
   if (doc != NULL) {
-    elem = xmlCopyNode(xmlDocGetRootElement(doc), 1);
+    elem = rexmpp_xml_from_libxml2(xmlDocGetRootElement(doc));
     xmlFreeDoc(doc);
     return elem;
   }
@@ -41,70 +43,72 @@ xmlNodePtr read_xml () {
 }
 
 
-char *request (rexmpp_t *s, xmlNodePtr payload)
+char *request (rexmpp_t *s, rexmpp_xml_t *payload)
 {
-  xmlNodePtr req = rexmpp_xml_add_id(s, xmlNewNode(NULL, "request"));
-  xmlAddChild(req, payload);
+  rexmpp_xml_t *req = rexmpp_xml_new_elem("request", NULL);
+  rexmpp_xml_add_id(s, req);
+  rexmpp_xml_add_child(req, payload);
   print_xml(req);
-  char *id = xmlGetProp(req, "id");
-  xmlFreeNode(req);
+  char *id = strdup(rexmpp_xml_find_attr_val(req, "id"));
+  rexmpp_xml_free(req);
   return id;
 }
 
-xmlNodePtr read_response (rexmpp_t *s, const char *id) {
-  xmlNodePtr elem = read_xml();
+void req_process (rexmpp_t *s,
+                  rexmpp_xml_t *elem);
+
+rexmpp_xml_t *read_response (rexmpp_t *s, const char *id) {
+  rexmpp_xml_t *elem = read_xml();
   if (elem != NULL) {
     if (rexmpp_xml_match(elem, NULL, "response")) {
-      char *resp_id = xmlGetProp(elem, "id");
+      const char *resp_id = rexmpp_xml_find_attr_val(elem, "id");
       if (resp_id != NULL) {
-        int matches = (strcmp(resp_id, id) == 0);
-        free(resp_id);
-        if (matches) {
+        if (strcmp(resp_id, id) == 0) {
           return elem;
         } else {
           /* Just fail for now, to avoid deadlocks. Though this
              shouldn't happen. */
-          xmlFreeNode(elem);
+          rexmpp_xml_free(elem);
           rexmpp_log(s, LOG_ERR, "Unexpected response ID received.");
           return NULL;
         }
       }
     }
     req_process(s, elem);
-    xmlFreeNode(elem);
+    rexmpp_xml_free(elem);
   }
   return read_response(s, id);
 }
 
-xmlNodePtr req_block (rexmpp_t *s, xmlNodePtr req) {
+rexmpp_xml_t *req_block (rexmpp_t *s, rexmpp_xml_t *req) {
   char *id = request(s, req);
-  xmlNodePtr resp = read_response(s, id);
+  rexmpp_xml_t *resp = read_response(s, id);
   free(id);
   return resp;
 }
 
 void respond_xml (rexmpp_t *s,
                   const char *id,
-                  xmlNodePtr payload) {
-  xmlNodePtr response = xmlNewNode(NULL, "response");
-  xmlNewProp(response, "id", id);
+                  rexmpp_xml_t *payload) {
+  rexmpp_xml_t *response = rexmpp_xml_new_elem("response", NULL);
+  rexmpp_xml_add_attr(response, "id", id);
   if (payload != NULL) {
-    xmlAddChild(response, payload);
+    rexmpp_xml_add_child(response, payload);
   }
   print_xml(response);
-  xmlFreeNode(response);
+  rexmpp_xml_free(response);
 }
 
 void respond_text (rexmpp_t *s,
                    const char *id,
                    const char *buf) {
-  xmlNodePtr response = xmlNewNode(NULL, "response");
-  xmlNewProp(response, "id", id);
+  rexmpp_xml_t *response = rexmpp_xml_new_elem("response", NULL);
+  rexmpp_xml_add_attr(response, "id", id);
   if (buf != NULL) {
-    xmlNodeAddContent(response, buf);
+    rexmpp_xml_add_text(response, buf);
   }
   print_xml(response);
-  xmlFreeNode(response);
+  rexmpp_xml_free(response);
 }
 
 void on_http_upload (rexmpp_t *s, void *cb_data, const char *url) {
@@ -114,84 +118,83 @@ void on_http_upload (rexmpp_t *s, void *cb_data, const char *url) {
 }
 
 void req_process (rexmpp_t *s,
-                  xmlNodePtr elem)
+                  rexmpp_xml_t *elem)
 {
-  char *id = xmlGetProp(elem, "id");
+  const char *id = rexmpp_xml_find_attr_val(elem, "id");
   if (id == NULL) {
     return;
   }
   rexmpp_err_t err;
   char buf[64];
-  xmlNodePtr child = xmlFirstElementChild(elem);
+  rexmpp_xml_t *child = rexmpp_xml_first_elem_child(elem);
   if (rexmpp_xml_match(child, NULL, "stop")) {
     snprintf(buf, 64, "%d", rexmpp_stop(s));
     respond_text(s, id, buf);
   } else if (rexmpp_xml_match(child, NULL, "console")) {
-    char *in = xmlNodeGetContent(child);
+    char *in = strdup(rexmpp_xml_text_child(child));
     rexmpp_console_feed(s, in, strlen(in));
     free(in);
     respond_text(s, id, NULL);
   } else if (rexmpp_xml_match(child, NULL, "send")) {
-    if (xmlFirstElementChild(child)) {
-      xmlNodePtr stanza = xmlCopyNode(xmlFirstElementChild(child), 1);
+    if (rexmpp_xml_first_elem_child(child)) {
+      rexmpp_xml_t *stanza =
+        rexmpp_xml_clone(rexmpp_xml_first_elem_child(child));
       snprintf(buf, 64, "%d", rexmpp_send(s, stanza));
       respond_text(s, id, buf);
     }
   } else if (rexmpp_xml_match(child, NULL, "openpgp-decrypt-message")) {
     int valid;
-    xmlNodePtr plaintext =
-      rexmpp_openpgp_decrypt_verify_message(s, xmlFirstElementChild(child),
+    rexmpp_xml_t *plaintext =
+      rexmpp_openpgp_decrypt_verify_message(s, rexmpp_xml_first_elem_child(child),
                                             &valid);
     /* todo: wrap into another element, with the 'valid' attribute */
     respond_xml(s, id, plaintext);
   } else if (rexmpp_xml_match(child, NULL, "openpgp-payload")) {
     enum rexmpp_ox_mode mode = REXMPP_OX_CRYPT;
-    char *mode_str = xmlGetProp(child, "mode");
+    const char *mode_str = rexmpp_xml_find_attr_val(child, "mode");
     if (strcmp(mode_str, "sign") == 0) {
       mode = REXMPP_OX_SIGN;
     } else if (strcmp(mode_str, "signcrypt") == 0) {
       mode = REXMPP_OX_SIGNCRYPT;
     }
-    free(mode_str);
 
-    xmlNodePtr payload_xml =
-      xmlFirstElementChild(rexmpp_xml_find_child(child, NULL, "payload"));
+    rexmpp_xml_t *payload_xml =
+      rexmpp_xml_first_elem_child(rexmpp_xml_find_child(child, NULL, "payload"));
 
-    char **recipients[16];
+    char *recipients[16];
     int recipients_num = 0;
-    xmlNodePtr plchild;
-    for (plchild = xmlFirstElementChild(child);
+    rexmpp_xml_t *plchild;
+    for (plchild = rexmpp_xml_first_elem_child(child);
          plchild != NULL && recipients_num < 15;
          plchild = plchild->next) {
       if (rexmpp_xml_match(plchild, NULL, "to")) {
-        recipients[recipients_num] = xmlNodeGetContent(plchild);
+        recipients[recipients_num] = strdup(rexmpp_xml_text_child(plchild));
         recipients_num++;
       }
     }
     recipients[recipients_num] = NULL;
     char *payload_str =
-      rexmpp_openpgp_payload(s, xmlCopyNode(payload_xml, 1), recipients, NULL, mode);
+      rexmpp_openpgp_payload(s, rexmpp_xml_clone(payload_xml),
+                             (const char **)recipients, NULL, mode);
     for (recipients_num = 0; recipients[recipients_num] != NULL; recipients_num++) {
       free(recipients[recipients_num]);
     }
     respond_text(s, id, payload_str);
     free(payload_str);
   } else if (rexmpp_xml_match(child, NULL, "get-name")) {
-    char *jid = xmlNodeGetContent(child);
+    const char *jid = rexmpp_xml_text_child(child);
     if (jid != NULL) {
       char *name = rexmpp_get_name(s, jid);
       if (name != NULL) {
         respond_text(s, id, name);
         free(name);
       }
-      free(jid);
     }
   } else if (rexmpp_xml_match(child, NULL, "http-upload")) {
-    char *in = xmlNodeGetContent(child);
+    char *in = strdup(rexmpp_xml_text_child(child));
     rexmpp_http_upload_path(s, NULL, in, NULL, on_http_upload, strdup(id));
     free(in);
   }
-  free(id);
   return;
 }
 
@@ -210,22 +213,23 @@ void my_logger (rexmpp_t *s, int priority, const char *fmt, va_list args) {
   case LOG_INFO: priority_str = "info"; break;
   case LOG_DEBUG: priority_str = "debug"; break;
   }
-  xmlNodePtr node = xmlNewNode(NULL, "log");
-  xmlNewProp(node, "priority", priority_str);
-  xmlNodeAddContent(node, buf);
+  rexmpp_xml_t *node = rexmpp_xml_new_elem("log", NULL);
+  rexmpp_xml_add_attr(node, "priority", priority_str);
+  rexmpp_xml_add_text(node, buf);
   free(buf);
   print_xml(node);
-  xmlFreeNode(node);
+  rexmpp_xml_free(node);
 }
 
-void my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
+int my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
   char *buf = malloc(1024 * 20);
   vsnprintf(buf, 1024 * 20, fmt, args);
-  xmlNodePtr node = xmlNewNode(NULL, "console");
-  xmlNodeAddContent(node, buf);
+  rexmpp_xml_t *node = rexmpp_xml_new_elem("console", NULL);
+  rexmpp_xml_add_text(node, buf);
   free(buf);
   print_xml(node);
-  xmlFreeNode(node);
+  rexmpp_xml_free(node);
+  return 0;
 }
 
 int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
@@ -239,53 +243,50 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
   case REXMPP_SASL_PROP_AUTHID: prop_str = "authid"; break;
   default: return -1;
   }
-  xmlNodePtr req = xmlNewNode(NULL, "sasl");
-  xmlNewProp(req, "property", prop_str);
-  xmlNodePtr rep = req_block(s, req);
+  rexmpp_xml_t *req = rexmpp_xml_new_elem("sasl", NULL);
+  rexmpp_xml_add_attr(req, "property", prop_str);
+  rexmpp_xml_t *rep = req_block(s, req);
   if (rep == NULL) {
     return -1;
   }
-  char *val = xmlNodeGetContent(rep);
-  xmlFreeNode(rep);
+  const char *val = rexmpp_xml_text_child(rep);
   if (val == NULL) {
     return -1;
   }
   rexmpp_sasl_property_set (s, prop, val);
-  free(val);
+  rexmpp_xml_free(rep);
   return GSASL_OK;
 }
 
-int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
-  xmlNodePtr req = xmlNewNode(NULL, "xml-in");
-  xmlAddChild(req, xmlCopyNode(node, 1));
-  xmlNodePtr rep = req_block(s, req);
+int my_xml_in_cb (rexmpp_t *s, rexmpp_xml_t *node) {
+  rexmpp_xml_t *req = rexmpp_xml_new_elem("xml-in", NULL);
+  rexmpp_xml_add_child(req, rexmpp_xml_clone(node));
+  rexmpp_xml_t *rep = req_block(s, req);
   if (rep == NULL) {
     return 0;
   }
-  char *val = xmlNodeGetContent(rep);
-  xmlFreeNode(rep);
+  const char *val = rexmpp_xml_text_child(rep);
   if (val == NULL) {
     return 0;
   }
   int n = atoi(val);
-  free(val);
+  rexmpp_xml_free(rep);
   return n;
 }
 
-int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
-  xmlNodePtr req = xmlNewNode(NULL, "xml-out");
-  xmlAddChild(req, xmlCopyNode(node, 1));
-  xmlNodePtr rep = req_block(s, req);
+int my_xml_out_cb (rexmpp_t *s, rexmpp_xml_t *node) {
+  rexmpp_xml_t *req = rexmpp_xml_new_elem("xml-out", NULL);
+  rexmpp_xml_add_child(req, rexmpp_xml_clone(node));
+  rexmpp_xml_t *rep = req_block(s, req);
   if (rep == NULL) {
     return 0;
   }
-  char *val = xmlNodeGetContent(rep);
-  xmlFreeNode(rep);
+  const char *val = rexmpp_xml_text_child(rep);
   if (val == NULL) {
     return 0;
   }
   int n = atoi(val);
-  free(val);
+  rexmpp_xml_free(rep);
   return n;
 }
 
@@ -338,10 +339,10 @@ int main (int argc, char **argv) {
   do {
     /* Check if we have some user input. */
     if (n > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
-      xmlNodePtr elem = read_xml();
+      rexmpp_xml_t *elem = read_xml();
       if (elem != NULL) {
         req_process(&s, elem);
-        xmlFreeNode(elem);
+        rexmpp_xml_free(elem);
       }
     }
 

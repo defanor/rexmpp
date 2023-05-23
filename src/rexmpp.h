@@ -187,6 +187,7 @@ enum tls_pol {
 
 typedef enum rexmpp_err rexmpp_err_t;
 
+#include "rexmpp_xml.h"
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
@@ -207,8 +208,8 @@ typedef enum rexmpp_err rexmpp_err_t;
 */
 typedef void (*rexmpp_iq_callback_t) (rexmpp_t *s,
                                       void *cb_data,
-                                      xmlNodePtr request,
-                                      xmlNodePtr response,
+                                      rexmpp_xml_t *request,
+                                      rexmpp_xml_t *response,
                                       int success);
 
 typedef struct rexmpp_iq rexmpp_iq_t;
@@ -217,7 +218,7 @@ typedef struct rexmpp_iq rexmpp_iq_t;
 struct rexmpp_iq
 {
   /** @brief The sent request. */
-  xmlNodePtr request;
+  rexmpp_xml_t *request;
   /** @brief A callback to call on reply. */
   rexmpp_iq_callback_t cb;
   /** @brief User-supplied data, to pass to a callback function. */
@@ -228,9 +229,9 @@ struct rexmpp_iq
 
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
 typedef int (*sasl_property_cb_t) (rexmpp_t *s, rexmpp_sasl_property prop);
-typedef int (*xml_in_cb_t) (rexmpp_t *s, xmlNodePtr node);
-typedef int (*xml_out_cb_t) (rexmpp_t *s, xmlNodePtr node);
-typedef void (*roster_modify_cb_t) (rexmpp_t *s, xmlNodePtr item);
+typedef int (*xml_in_cb_t) (rexmpp_t *s, rexmpp_xml_t *node);
+typedef int (*xml_out_cb_t) (rexmpp_t *s, rexmpp_xml_t *node);
+typedef void (*roster_modify_cb_t) (rexmpp_t *s, rexmpp_xml_t *item);
 typedef int (*console_print_cb_t) (rexmpp_t *s, const char *format, va_list args);
 
 /** @brief Complete connection state */
@@ -298,23 +299,23 @@ struct rexmpp
 
   /* Stream-related state. */
   struct rexmpp_jid assigned_jid;
-  xmlNodePtr stream_features;
-  xmlNodePtr roster_items;
+  rexmpp_xml_t *stream_features;
+  rexmpp_xml_t *roster_items;
   char *roster_ver;
-  xmlNodePtr roster_presence;
-  xmlNodePtr roster_events;
+  rexmpp_xml_t *roster_presence;
+  rexmpp_xml_t *roster_events;
 
   /* Other dynamic data. */
-  xmlNodePtr disco_info;
+  rexmpp_xml_t *disco_info;
   /* Includes Jingle RTP session candidates; rexmpp prioritizes the
      ones listed earlier on incoming calls. */
-  xmlNodePtr jingle_rtp_description;
+  rexmpp_xml_t *jingle_rtp_description;
 
   /* IQs we're waiting for responses to. */
   rexmpp_iq_t *active_iq;
 
   /* Cached IQ requests and responses. */
-  xmlNodePtr iq_cache;
+  rexmpp_xml_t *iq_cache;
 
   /* Jingle context. */
   rexmpp_jingle_ctx_t jingle;
@@ -323,7 +324,7 @@ struct rexmpp
   unsigned int reconnect_number;
   time_t reconnect_seconds;
   struct timespec next_reconnect_time;
-  xmlNodePtr stanza_queue;
+  rexmpp_xml_t *stanza_queue;
   uint32_t stanzas_out_count;
   uint32_t stanzas_out_acknowledged;
   uint32_t stanzas_in_count;
@@ -365,7 +366,7 @@ struct rexmpp
   ssize_t send_buffer_sent;
 
   /* A queue of XML elements to send. */
-  xmlNodePtr send_queue;
+  rexmpp_xml_t *send_queue;
 
   /* XML parser context, and current element pointer for building
      XML nodes with a SAX2 parser interface. */
@@ -431,7 +432,7 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s);
    @param[in] node An XML element to send. The library assumes
    ownership of the element, so it must not be freed by the caller.
 */
-rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node);
+rexmpp_err_t rexmpp_send (rexmpp_t *s, rexmpp_xml_t *node);
 
 /**
    @brief Prepare and send a new info/query request.
@@ -450,7 +451,7 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node);
 rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
                             const char *type,
                             const char *to,
-                            xmlNodePtr payload,
+                            rexmpp_xml_t *payload,
                             rexmpp_iq_callback_t cb,
                             void *cb_data);
 
@@ -462,7 +463,7 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
 rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
                                    const char *type,
                                    const char *to,
-                                   xmlNodePtr payload,
+                                   rexmpp_xml_t *payload,
                                    rexmpp_iq_callback_t cb,
                                    void *cb_data,
                                    int fresh);
@@ -471,9 +472,9 @@ rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
    @brief Reply to an IQ.
 */
 void rexmpp_iq_reply (rexmpp_t *s,
-                      xmlNodePtr req,
+                      rexmpp_xml_t *req,
                       const char *type,
-                      xmlNodePtr payload);
+                      rexmpp_xml_t *payload);
 
 /**
    @brief Determines the maximum time to wait before the next
@@ -502,35 +503,6 @@ struct timespec *rexmpp_timeout (rexmpp_t *s,
 int rexmpp_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
 /**
-   @brief Compose an 'error' element.
-*/
-xmlNodePtr rexmpp_xml_error (const char *type, const char *condition);
-
-/**
-   @brief A helper function for XML parsing.
-   @param[in] str A string to parse.
-   @param[in] str_len String length.
-   @returns Parsed XML, or NULL on failure.
-*/
-xmlNodePtr rexmpp_xml_parse (const char *str, int str_len);
-
-/**
-   @brief A helper function for XML serialisation.
-   @param[in] node An XML node.
-   @returns A string (must be freed by the caller).
-*/
-char *rexmpp_xml_serialize (xmlNodePtr node);
-
-/**
-   @brief Adds an "id" attribute to an XML stanza.
-   @param[in,out] s ::rexmpp
-   @param[in] node A pointer to an XML stanza.
-   @returns The same pointer as on input, for more convenient
-   composition.
-*/
-xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node);
-
-/**
    @brief The logging function.
    @param[in] s ::rexmpp
    @param[in] priority A syslog priority.
@@ -548,40 +520,6 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
 */
 char *rexmpp_get_name (rexmpp_t *s, const char *jid_str);
 
-/**
-   @brief Compares two XML elements.
-*/
-int rexmpp_xml_eq (xmlNodePtr n1, xmlNodePtr n2);
-
-/**
-   @brief Matches an XML node against a namespace and an element name.
-   @param[in] node An XML node to match.
-   @param[in] namespace An XML namespace. Can be NULL (matches
-   anything), and it is assumed that the default namespace is
-   "jabber:client" (so if it is "jabber:client" and an element doesn't
-   have a namespace defined, this function counts that as a match).
-   @param[in] name Element name. Can be NULL (matches anything).
-   @returns 1 on a successful match, 0 otherwise.
-*/
-int rexmpp_xml_match (xmlNodePtr node,
-                      const char *namespace,
-                      const char *name);
-
-/**
-   @brief Finds a child element of an XML node, which matches the
-   given namespace and name.
-   @param[in] node The node containing child nodes.
-   @param[in] namespace The namespace to look for.
-   @param[in] name The element name to look for.
-   @returns A pointer to the first matching child node, or NULL if no
-   matching child elements found.
-*/
-xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
-                                  const char *namespace,
-                                  const char *name);
-
-xmlNodePtr rexmpp_xml_new_node (const char *name, const char *namespace);
-
 char *rexmpp_gen_id (rexmpp_t *s);
 
 /**
@@ -593,10 +531,10 @@ char *rexmpp_gen_id (rexmpp_t *s);
    @returns A pointer to the message announcing an event, or NULL on
    failure.
 */
-xmlNodePtr rexmpp_find_event (rexmpp_t *s,
-                              const char *from,
-                              const char *node,
-                              xmlNodePtr *prev_event);
+rexmpp_xml_t *rexmpp_find_event (rexmpp_t *s,
+                                      const char *from,
+                                      const char *node,
+                                      rexmpp_xml_t **prev_event);
 
 void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len);
 

@@ -13,6 +13,7 @@
 #include <gsasl.h>
 #include <time.h>
 #include <rexmpp.h>
+#include <rexmpp_xml.h>
 #include <rexmpp_sasl.h>
 
 int log_level = 8;
@@ -66,7 +67,7 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
 }
 
 /* An XML in callback, printing what was received. */
-int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
+int my_xml_in_cb (rexmpp_t *s, rexmpp_xml_t *node) {
   char *xml_buf = rexmpp_xml_serialize(node);
   printf("recv: %s\n", xml_buf);
   free(xml_buf);
@@ -74,7 +75,7 @@ int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
 }
 
 /* An XML out callback, printing what is about to be sent. */
-int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
+int my_xml_out_cb (rexmpp_t *s, rexmpp_xml_t *node) {
   char *xml_buf = rexmpp_xml_serialize(node);
   printf("send: %s\n", xml_buf);
   free(xml_buf);
@@ -178,9 +179,11 @@ int main (int argc, char **argv) {
             /* Raw XML input. */
             xmlDocPtr doc = xmlReadMemory(input, input_len, "", "utf-8", 0);
             if (doc != NULL) {
-              xmlNodePtr node = xmlDocGetRootElement(doc);
-              if (node != NULL) {
-                xmlUnlinkNode(node);
+              xmlNodePtr node_libxml2 = xmlDocGetRootElement(doc);
+              if (node_libxml2 != NULL) {
+                xmlUnlinkNode(node_libxml2);
+                rexmpp_xml_t *node = rexmpp_xml_from_libxml2(node_libxml2);
+                xmlFreeNode(node_libxml2);
                 rexmpp_send(&s, node);
               } else {
                 puts("No root node");

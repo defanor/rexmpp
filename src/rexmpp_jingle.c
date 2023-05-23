@@ -43,6 +43,7 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #endif
 
 #include "rexmpp.h"
+#include "rexmpp_xml.h"
 #include "rexmpp_jingle.h"
 #include "rexmpp_base64.h"
 
@@ -71,15 +72,15 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
     free(session->sid);
   }
   if (session->initiate != NULL) {
-    xmlFreeNodeList(session->initiate);
+    rexmpp_xml_free_list(session->initiate);
   }
   if (session->accept != NULL) {
-    xmlFreeNodeList(session->accept);
+    rexmpp_xml_free_list(session->accept);
   }
   if (session->ibb_fh != NULL) {
     fclose(session->ibb_fh);
   }
-  #ifdef ENABLE_CALLS
+#ifdef ENABLE_CALLS
   if (session->type == REXMPP_JINGLE_SESSION_MEDIA) {
     int i;
     for (i = 0; i < 2; i++) {
@@ -126,7 +127,7 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
       session->turn_password = NULL;
     }
   }
-  #endif
+#endif
   free(session);
 }
 
@@ -267,8 +268,8 @@ void rexmpp_jingle_stop (rexmpp_t *s) {
 
 void rexmpp_jingle_accept_file_cb (rexmpp_t *s,
                                    void *ptr,
-                                   xmlNodePtr request,
-                                   xmlNodePtr response,
+                                   rexmpp_xml_t *request,
+                                   rexmpp_xml_t *response,
                                    int success)
 {
   (void)request;
@@ -292,15 +293,16 @@ rexmpp_jingle_accept_file (rexmpp_t *s,
                path, strerror(errno));
     return REXMPP_E_OTHER;
   }
-  xmlNodePtr jingle = session->initiate;
-  xmlNodePtr content = rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
+  rexmpp_xml_t *jingle = session->initiate;
+  rexmpp_xml_t *content = rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
 
-  xmlNodePtr new_jingle = rexmpp_xml_new_node("jingle", "urn:xmpp:jingle:1");
-  xmlNewProp(new_jingle, "action", "session-accept");
-  xmlNewProp(new_jingle, "responder", s->assigned_jid.full);
-  xmlNewProp(new_jingle, "sid", session->sid);
-  xmlAddChild(new_jingle, xmlCopyNode(content, 1));
-  session->accept = xmlCopyNode(new_jingle, 1);
+  rexmpp_xml_t *new_jingle =
+    rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(new_jingle, "action", "session-accept");
+  rexmpp_xml_add_attr(new_jingle, "responder", s->assigned_jid.full);
+  rexmpp_xml_add_attr(new_jingle, "sid", session->sid);
+  rexmpp_xml_add_child(new_jingle, rexmpp_xml_clone(content));
+  session->accept = rexmpp_xml_clone(new_jingle);
   return rexmpp_iq_new(s, "set", session->jid, new_jingle,
                        rexmpp_jingle_accept_file_cb, strdup(session->sid));
 }
@@ -319,8 +321,8 @@ rexmpp_jingle_accept_file_by_id (rexmpp_t *s,
 
 void rexmpp_jingle_session_terminate_cb (rexmpp_t *s,
                                          void *ptr,
-                                         xmlNodePtr request,
-                                         xmlNodePtr response,
+                                         rexmpp_xml_t *request,
+                                         rexmpp_xml_t *response,
                                          int success)
 {
   (void)request;
@@ -336,24 +338,27 @@ void rexmpp_jingle_session_terminate_cb (rexmpp_t *s,
 rexmpp_err_t
 rexmpp_jingle_session_terminate (rexmpp_t *s,
                                  const char *sid,
-                                 xmlNodePtr reason_node,
+                                 rexmpp_xml_t *reason_node,
                                  const char *reason_text)
 {
   rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_id(s, sid);
   if (session == NULL) {
     return REXMPP_E_OTHER;
   }
-  xmlNodePtr jingle = rexmpp_xml_new_node("jingle", "urn:xmpp:jingle:1");
-  xmlNewProp(jingle, "action", "session-terminate");
-  xmlNewProp(jingle, "sid", sid);
-  xmlNodePtr reason = rexmpp_xml_new_node("reason", "urn:xmpp:jingle:1");
+  rexmpp_xml_t *jingle =
+    rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(jingle, "action", "session-terminate");
+  rexmpp_xml_add_attr(jingle, "sid", sid);
+  rexmpp_xml_t *reason =
+    rexmpp_xml_new_elem("reason", "urn:xmpp:jingle:1");
   if (reason_text != NULL) {
-    xmlNodePtr text = rexmpp_xml_new_node("text", "urn:xmpp:jingle:1");
-    xmlNodeAddContent(text, reason_text);
-    xmlAddChild(reason, text);
+    rexmpp_xml_t *text =
+      rexmpp_xml_new_elem("text", "urn:xmpp:jingle:1");
+    rexmpp_xml_add_text(text, reason_text);
+    rexmpp_xml_add_child(reason, text);
   }
-  xmlAddChild(reason, reason_node);
-  xmlAddChild(jingle, reason);
+  rexmpp_xml_add_child(reason, reason_node);
+  rexmpp_xml_add_child(jingle, reason);
   rexmpp_err_t ret = rexmpp_iq_new(s, "set", session->jid, jingle,
                                    rexmpp_jingle_session_terminate_cb,
                                    strdup(sid));
@@ -363,8 +368,8 @@ rexmpp_jingle_session_terminate (rexmpp_t *s,
 
 void rexmpp_jingle_send_file_cb (rexmpp_t *s,
                                  void *ptr,
-                                 xmlNodePtr request,
-                                 xmlNodePtr response,
+                                 rexmpp_xml_t *request,
+                                 rexmpp_xml_t *response,
                                  int success)
 {
   (void)request;
@@ -416,31 +421,33 @@ rexmpp_jingle_send_file (rexmpp_t *s,
   char *sid = rexmpp_gen_id(s);
   char *ibb_sid = rexmpp_gen_id(s);
 
-  xmlNodePtr jingle = rexmpp_xml_new_node("jingle", "urn:xmpp:jingle:1");
-  xmlNewProp(jingle, "action", "session-initiate");
-  xmlNewProp(jingle, "sid", sid);
-  xmlNewProp(jingle, "initiator", s->assigned_jid.full);
+  rexmpp_xml_t *jingle =
+    rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(jingle, "action", "session-initiate");
+  rexmpp_xml_add_attr(jingle, "sid", sid);
+  rexmpp_xml_add_attr(jingle, "initiator", s->assigned_jid.full);
 
-  xmlNodePtr content = rexmpp_xml_new_node("content", "urn:xmpp:jingle:1");
-  xmlNewProp(content, "creator", "initiator");
-  xmlNewProp(content, "name", "IBB file");
-  xmlAddChild(jingle, content);
+  rexmpp_xml_t *content =
+    rexmpp_xml_new_elem("content", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(content, "creator", "initiator");
+  rexmpp_xml_add_attr(content, "name", "IBB file");
+  rexmpp_xml_add_child(jingle, content);
 
-  xmlNodePtr transport =
-    rexmpp_xml_new_node("transport", "urn:xmpp:jingle:transports:ibb:1");
-  xmlNewProp(transport, "block-size", "4096");
-  xmlNewProp(transport, "sid", ibb_sid);
-  xmlAddChild(content, transport);
-  xmlNodePtr description =
-    rexmpp_xml_new_node("description", "urn:xmpp:jingle:apps:file-transfer:5");
-    xmlAddChild(content, description);
-  xmlNodePtr file =
-    rexmpp_xml_new_node("file", "urn:xmpp:jingle:apps:file-transfer:5");
-  xmlAddChild(description, file);
-  xmlNodePtr file_name =
-    rexmpp_xml_new_node("name", "urn:xmpp:jingle:apps:file-transfer:5");
-  xmlNodeAddContent(file_name, basename(path));
-  xmlAddChild(file, file_name);
+  rexmpp_xml_t *transport =
+    rexmpp_xml_new_elem("transport", "urn:xmpp:jingle:transports:ibb:1");
+  rexmpp_xml_add_attr(transport, "block-size", "4096");
+  rexmpp_xml_add_attr(transport, "sid", ibb_sid);
+  rexmpp_xml_add_child(content, transport);
+  rexmpp_xml_t *description =
+    rexmpp_xml_new_elem("description", "urn:xmpp:jingle:apps:file-transfer:5");
+  rexmpp_xml_add_child(content, description);
+  rexmpp_xml_t *file =
+    rexmpp_xml_new_elem("file", "urn:xmpp:jingle:apps:file-transfer:5");
+  rexmpp_xml_add_child(description, file);
+  rexmpp_xml_t *file_name =
+    rexmpp_xml_new_elem("name", "urn:xmpp:jingle:apps:file-transfer:5");
+  rexmpp_xml_add_text(file_name, basename(path));
+  rexmpp_xml_add_child(file, file_name);
 
   char *hash_base64 = NULL;
   size_t hash_base64_len = 0;
@@ -448,11 +455,12 @@ rexmpp_jingle_send_file (rexmpp_t *s,
                    gcry_md_get_algo_dlen(GCRY_MD_SHA256),
                    &hash_base64,
                    &hash_base64_len);
-  xmlNodePtr file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
-  xmlNewProp(file_hash, "algo", "sha-256");
-  xmlNodeAddContent(file_hash, hash_base64);
+  rexmpp_xml_t *file_hash =
+    rexmpp_xml_new_elem("hash", "urn:xmpp:hashes:2");
+  rexmpp_xml_add_attr(file_hash, "algo", "sha-256");
+  rexmpp_xml_add_text(file_hash, hash_base64);
   free(hash_base64);
-  xmlAddChild(file, file_hash);
+  rexmpp_xml_add_child(file, file_hash);
 
   hash_base64 = NULL;
   hash_base64_len = 0;
@@ -460,26 +468,26 @@ rexmpp_jingle_send_file (rexmpp_t *s,
                    gcry_md_get_algo_dlen(GCRY_MD_SHA3_256),
                    &hash_base64,
                    &hash_base64_len);
-  file_hash = rexmpp_xml_new_node("hash", "urn:xmpp:hashes:2");
-  xmlNewProp(file_hash, "algo", "sha3-256");
-  xmlNodeAddContent(file_hash, hash_base64);
+  file_hash = rexmpp_xml_new_elem("hash", "urn:xmpp:hashes:2");
+  rexmpp_xml_add_attr(file_hash, "algo", "sha3-256");
+  rexmpp_xml_add_text(file_hash, hash_base64);
   free(hash_base64);
-  xmlAddChild(file, file_hash);
+  rexmpp_xml_add_child(file, file_hash);
 
   gcry_md_close(hd);
 
   long fsize = ftell(fh);
   fseek(fh, 0, SEEK_SET);
   snprintf(buf, 11, "%ld", fsize);
-  xmlNodePtr file_size =
-    rexmpp_xml_new_node("size", "urn:xmpp:jingle:apps:file-transfer:5");
-  xmlNodeAddContent(file_size, buf);
-  xmlAddChild(file, file_size);
+  rexmpp_xml_t *file_size =
+    rexmpp_xml_new_elem("size", "urn:xmpp:jingle:apps:file-transfer:5");
+  rexmpp_xml_add_text(file_size, buf);
+  rexmpp_xml_add_child(file, file_size);
 
   rexmpp_jingle_session_t *sess =
     rexmpp_jingle_session_create(s, strdup(jid), sid, REXMPP_JINGLE_SESSION_FILE, 1);
   if (sess != NULL) {
-    sess->initiate = xmlCopyNode(jingle, 1);
+    sess->initiate = rexmpp_xml_clone(jingle);
     sess->ibb_sid = ibb_sid;
     sess->ibb_fh = fh;
     return rexmpp_iq_new(s, "set", sess->jid, jingle,
@@ -492,8 +500,8 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
 void rexmpp_jingle_ibb_close_cb (rexmpp_t *s,
                                  void *ptr,
-                                 xmlNodePtr request,
-                                 xmlNodePtr response,
+                                 rexmpp_xml_t *request,
+                                 rexmpp_xml_t *response,
                                  int success)
 {
   (void)request;
@@ -509,8 +517,8 @@ void rexmpp_jingle_ibb_close_cb (rexmpp_t *s,
 
 void rexmpp_jingle_ibb_send_cb (rexmpp_t *s,
                                 void *ptr,
-                                xmlNodePtr request,
-                                xmlNodePtr response,
+                                rexmpp_xml_t *request,
+                                rexmpp_xml_t *response,
                                 int success)
 {
   (void)request;
@@ -529,8 +537,9 @@ void rexmpp_jingle_ibb_send_cb (rexmpp_t *s,
     return;
   }
   if (feof(session->ibb_fh)) {
-    xmlNodePtr close = rexmpp_xml_new_node("close", "http://jabber.org/protocol/ibb");
-    xmlNewProp(close, "sid", session->ibb_sid);
+    rexmpp_xml_t *close =
+      rexmpp_xml_new_elem("close", "http://jabber.org/protocol/ibb");
+    rexmpp_xml_add_attr(close, "sid", session->ibb_sid);
     rexmpp_iq_new(s, "set", session->jid, close,
                   rexmpp_jingle_ibb_close_cb, sid);
     return;
@@ -538,15 +547,16 @@ void rexmpp_jingle_ibb_send_cb (rexmpp_t *s,
     char buf[4096];
     size_t len = fread(buf, 1, 4096, session->ibb_fh);
     if (len > 0) {
-      xmlNodePtr data = rexmpp_xml_new_node("data", "http://jabber.org/protocol/ibb");
-      xmlNewProp(data, "sid", session->ibb_sid);
+      rexmpp_xml_t *data =
+        rexmpp_xml_new_elem("data", "http://jabber.org/protocol/ibb");
+      rexmpp_xml_add_attr(data, "sid", session->ibb_sid);
       char *out = NULL;
       size_t out_len = 0;
       rexmpp_base64_to(buf, len, &out, &out_len);
-      xmlNodeAddContent(data, out);
+      rexmpp_xml_add_text(data, out);
       free(out);
       snprintf(buf, 11, "%u", session->ibb_seq);
-      xmlNewProp(data, "seq", buf);
+      rexmpp_xml_add_attr(data, "seq", buf);
       session->ibb_seq++;
       rexmpp_iq_new(s, "set", session->jid, data,
                     rexmpp_jingle_ibb_send_cb, sid);
@@ -554,7 +564,7 @@ void rexmpp_jingle_ibb_send_cb (rexmpp_t *s,
     } else {
       rexmpp_log(s, LOG_ERR, "Failed to read from a file: %s ", strerror(errno));
       rexmpp_jingle_session_terminate(s, sid,
-                                      rexmpp_xml_new_node("media-error",
+                                      rexmpp_xml_new_elem("media-error",
                                                           "urn:xmpp:jingle:1"),
                                       "File reading error");
     }
@@ -565,8 +575,8 @@ void rexmpp_jingle_ibb_send_cb (rexmpp_t *s,
 #ifdef ENABLE_CALLS
 void rexmpp_jingle_call_cb (rexmpp_t *s,
                             void *ptr,
-                            xmlNodePtr request,
-                            xmlNodePtr response,
+                            rexmpp_xml_t *request,
+                            rexmpp_xml_t *response,
                             int success)
 {
   (void)request;
@@ -581,31 +591,29 @@ void rexmpp_jingle_call_cb (rexmpp_t *s,
 
 void
 rexmpp_jingle_ice_udp_add_remote (rexmpp_jingle_session_t *sess,
-                                  xmlNodePtr transport)
+                                  rexmpp_xml_t *transport)
 {
   if (sess->ice_agent == NULL) {
     /* Must be an incoming call; just add candidates to
        session-initiate's transport. */
-    xmlNodePtr old_transport =
+    rexmpp_xml_t *old_transport =
       rexmpp_xml_find_child(rexmpp_xml_find_child(sess->initiate,
                                                   "urn:xmpp:jingle:1",
                                                   "content"),
                             "urn:xmpp:jingle:transports:ice-udp:1",
                             "transport");
-    xmlNodePtr candidate = xmlFirstElementChild(transport);
+    rexmpp_xml_t *candidate = rexmpp_xml_first_elem_child(transport);
     while (rexmpp_xml_match(candidate, "urn:xmpp:jingle:transports:ice-udp:1",
                             "candidate")) {
-      xmlAddChild(old_transport, xmlCopyNode(candidate, 1));
-      candidate = candidate->next;
+      rexmpp_xml_add_child(old_transport, rexmpp_xml_clone(candidate));
+      candidate = rexmpp_xml_next_elem_sibling(candidate);
     }
     return;
   }
-  char *ufrag = xmlGetProp(transport, "ufrag");
-  char *password = xmlGetProp(transport, "pwd");
+  const char *ufrag = rexmpp_xml_find_attr_val(transport, "ufrag");
+  const char *password = rexmpp_xml_find_attr_val(transport, "pwd");
   nice_agent_set_remote_credentials(sess->ice_agent, sess->ice_stream_id,
                                     ufrag, password);
-  free(ufrag);
-  free(password);
 
   int component_id;
 
@@ -614,12 +622,12 @@ rexmpp_jingle_ice_udp_add_remote (rexmpp_jingle_session_t *sess,
       nice_agent_get_remote_candidates(sess->ice_agent,
                                        sess->ice_stream_id,
                                        component_id);
-    xmlNodePtr candidate = xmlFirstElementChild(transport);
+    rexmpp_xml_t *candidate = rexmpp_xml_first_elem_child(transport);
     while (rexmpp_xml_match(candidate, "urn:xmpp:jingle:transports:ice-udp:1",
                             "candidate")) {
-      char *component = xmlGetProp(candidate, "component");
+      const char *component = rexmpp_xml_find_attr_val(candidate, "component");
       if (component[0] == component_id + '0') {
-        char *type_str = xmlGetProp(candidate, "type");
+        const char *type_str = rexmpp_xml_find_attr_val(candidate, "type");
         int type_n = NICE_CANDIDATE_TYPE_HOST;
         if (strcmp(type_str, "host") == 0) {
           type_n = NICE_CANDIDATE_TYPE_HOST;
@@ -630,38 +638,32 @@ rexmpp_jingle_ice_udp_add_remote (rexmpp_jingle_session_t *sess,
         } else if (strcmp(type_str, "relay") == 0) {
           type_n = NICE_CANDIDATE_TYPE_RELAYED;
         }
-        free(type_str);
         NiceCandidate *c = nice_candidate_new(type_n);
         c->component_id = component_id;
         c->stream_id = sess->ice_stream_id;
 
-        char *foundation = xmlGetProp(candidate, "foundation");
+        const char *foundation = rexmpp_xml_find_attr_val(candidate, "foundation");
         strncpy(c->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION - 1);
         c->foundation[NICE_CANDIDATE_MAX_FOUNDATION - 1] = 0;
-        free(foundation);
 
         c->transport = NICE_CANDIDATE_TRANSPORT_UDP;
 
-        char *priority = xmlGetProp(candidate, "priority");
+        const char *priority = rexmpp_xml_find_attr_val(candidate, "priority");
         c->priority = atoi(priority);
-        free(priority);
 
-        char *ip = xmlGetProp(candidate, "ip");
+        const char *ip = rexmpp_xml_find_attr_val(candidate, "ip");
         if (! nice_address_set_from_string(&c->addr, ip)) {
           rexmpp_log(sess->s, LOG_ERR,
                      "Failed to parse an ICE-UDP candidate's address: %s",
                      ip);
         }
-        free(ip);
 
-        char *port = xmlGetProp(candidate, "port");
+        const char *port = rexmpp_xml_find_attr_val(candidate, "port");
         nice_address_set_port(&c->addr, atoi(port));
-        free(port);
 
         remote_candidates = g_slist_prepend(remote_candidates, c);
       }
-      free(component);
-      candidate = candidate->next;
+      candidate = rexmpp_xml_next_elem_sibling(candidate);
     }
     if (remote_candidates != NULL) {
       nice_agent_set_remote_candidates(sess->ice_agent, sess->ice_stream_id,
@@ -674,7 +676,7 @@ rexmpp_jingle_ice_udp_add_remote (rexmpp_jingle_session_t *sess,
 /* Checks whether we are in the active (client) role for DTLS, based
    on either "session-initiate" or "session-accept" message. */
 int rexmpp_jingle_dtls_is_active (rexmpp_jingle_session_t *sess, int in_initiate) {
-  xmlNodePtr fingerprint =
+  rexmpp_xml_t *fingerprint =
     rexmpp_xml_find_child
     (rexmpp_xml_find_child
      (rexmpp_xml_find_child
@@ -687,7 +689,7 @@ int rexmpp_jingle_dtls_is_active (rexmpp_jingle_session_t *sess, int in_initiate
                in_initiate ? "initiate" : "accept");
     return 0;
   }
-  char *fingerprint_setup = xmlGetProp(fingerprint, "setup");
+  const char *fingerprint_setup = rexmpp_xml_find_attr_val(fingerprint, "setup");
   if (fingerprint_setup == NULL) {
     rexmpp_log(sess->s, LOG_ERR, "No 'setup' attribute for a fingerprint element");
     return 0;
@@ -706,15 +708,14 @@ int rexmpp_jingle_dtls_is_active (rexmpp_jingle_session_t *sess, int in_initiate
       active = (strcmp(fingerprint_setup, "active") == 0);
     }
   }
-  free(fingerprint_setup);
   return active;
 }
 
 
 void rexmpp_transport_info_call_cb (rexmpp_t *s,
                                     void *ptr,
-                                    xmlNodePtr request,
-                                    xmlNodePtr response,
+                                    rexmpp_xml_t *request,
+                                    rexmpp_xml_t *response,
                                     int success)
 {
   (void)request;
@@ -762,90 +763,87 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   }
   gnutls_free(cert_list);
 
-  xmlNodePtr jingle = rexmpp_xml_new_node("jingle", "urn:xmpp:jingle:1");
-  xmlNewProp(jingle, "sid", sess->sid);
+  rexmpp_xml_t *jingle = rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(jingle, "sid", sess->sid);
 
-  xmlNodePtr content = rexmpp_xml_new_node("content", "urn:xmpp:jingle:1");
-  xmlNewProp(content, "creator", "initiator");
-  xmlNewProp(content, "senders", "both");
-  xmlNodePtr description;
+  rexmpp_xml_t *content = rexmpp_xml_new_elem("content", "urn:xmpp:jingle:1");
+  rexmpp_xml_add_attr(content, "creator", "initiator");
+  rexmpp_xml_add_attr(content, "senders", "both");
+  rexmpp_xml_t *description;
   if (sess->initiator) {
-    xmlNewProp(jingle, "action", "session-initiate");
-    xmlNewProp(jingle, "initiator", sess->s->assigned_jid.full);
-    xmlNewProp(content, "name", "call");
+    rexmpp_xml_add_attr(jingle, "action", "session-initiate");
+    rexmpp_xml_add_attr(jingle, "initiator", sess->s->assigned_jid.full);
+    rexmpp_xml_add_attr(content, "name", "call");
 
     /* https://datatracker.ietf.org/doc/html/rfc4568 */
-    xmlNodePtr encryption =
-      rexmpp_xml_new_node("encryption", "urn:xmpp:jingle:apps:rtp:1");
-    xmlNewProp(encryption, "required", "true");
-    xmlAddChild(content, encryption);
-    xmlNodePtr crypto = rexmpp_xml_new_node("crypto", "urn:xmpp:jingle:apps:rtp:1");
-    xmlNewProp(crypto, "crypto-suite", "AES_CM_128_HMAC_SHA1_80");
-    xmlNewProp(crypto, "tag", "1");
-    xmlAddChild(encryption, crypto);
+    rexmpp_xml_t *encryption =
+      rexmpp_xml_new_elem("encryption", "urn:xmpp:jingle:apps:rtp:1");
+    rexmpp_xml_add_attr(encryption, "required", "true");
+    rexmpp_xml_add_child(content, encryption);
+    rexmpp_xml_t *crypto =
+      rexmpp_xml_new_elem("crypto", "urn:xmpp:jingle:apps:rtp:1");
+    rexmpp_xml_add_attr(crypto, "crypto-suite", "AES_CM_128_HMAC_SHA1_80");
+    rexmpp_xml_add_attr(crypto, "tag", "1");
+    rexmpp_xml_add_child(encryption, crypto);
 
-    description = xmlCopyNode(sess->s->jingle_rtp_description, 1);
+    description = rexmpp_xml_clone(sess->s->jingle_rtp_description);
   } else {
-    xmlNodePtr init_jingle = sess->initiate;
-    xmlNodePtr init_content =
+    rexmpp_xml_t *init_jingle = sess->initiate;
+    rexmpp_xml_t *init_content =
       rexmpp_xml_find_child(init_jingle, "urn:xmpp:jingle:1", "content");
-    char *init_content_name = xmlGetProp(init_content, "name");
+    const char *init_content_name = rexmpp_xml_find_attr_val(init_content, "name");
     if (init_content_name != NULL) {
-      xmlNewProp(content, "name", init_content_name);
-      free(init_content_name);
+      rexmpp_xml_add_attr(content, "name", init_content_name);
     } else {
       rexmpp_log(sess->s, LOG_ERR,
                  "Empty content name for Jingle session %s with %s",
                  sess->sid, sess->jid);
     }
-    xmlNewProp(jingle, "action", "session-accept");
-    xmlNewProp(jingle, "initiator", sess->jid);
-    xmlNewProp(jingle, "responder", sess->s->assigned_jid.full);
+    rexmpp_xml_add_attr(jingle, "action", "session-accept");
+    rexmpp_xml_add_attr(jingle, "initiator", sess->jid);
+    rexmpp_xml_add_attr(jingle, "responder", sess->s->assigned_jid.full);
 
-    description = xmlCopyNode(sess->s->jingle_rtp_description, 2);
+    description = rexmpp_xml_clone(sess->s->jingle_rtp_description);
     /* Find the first matching payload-type and add that */
-    xmlNodePtr pl_type =
-      xmlFirstElementChild(sess->s->jingle_rtp_description);
-    xmlNodePtr selected_pl = NULL;
+    rexmpp_xml_t *pl_type =
+      rexmpp_xml_first_elem_child(sess->s->jingle_rtp_description);
+    rexmpp_xml_t *selected_pl = NULL;
     while (pl_type != NULL && selected_pl == NULL) {
       if (rexmpp_xml_match(pl_type, "urn:xmpp:jingle:apps:rtp:1", "payload-type")) {
-        char *pl_id = xmlGetProp(pl_type, "id");
+        const char *pl_id = rexmpp_xml_find_attr_val(pl_type, "id");
         if (pl_id != NULL) {
           int pl_id_num = atoi(pl_id);
-          xmlNodePtr proposed_pl_type =
-            xmlFirstElementChild
+          rexmpp_xml_t *proposed_pl_type =
+            rexmpp_xml_first_elem_child
             (rexmpp_xml_find_child
              (rexmpp_xml_find_child(sess->initiate,
                                     "urn:xmpp:jingle:1", "content"),
               "urn:xmpp:jingle:apps:rtp:1", "description"));
           while (proposed_pl_type != NULL && selected_pl == NULL) {
             if (rexmpp_xml_match(proposed_pl_type, "urn:xmpp:jingle:apps:rtp:1", "payload-type")) {
-              char *proposed_pl_id = xmlGetProp(proposed_pl_type, "id");
+              const char *proposed_pl_id = rexmpp_xml_find_attr_val(proposed_pl_type, "id");
               if (proposed_pl_id != NULL) {
                 int proposed_pl_id_num = atoi(proposed_pl_id);
                 if (pl_id_num < 96 && pl_id_num == proposed_pl_id_num) {
                   selected_pl = pl_type;
                 } else {
-                  char *pl_name = xmlGetProp(pl_type, "name");
+                  const char *pl_name = rexmpp_xml_find_attr_val(pl_type, "name");
                   if (pl_name != NULL) {
-                    char *proposed_pl_name = xmlGetProp(proposed_pl_type, "name");
+                    const char *proposed_pl_name =
+                      rexmpp_xml_find_attr_val(proposed_pl_type, "name");
                     if (proposed_pl_name != NULL) {
                       if (strcmp(pl_name, proposed_pl_name) == 0) {
                         /* todo: compare clock rates, numbers of
                            channels, parameters */
                         selected_pl = pl_type;
                       }
-                      free(proposed_pl_name);
                     }
-                    free(pl_name);
                   }
                 }
-                free(proposed_pl_id);
               }
             }
-            proposed_pl_type = proposed_pl_type->next;
+            proposed_pl_type = rexmpp_xml_next_elem_sibling(proposed_pl_type);
           }
-          free(pl_id);
         } else {
           rexmpp_log(sess->s, LOG_ERR,
                      "No 'id' specified for a pyaload-type element.");
@@ -854,7 +852,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
       pl_type = pl_type->next;
     }
     if (selected_pl != NULL) {
-      xmlAddChild(description, xmlCopyNode(selected_pl, 1));
+      rexmpp_xml_add_child(description, rexmpp_xml_clone(selected_pl));
     } else {
       rexmpp_log(sess->s, LOG_ERR, "No suitable payload type found");
       /* todo: fail if it's NULL, though it shouldn't happen, since
@@ -862,69 +860,70 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
     }
   }
 
-  xmlAddChild(jingle, content);
-  xmlAddChild(content, description);
+  rexmpp_xml_add_child(jingle, content);
+  rexmpp_xml_add_child(content, description);
 
   if (sess->rtcp_mux) {
-    xmlNodePtr rtcp_mux =
-      rexmpp_xml_new_node("rtcp-mux", "urn:xmpp:jingle:apps:rtp:1");
-    xmlAddChild(description, rtcp_mux);
+    rexmpp_xml_t *rtcp_mux =
+      rexmpp_xml_new_elem("rtcp-mux", "urn:xmpp:jingle:apps:rtp:1");
+    rexmpp_xml_add_child(description, rtcp_mux);
   }
 
-  xmlNodePtr transport =
-    rexmpp_xml_new_node("transport", "urn:xmpp:jingle:transports:ice-udp:1");
+  rexmpp_xml_t *transport =
+    rexmpp_xml_new_elem("transport", "urn:xmpp:jingle:transports:ice-udp:1");
   gchar *ufrag = NULL;
   gchar *password = NULL;
   nice_agent_get_local_credentials(agent, stream_id, &ufrag, &password);
-  xmlNewProp(transport, "ufrag", ufrag);
-  xmlNewProp(transport, "pwd", password);
+  rexmpp_xml_add_attr(transport, "ufrag", ufrag);
+  rexmpp_xml_add_attr(transport, "pwd", password);
   g_free(ufrag);
   g_free(password);
-  xmlAddChild(content, transport);
+  rexmpp_xml_add_child(content, transport);
   int component_id;
-  xmlNodePtr postponed_candidates = NULL;
+  rexmpp_xml_t *postponed_candidates = NULL;
   for (component_id = 1; component_id <= (sess->rtcp_mux ? 1 : 2); component_id++) {
     GSList *candidates = nice_agent_get_local_candidates(agent, stream_id, component_id);
     GSList *cand_cur = candidates;
     int cand_num = 0;
     while (cand_cur != NULL) {
-      xmlNodePtr candidate =
-        rexmpp_xml_new_node("candidate", "urn:xmpp:jingle:transports:ice-udp:1");
+      rexmpp_xml_t *candidate =
+        rexmpp_xml_new_elem("candidate", "urn:xmpp:jingle:transports:ice-udp:1");
       char buf[INET6_ADDRSTRLEN];
       NiceCandidate *c = (NiceCandidate *)cand_cur->data;
       snprintf(buf, 11, "%u", component_id);
-      xmlNewProp(candidate, "component", buf);
-      xmlNewProp(candidate, "foundation", c->foundation);
-      xmlNewProp(candidate, "generation", "0");
+      rexmpp_xml_add_attr(candidate, "component", buf);
+      rexmpp_xml_add_attr(candidate, "foundation", c->foundation);
+      rexmpp_xml_add_attr(candidate, "generation", "0");
       char *cid = rexmpp_gen_id(sess->s);
-      xmlNewProp(candidate, "id", cid);
+      rexmpp_xml_add_attr(candidate, "id", cid);
       free(cid);
       nice_address_to_string(&c->addr, buf);
-      xmlNewProp(candidate, "ip", buf);
+      rexmpp_xml_add_attr(candidate, "ip", buf);
       snprintf(buf, 11, "%u", nice_address_get_port(&c->addr));
-      xmlNewProp(candidate, "port", buf);
-      xmlNewProp(candidate, "network", "0");
-      xmlNewProp(candidate, "protocol", "udp");
+      rexmpp_xml_add_attr(candidate, "port", buf);
+      rexmpp_xml_add_attr(candidate, "network", "0");
+      rexmpp_xml_add_attr(candidate, "protocol", "udp");
       snprintf(buf, 11, "%u", c->priority);
-      xmlNewProp(candidate, "priority", buf);
+      rexmpp_xml_add_attr(candidate, "priority", buf);
       char *nice_type[] = {"host", "srflx", "prflx", "relay"};
       if (c->type < 4) {
-        xmlNewProp(candidate, "type", nice_type[c->type]);
+        rexmpp_xml_add_attr(candidate, "type", nice_type[c->type]);
       }
       /* Can't send too many candidates, since stanza sizes are usually
-       limited, and then it breaks the stream. Limiting to 10 per
-       component, sending the rest later, via transport-info. */
+         limited, and then it breaks the stream. Limiting to 10 per
+         component, sending the rest later, via transport-info. */
       if (cand_num < 10) {
-        xmlAddChild(transport, candidate);
+        rexmpp_xml_add_child(transport, candidate);
       } else {
-        xmlNodePtr jingle_ti = rexmpp_xml_new_node("jingle", "urn:xmpp:jingle:1");
-        xmlNewProp(jingle_ti, "sid", sess->sid);
-        xmlNewProp(jingle_ti, "action", "transport-info");
-        xmlNodePtr content_copy = xmlCopyNode(content, 2);
-        xmlNodePtr transport_copy = xmlCopyNode(transport, 2);
-        xmlAddChild(jingle_ti, content_copy);
-        xmlAddChild(content_copy, transport_copy);
-        xmlAddChild(transport_copy, candidate);
+        rexmpp_xml_t *jingle_ti =
+          rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
+        rexmpp_xml_add_attr(jingle_ti, "sid", sess->sid);
+        rexmpp_xml_add_attr(jingle_ti, "action", "transport-info");
+        rexmpp_xml_t *content_copy = rexmpp_xml_clone(content);
+        rexmpp_xml_t *transport_copy = rexmpp_xml_clone(transport);
+        rexmpp_xml_add_child(jingle_ti, content_copy);
+        rexmpp_xml_add_child(content_copy, transport_copy);
+        rexmpp_xml_add_child(transport_copy, candidate);
         jingle_ti->next = postponed_candidates;
         postponed_candidates = jingle_ti;
       }
@@ -936,24 +935,24 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
     }
   }
 
-  xmlNodePtr fingerprint =
-    rexmpp_xml_new_node("fingerprint", "urn:xmpp:jingle:apps:dtls:0");
-  xmlNewProp(fingerprint, "hash", "sha-256");
+  rexmpp_xml_t *fingerprint =
+    rexmpp_xml_new_elem("fingerprint", "urn:xmpp:jingle:apps:dtls:0");
+  rexmpp_xml_add_attr(fingerprint, "hash", "sha-256");
   if (sess->initiator) {
-    xmlNewProp(fingerprint, "setup", "actpass");
+    rexmpp_xml_add_attr(fingerprint, "setup", "actpass");
   } else if (rexmpp_jingle_dtls_is_active(sess, 1)) {
-    xmlNewProp(fingerprint, "setup", "active");
+    rexmpp_xml_add_attr(fingerprint, "setup", "active");
   } else {
-    xmlNewProp(fingerprint, "setup", "passive");
+    rexmpp_xml_add_attr(fingerprint, "setup", "passive");
   }
 
-  xmlNodeAddContent(fingerprint, fp_str);
-  xmlAddChild(transport, fingerprint);
+  rexmpp_xml_add_text(fingerprint, fp_str);
+  rexmpp_xml_add_child(transport, fingerprint);
 
   if (sess->initiator) {
-    sess->initiate = xmlCopyNode(jingle, 1);
+    sess->initiate = rexmpp_xml_clone(jingle);
   } else {
-    sess->accept = xmlCopyNode(jingle, 1);
+    sess->accept = rexmpp_xml_clone(jingle);
   }
 
   rexmpp_iq_new(sess->s, "set", sess->jid, jingle,
@@ -962,7 +961,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   /* Now send transport-info messages with candidates that didn't fit
      initially. */
   while (postponed_candidates != NULL) {
-    xmlNodePtr pc_next = postponed_candidates->next;
+    rexmpp_xml_t *pc_next = postponed_candidates->next;
     postponed_candidates->next = NULL;
     rexmpp_iq_new(sess->s, "set", sess->jid, postponed_candidates,
                   rexmpp_transport_info_call_cb, strdup(sess->sid));
@@ -1060,7 +1059,7 @@ rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
     recvfrom(fd, &c, 1, MSG_PEEK,
              (struct sockaddr *) &cli_addr, &cli_addr_size);
   if (ret > 0) {
-      return 1;
+    return 1;
   }
 
   return 0;
@@ -1306,25 +1305,25 @@ void rexmpp_jingle_stun_dns_cb (rexmpp_t *s, void *ptr, rexmpp_dns_result_t *res
 
 void rexmpp_jingle_turn_cb (rexmpp_t *s,
                             void *sess_ptr,
-                            xmlNodePtr req,
-                            xmlNodePtr response,
+                            rexmpp_xml_t *req,
+                            rexmpp_xml_t *response,
                             int success)
 {
   (void)req;
   rexmpp_jingle_session_t *sess = sess_ptr;
   if (success) {
     /* use credentials */
-    xmlNodePtr services = xmlFirstElementChild(response);
+    rexmpp_xml_t *services = rexmpp_xml_first_elem_child(response);
     if (rexmpp_xml_match(services, "urn:xmpp:extdisco:2", "services")) {
-      xmlNodePtr service = xmlFirstElementChild(services);
+      rexmpp_xml_t *service = rexmpp_xml_first_elem_child(services);
       while (service != NULL) {
         if (rexmpp_xml_match(service, "urn:xmpp:extdisco:2", "service")) {
-          char *type = xmlGetProp(service, "type");
-          char *transport = xmlGetProp(service, "transport");
-          char *host = xmlGetProp(service, "host");
-          char *port = xmlGetProp(service, "port");
-          char *username = xmlGetProp(service, "username");
-          char *password = xmlGetProp(service, "password");
+          const char *type = rexmpp_xml_find_attr_val(service, "type");
+          const char *transport = rexmpp_xml_find_attr_val(service, "transport");
+          const char *host = rexmpp_xml_find_attr_val(service, "host");
+          const char *port = rexmpp_xml_find_attr_val(service, "port");
+          const char *username = rexmpp_xml_find_attr_val(service, "username");
+          const char *password = rexmpp_xml_find_attr_val(service, "password");
 
           if (sess->stun_host == NULL &&
               type != NULL && transport != NULL && host != NULL && port != NULL &&
@@ -1344,27 +1343,8 @@ void rexmpp_jingle_turn_cb (rexmpp_t *s,
             sess->turn_password = strdup(password);
             rexmpp_log(s, LOG_DEBUG, "Setting TURN server to %s:%s", host, port);
           }
-
-          if (type != NULL) {
-            free(type);
-          }
-          if (transport != NULL) {
-            free(transport);
-          }
-          if (host != NULL) {
-            free(host);
-          }
-          if (port != NULL) {
-            free(port);
-          }
-          if (username != NULL) {
-            free(username);
-          }
-          if (password != NULL) {
-            free(password);
-          }
         }
-        service = service->next;
+        service = rexmpp_xml_next_elem_sibling(service);
       }
       if (sess->stun_host != NULL) {
         /* Resolve, then resolve STUN host, then connect. */
@@ -1392,24 +1372,23 @@ void rexmpp_jingle_turn_cb (rexmpp_t *s,
 
 void rexmpp_jingle_discover_turn_cb (rexmpp_t *s,
                                      void *sess_ptr,
-                                     xmlNodePtr req,
-                                     xmlNodePtr response,
+                                     rexmpp_xml_t *req,
+                                     rexmpp_xml_t *response,
                                      int success)
 {
   (void)req;
-  char *response_from = xmlGetProp(response, "from");
+  const char *response_from = rexmpp_xml_find_attr_val(response, "from");
   rexmpp_jingle_session_t *sess = sess_ptr;
   if (success) {
-    xmlNodePtr services = rexmpp_xml_new_node("services", "urn:xmpp:extdisco:2");
-    xmlNewProp(services, "type", "turn");
-    rexmpp_iq_new(s, "get", response_from, services, rexmpp_jingle_turn_cb, sess_ptr);
+    rexmpp_xml_t *services =
+      rexmpp_xml_new_elem("services", "urn:xmpp:extdisco:2");
+    rexmpp_xml_add_attr(services, "type", "turn");
+    rexmpp_iq_new(s, "get", response_from, services,
+                  rexmpp_jingle_turn_cb, sess_ptr);
   } else {
     rexmpp_log(s, LOG_DEBUG,
                "No external service discovery, trying to connect without STUN/TURN");
     nice_agent_gather_candidates(sess->ice_agent, sess->ice_stream_id);
-  }
-  if (response_from != NULL) {
-    free(response_from);
   }
 }
 
@@ -1446,11 +1425,11 @@ rexmpp_jingle_call_accept (rexmpp_t *s,
   rexmpp_jingle_ice_agent_init(sess);
   rexmpp_jingle_bind_sockets(sess, rtp_port_in, rtp_port_out);
 
-  xmlNodePtr content =
+  rexmpp_xml_t *content =
     rexmpp_xml_find_child(sess->initiate,
                           "urn:xmpp:jingle:1",
                           "content");
-  xmlNodePtr ice_udp_transport =
+  rexmpp_xml_t * ice_udp_transport =
     rexmpp_xml_find_child(content,
                           "urn:xmpp:jingle:transports:ice-udp:1",
                           "transport");
@@ -1458,7 +1437,7 @@ rexmpp_jingle_call_accept (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "No ICE-UDP transport defined for session %s", sid);
     rexmpp_jingle_session_terminate
       (s, sid,
-       rexmpp_xml_new_node("unsupported-transports", "urn:xmpp:jingle:1"),
+       rexmpp_xml_new_elem("unsupported-transports", "urn:xmpp:jingle:1"),
        "No ICE-UDP transport defined");
     return REXMPP_E_OTHER;
   }
@@ -1495,42 +1474,44 @@ rexmpp_jingle_call_accept (rexmpp_t *s,
 }
 #endif
 
-int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
+int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
   int handled = 0;
   if (! s->enable_jingle) {
     return handled;
   }
-  xmlNodePtr jingle = rexmpp_xml_find_child(elem, "urn:xmpp:jingle:1", "jingle");
+  rexmpp_xml_t *jingle =
+    rexmpp_xml_find_child(elem, "urn:xmpp:jingle:1", "jingle");
   if (jingle != NULL) {
     handled = 1;
-    char *action = xmlGetProp(jingle, "action");
-    char *sid = xmlGetProp(jingle, "sid");
-    char *from_jid = xmlGetProp(elem, "from");
+    const char *action = rexmpp_xml_find_attr_val(jingle, "action");
+    const char *sid = rexmpp_xml_find_attr_val(jingle, "sid");
+    const char *from_jid = rexmpp_xml_find_attr_val(elem, "from");
     if (action != NULL && sid != NULL && from_jid != NULL) {
       if (strcmp(action, "session-initiate") == 0) {
         /* todo: could be more than one content element, handle that */
-        xmlNodePtr content =
+        rexmpp_xml_t *content =
           rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
         if (content == NULL) {
-          rexmpp_iq_reply(s, elem, "error", rexmpp_xml_error("cancel", "bad-request"));
+          rexmpp_iq_reply(s, elem, "error",
+                          rexmpp_xml_error("cancel", "bad-request"));
         } else {
           rexmpp_iq_reply(s, elem, "result", NULL);
 
-          xmlNodePtr file_description =
+          rexmpp_xml_t *file_description =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:apps:file-transfer:5",
                                   "description");
-          xmlNodePtr ibb_transport =
+          rexmpp_xml_t *ibb_transport =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ibb:1",
                                   "transport");
-          xmlNodePtr ice_udp_transport =
+          rexmpp_xml_t *ice_udp_transport =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ice-udp:1",
                                   "transport");
-          xmlNodePtr rtp_description =
+          rexmpp_xml_t *rtp_description =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:apps:rtp:1",
                                   "description");
 
           if (file_description != NULL && ibb_transport != NULL) {
-            char *ibb_sid = xmlGetProp(ibb_transport, "sid");
+            char *ibb_sid = strdup(rexmpp_xml_find_attr_val(ibb_transport, "sid"));
             if (ibb_sid != NULL) {
               rexmpp_log(s, LOG_DEBUG,
                          "Jingle session-initiate from %s, sid %s, ibb sid %s",
@@ -1539,11 +1520,11 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
                 rexmpp_jingle_session_create(s, strdup(from_jid), strdup(sid),
                                              REXMPP_JINGLE_SESSION_FILE, 0);
               if (sess != NULL) {
-                sess->initiate = xmlCopyNode(jingle, 1);
+                sess->initiate = rexmpp_xml_clone(jingle);
                 sess->ibb_sid = ibb_sid;
               } else {
                 rexmpp_jingle_session_terminate(s, sid,
-                                                rexmpp_xml_new_node("failed-transport",
+                                                rexmpp_xml_new_elem("failed-transport",
                                                                     "urn:xmpp:jingle:1"),
                                                 NULL);
               }
@@ -1551,7 +1532,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
               rexmpp_log(s, LOG_ERR, "Jingle IBB transport doesn't have a sid attribute");
               rexmpp_jingle_session_terminate
                 (s, sid,
-                 rexmpp_xml_new_node("unsupported-transports",
+                 rexmpp_xml_new_elem("unsupported-transports",
                                      "urn:xmpp:jingle:1"),
                  NULL);
             }
@@ -1566,19 +1547,19 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
               (rexmpp_xml_find_child(rtp_description,
                                      "urn:xmpp:jingle:apps:rtp:1",
                                      "rtcp-mux") != NULL);
-            sess->initiate = xmlCopyNode(jingle, 1);
+            sess->initiate = rexmpp_xml_clone(jingle);
 #endif
           } else if (file_description == NULL &&
                      rtp_description == NULL) {
             rexmpp_jingle_session_terminate
               (s, sid,
-               rexmpp_xml_new_node("unsupported-applications",
+               rexmpp_xml_new_elem("unsupported-applications",
                                    "urn:xmpp:jingle:1"),
                NULL);
           } else if (ibb_transport == NULL &&
                      ice_udp_transport == NULL) {
             rexmpp_jingle_session_terminate(s, sid,
-                                            rexmpp_xml_new_node("unsupported-transports",
+                                            rexmpp_xml_new_elem("unsupported-transports",
                                                                 "urn:xmpp:jingle:1"),
                                             NULL);
           } else {
@@ -1593,26 +1574,26 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
         rexmpp_iq_reply(s, elem, "result", NULL);
         rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_id(s, sid);
         if (session != NULL) {
-          session->accept = xmlCopyNode(jingle, 1);
-          xmlNodePtr content =
+          session->accept = rexmpp_xml_clone(jingle);
+          rexmpp_xml_t *content =
             rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
-          xmlNodePtr file_description =
+          rexmpp_xml_t *file_description =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:apps:file-transfer:5",
                                   "description");
-          xmlNodePtr ibb_transport =
+          rexmpp_xml_t *ibb_transport =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ibb:1",
                                   "transport");
           if (ibb_transport != NULL && file_description != NULL) {
-            xmlNodePtr open =
-              rexmpp_xml_new_node("open", "http://jabber.org/protocol/ibb");
-            xmlNewProp(open, "sid", session->ibb_sid);
-            xmlNewProp(open, "block-size", "4096");
-            xmlNewProp(open, "stanza", "iq");
+            rexmpp_xml_t *open =
+              rexmpp_xml_new_elem("open", "http://jabber.org/protocol/ibb");
+            rexmpp_xml_add_attr(open, "sid", session->ibb_sid);
+            rexmpp_xml_add_attr(open, "block-size", "4096");
+            rexmpp_xml_add_attr(open, "stanza", "iq");
             rexmpp_iq_new(s, "set", session->jid, open,
                           rexmpp_jingle_ibb_send_cb, strdup(sid));
           } else {
 #ifdef ENABLE_CALLS
-            xmlNodePtr ice_udp_transport =
+            rexmpp_xml_t *ice_udp_transport =
               rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ice-udp:1",
                                     "transport");
             if (ice_udp_transport != NULL) {
@@ -1626,9 +1607,9 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
         rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_id(s, sid);
         if (session != NULL) {
 #ifdef ENABLE_CALLS
-          xmlNodePtr content =
+          rexmpp_xml_t *content =
             rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
-          xmlNodePtr ice_udp_transport =
+          rexmpp_xml_t *ice_udp_transport =
             rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ice-udp:1",
                                   "transport");
           if (ice_udp_transport != NULL) {
@@ -1638,62 +1619,54 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
         }
       } else {
         rexmpp_log(s, LOG_WARNING, "Unknown Jingle action: %s", action);
-        rexmpp_iq_reply(s, elem, "error", rexmpp_xml_error("cancel", "bad-request"));
+        rexmpp_iq_reply(s, elem, "error",
+                        rexmpp_xml_error("cancel", "bad-request"));
       }
     } else {
       rexmpp_log(s, LOG_WARNING, "Received a malformed Jingle element");
-      rexmpp_iq_reply(s, elem, "error", rexmpp_xml_error("cancel", "bad-request"));
-    }
-    if (action != NULL) {
-      free(action);
-    }
-    if (sid != NULL) {
-      free(sid);
-    }
-    if (from_jid != NULL) {
-      free(from_jid);
+      rexmpp_iq_reply(s, elem, "error",
+                      rexmpp_xml_error("cancel", "bad-request"));
     }
   }
 
   /* XEP-0261: Jingle In-Band Bytestreams Transport Method */
-  xmlNodePtr ibb_open =
+  rexmpp_xml_t *ibb_open =
     rexmpp_xml_find_child(elem, "http://jabber.org/protocol/ibb", "open");
   if (ibb_open != NULL) {
     handled = 1;
     /* no-op, though could check sid here. */
     rexmpp_iq_reply(s, elem, "result", NULL);
   }
-  xmlNodePtr ibb_close =
+  rexmpp_xml_t *ibb_close =
     rexmpp_xml_find_child(elem, "http://jabber.org/protocol/ibb", "close");
   if (ibb_close != NULL) {
     handled = 1;
     rexmpp_iq_reply(s, elem, "result", NULL);
-    char *sid = xmlGetProp(ibb_close, "sid");
+    const char *sid = rexmpp_xml_find_attr_val(ibb_close, "sid");
     
     if (sid != NULL) {
       rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_ibb_sid(s, sid);
       if (session != NULL) {
         rexmpp_jingle_session_terminate
           (s, session->sid,
-           rexmpp_xml_new_node("success", "urn:xmpp:jingle:1"), NULL);
+           rexmpp_xml_new_elem("success", "urn:xmpp:jingle:1"), NULL);
       }
-      free(sid);
     }
   }
-  xmlNodePtr ibb_data =
+  rexmpp_xml_t *ibb_data =
     rexmpp_xml_find_child(elem, "http://jabber.org/protocol/ibb", "data");
   if (ibb_data != NULL) {
     handled = 1;
-    char *sid = xmlGetProp(ibb_data, "sid");
+    const char *sid = rexmpp_xml_find_attr_val(ibb_data, "sid");
     if (sid != NULL) {
       rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_ibb_sid(s, sid);
       if (session != NULL && session->ibb_fh != NULL) {
-        char *data = NULL, *data_base64 = xmlNodeGetContent(ibb_data);
+        char *data = NULL;
+        const char *data_base64 = rexmpp_xml_text_child(ibb_data);
         if (data_base64 != NULL) {
           size_t data_len = 0;
           int base64_err = rexmpp_base64_from(data_base64, strlen(data_base64),
-                                            &data, &data_len);
-          free(data_base64);
+                                              &data, &data_len);
           if (base64_err != 0) {
             rexmpp_log(s, LOG_ERR, "Base-64 decoding failure");
           } else {
@@ -1706,7 +1679,6 @@ int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem) {
           }
         }
       }
-      free(sid);
     }
     /* todo: report errors */
     rexmpp_iq_reply(s, elem, "result", NULL);
@@ -1872,13 +1844,13 @@ rexmpp_jingle_run (rexmpp_t *s,
                        cert_list_size);
             rexmpp_jingle_session_terminate
               (s, sess->sid,
-               rexmpp_xml_new_node("security-error", "urn:xmpp:jingle:1"),
+               rexmpp_xml_new_elem("security-error", "urn:xmpp:jingle:1"),
                "Unexpected certificate list size; expected exactly 1.");
           } else {
-            xmlNodePtr jingle = comp->session->initiator
+            rexmpp_xml_t *jingle = comp->session->initiator
               ? comp->session->accept
               : comp->session->initiate;
-            xmlNodePtr fingerprint =
+            rexmpp_xml_t *fingerprint =
               rexmpp_xml_find_child
               (rexmpp_xml_find_child
                (rexmpp_xml_find_child
@@ -1892,16 +1864,16 @@ rexmpp_jingle_run (rexmpp_t *s,
                          "No fingerprint in the peer's Jingle element");
               rexmpp_jingle_session_terminate
                 (s, sess->sid,
-                 rexmpp_xml_new_node("connectivity-error", "urn:xmpp:jingle:1"),
+                 rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
                  "No fingerprint element");
             } else {
-              char *hash_str = xmlGetProp(fingerprint, "hash");
+              const char *hash_str = rexmpp_xml_find_attr_val(fingerprint, "hash");
               if (hash_str == NULL) {
                 rexmpp_log(comp->s, LOG_ERR,
                            "No hash attribute in the peer's fingerprint element");
                 rexmpp_jingle_session_terminate
                   (s, sess->sid,
-                   rexmpp_xml_new_node("connectivity-error", "urn:xmpp:jingle:1"),
+                   rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
                    "No hash attribute in the fingerprint element");
                 break;
               } else {
@@ -1922,13 +1894,12 @@ rexmpp_jingle_run (rexmpp_t *s,
                 } else if (strcmp(hash_str, "md5") == 0) {
                   algo = GNUTLS_DIG_MD5;
                 }
-                free(hash_str);
                 if (algo == GNUTLS_DIG_UNKNOWN) {
                   rexmpp_log(comp->s, LOG_ERR,
                              "Unknown hash algorithm in the peer's fingerprint");
                   rexmpp_jingle_session_terminate
                     (s, sess->sid,
-                     rexmpp_xml_new_node("connectivity-error", "urn:xmpp:jingle:1"),
+                     rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
                      "Unknown hash algorithm for a DTLS certificate fingerprint");
                   break;
                 } else {
@@ -1942,19 +1913,19 @@ rexmpp_jingle_run (rexmpp_t *s,
                   }
                   fp_str[fp_size * 3 - 1] = 0;
 
-                  char *fingerprint_cont = xmlNodeGetContent(fingerprint);
+                  const char *fingerprint_cont =
+                    rexmpp_xml_text_child(fingerprint);
                   /* Fingerprint string should be uppercase, but
                      allowing any case for now, while Dino uses
                      lowercase. */
                   int fingerprint_mismatch = strcasecmp(fingerprint_cont, fp_str);
-                  free(fingerprint_cont);
                   if (fingerprint_mismatch) {
                     rexmpp_log(comp->s, LOG_ERR,
                                "Peer's fingerprint mismatch: expected %s, calculated %s",
                                fingerprint_cont, fp_str);
                     rexmpp_jingle_session_terminate
                       (s, sess->sid,
-                       rexmpp_xml_new_node("security-error", "urn:xmpp:jingle:1"),
+                       rexmpp_xml_new_elem("security-error", "urn:xmpp:jingle:1"),
                        "DTLS certificate fingerprint mismatch");
                     break;
                   } else {
@@ -2019,7 +1990,7 @@ rexmpp_jingle_run (rexmpp_t *s,
           if (comp->component_id == 1) {
             rexmpp_jingle_session_terminate
               (s, sess->sid,
-               rexmpp_xml_new_node("connectivity-error", "urn:xmpp:jingle:1"),
+               rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
                "DTLS connection error");
             break;
           }

@@ -11,7 +11,7 @@ rexmpp_pubsub_iq (rexmpp_t *s,
                   const char *iq_type,
                   const char *pubsub_namespace,
                   const char *service_jid,
-                  xmlNodePtr payload,
+                  rexmpp_xml_t *payload,
                   rexmpp_iq_callback_t callback,
                   void *cb_data);
 
@@ -20,7 +20,7 @@ rexmpp_pubsub_item_publish (rexmpp_t *s,
                             const char *service_jid,
                             const char *node,
                             const char *item_id,
-                            xmlNodePtr payload,
+                            rexmpp_xml_t *payload,
                             rexmpp_iq_callback_t callback,
                             void *cb_data);
 

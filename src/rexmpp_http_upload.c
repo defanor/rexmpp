@@ -18,6 +18,7 @@
 #endif
 
 #include "rexmpp.h"
+#include "rexmpp_xml.h"
 #include "rexmpp_http_upload.h"
 
 
@@ -43,21 +44,21 @@ void rexmpp_upload_task_finish (struct rexmpp_http_upload_task *task) {
 
 void rexmpp_http_upload_slot_cb (rexmpp_t *s,
                                  void *ptr,
-                                 xmlNodePtr request,
-                                 xmlNodePtr response,
+                                 rexmpp_xml_t *request,
+                                 rexmpp_xml_t *response,
                                  int success)
 {
   (void)request;
   struct rexmpp_http_upload_task *task = ptr;
   if (success) {
-    xmlNodePtr slot = rexmpp_xml_find_child(response, "urn:xmpp:http:upload:0", "slot");
-    xmlNodePtr put = rexmpp_xml_find_child(slot, "urn:xmpp:http:upload:0", "put");
-    xmlNodePtr get = rexmpp_xml_find_child(slot, "urn:xmpp:http:upload:0", "get");
+    rexmpp_xml_t *slot = rexmpp_xml_find_child(response, "urn:xmpp:http:upload:0", "slot");
+    rexmpp_xml_t *put = rexmpp_xml_find_child(slot, "urn:xmpp:http:upload:0", "put");
+    rexmpp_xml_t *get = rexmpp_xml_find_child(slot, "urn:xmpp:http:upload:0", "get");
     if (put != NULL && get != NULL) {
-      char *put_url = xmlGetProp(put, "url");
-      char *get_url = xmlGetProp(get, "url");
+      const char *put_url = rexmpp_xml_find_attr_val(put, "url");
+      const char *get_url = rexmpp_xml_find_attr_val(get, "url");
       if (put_url != NULL && get_url != NULL) {
-        task->get_url = get_url;
+        task->get_url = strdup(get_url);
 
         CURL *ce = curl_easy_init();
         curl_easy_setopt(ce, CURLOPT_PRIVATE, task);
@@ -65,11 +66,11 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
         curl_easy_setopt(ce, CURLOPT_READDATA, task->fh);
         curl_easy_setopt(ce, CURLOPT_URL, put_url);
 
-        xmlNodePtr header = xmlFirstElementChild(put);
+        rexmpp_xml_t *header = rexmpp_xml_first_elem_child(put);
         while (header) {
-          char *header_name = xmlGetProp(header, "name");
+          const char *header_name = rexmpp_xml_find_attr_val(header, "name");
           if (header_name != NULL) {
-            char *header_str = xmlNodeGetContent(header);
+            const char *header_str = rexmpp_xml_text_child(header);
             if (header_str != NULL) {
               size_t full_header_str_len = strlen(header_name) + 3 + strlen(header_str);
               char *full_header_str = malloc(full_header_str_len);
@@ -78,11 +79,9 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
               task->http_headers =
                 curl_slist_append(task->http_headers, full_header_str);
               free(full_header_str);
-              free(header_str);
             }
-            free(header_name);
           }
-          header = header->next;
+          header = rexmpp_xml_next_elem_sibling(header);
         }
         curl_easy_setopt(ce, CURLOPT_HTTPHEADER, task->http_headers);
 
@@ -91,12 +90,6 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
         return;
       } else {
         rexmpp_log(s, LOG_ERR, "Unexpected structure for a HTTP file upload slot.");
-        if (get_url != NULL) {
-          free(get_url);
-        }
-      }
-      if (put_url != NULL) {
-        free(put_url);
       }
     } else {
       rexmpp_log(s, LOG_ERR, "Unexpected structure for a HTTP file upload slot.");
@@ -109,8 +102,8 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
 
 void rexmpp_http_upload_feature_cb (rexmpp_t *s,
                                     void *ptr,
-                                    xmlNodePtr request,
-                                    xmlNodePtr response,
+                                    rexmpp_xml_t *request,
+                                    rexmpp_xml_t *response,
                                     int success)
 {
   (void)response;
@@ -120,17 +113,17 @@ void rexmpp_http_upload_feature_cb (rexmpp_t *s,
     rexmpp_upload_task_finish(task);
     return;
   }
-  xmlNodePtr req = rexmpp_xml_new_node("request", "urn:xmpp:http:upload:0");
-  xmlNewProp(req, "filename", task->fname);
+  rexmpp_xml_t *req =
+    rexmpp_xml_new_elem("request", "urn:xmpp:http:upload:0");
+  rexmpp_xml_add_attr(req, "filename", task->fname);
   char buf[11];
   snprintf(buf, 11, "%u", task->fsize);
-  xmlNewProp(req, "size", buf);
+  rexmpp_xml_add_attr(req, "size", buf);
   if (task->content_type) {
-    xmlNewProp(req, "content-type", task->content_type);
+    rexmpp_xml_add_attr(req, "content-type", task->content_type);
   }
-  char *to = xmlGetProp(request, "to");
+  const char *to = rexmpp_xml_find_attr_val(request, "to");
   rexmpp_iq_new(s, "get", to, req, rexmpp_http_upload_slot_cb, task);
-  free(to);
 }
 
 rexmpp_err_t

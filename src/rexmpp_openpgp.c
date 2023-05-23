@@ -47,10 +47,10 @@ Possible future improvements:
 #ifdef HAVE_GPGME
 #include <gpgme.h>
 #endif
-#include <libxml/tree.h>
 #include <gcrypt.h>
 
 #include "rexmpp.h"
+#include "rexmpp_xml.h"
 #include "rexmpp_openpgp.h"
 #include "rexmpp_jid.h"
 #include "rexmpp_pubsub.h"
@@ -61,8 +61,8 @@ Possible future improvements:
 
 void rexmpp_pgp_fp_reply (rexmpp_t *s,
                           void *ptr,
-                          xmlNodePtr req,
-                          xmlNodePtr response,
+                          rexmpp_xml_t *req,
+                          rexmpp_xml_t *response,
                           int success)
 {
   (void)ptr;
@@ -71,33 +71,33 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
     rexmpp_log(s, LOG_WARNING, "Failed to retrieve an OpenpPGP key");
     return;
   }
-  xmlNodePtr pubsub =
+  rexmpp_xml_t *pubsub =
     rexmpp_xml_find_child(response, "http://jabber.org/protocol/pubsub",
                           "pubsub");
   if (pubsub == NULL) {
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: not a pubsub response");
     return;
   }
-  xmlNodePtr items =
-     rexmpp_xml_find_child(pubsub, "http://jabber.org/protocol/pubsub",
-                           "items");
+  rexmpp_xml_t *items =
+    rexmpp_xml_find_child(pubsub, "http://jabber.org/protocol/pubsub",
+                          "items");
   if (items == NULL) {
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: no items in pubsub element");
     return;
   }
-  xmlNodePtr item =
+  rexmpp_xml_t *item =
     rexmpp_xml_find_child(items, "http://jabber.org/protocol/pubsub", "item");
   if (item == NULL) {
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: no item in items");
     return;
   }
-  xmlNodePtr pubkey =
+  rexmpp_xml_t *pubkey =
     rexmpp_xml_find_child(item, "urn:xmpp:openpgp:0", "pubkey");
   if (pubkey == NULL) {
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: no pubkey in item");
     return;
   }
-  xmlNodePtr data =
+  rexmpp_xml_t *data =
     rexmpp_xml_find_child(pubkey, "urn:xmpp:openpgp:0", "data");
   if (data == NULL) {
     rexmpp_log(s, LOG_ERR, "OpenPGP key retrieval: no data in pubkey");
@@ -106,10 +106,9 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
 
   char *key_raw = NULL;
   size_t key_raw_len = 0;
-  char *key_base64 = xmlNodeGetContent(data);
+  const char *key_base64 = rexmpp_xml_text_child(data);
   int base64_err =
     rexmpp_base64_from(key_base64, strlen(key_base64), &key_raw, &key_raw_len);
-  free(key_base64);
   if (base64_err != 0) {
     rexmpp_log(s, LOG_ERR, "Base-64 key decoding failure");
     return;
@@ -140,18 +139,19 @@ void rexmpp_pgp_fp_reply (rexmpp_t *s,
 rexmpp_err_t
 rexmpp_openpgp_check_keys (rexmpp_t *s,
                            const char *jid,
-                           xmlNodePtr items)
+                           rexmpp_xml_t *items)
 {
-  xmlNodePtr item =
+  rexmpp_xml_t *item =
     rexmpp_xml_find_child(items, "http://jabber.org/protocol/pubsub#event",
                           "item");
-  xmlNodePtr list =
-      rexmpp_xml_find_child(item, "urn:xmpp:openpgp:0", "public-keys-list");
-  xmlNodePtr metadata;
-  for (metadata = xmlFirstElementChild(list);
+  rexmpp_xml_t *list =
+    rexmpp_xml_find_child(item, "urn:xmpp:openpgp:0", "public-keys-list");
+  rexmpp_xml_t *metadata;
+  for (metadata = rexmpp_xml_first_elem_child(list);
        metadata != NULL;
-       metadata = xmlNextElementSibling(metadata)) {
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+       metadata = rexmpp_xml_next_elem_sibling(metadata)) {
+    const char *fingerprint =
+      rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
     gpgme_key_t key;
     gpgme_error_t err;
     err = gpgme_get_key(s->pgp_ctx, fingerprint, &key, 0);
@@ -162,97 +162,95 @@ rexmpp_openpgp_check_keys (rexmpp_t *s,
       rexmpp_log(s, LOG_DEBUG,
                  "Unknown OpenPGP key fingerprint for %s: %s",
                  jid, fingerprint);
-      xmlNodePtr fp_req = xmlNewNode(NULL, "pubsub");
-      xmlNewNs(fp_req, "http://jabber.org/protocol/pubsub", NULL);
-      xmlNodePtr fp_req_items = xmlNewNode(NULL, "items");
-      xmlNewProp(fp_req_items, "max_items", "1");
+      rexmpp_xml_t *fp_req =
+        rexmpp_xml_new_elem("pubsub", "http://jabber.org/protocol/pubsub");
+      rexmpp_xml_t *fp_req_items =
+        rexmpp_xml_new_elem("items", NULL);
+      rexmpp_xml_add_attr(fp_req_items, "max_items", "1");
       char key_node[72];
       snprintf(key_node, 72, "urn:xmpp:openpgp:0:public-keys:%s", fingerprint);
-      xmlNewProp(fp_req_items, "node", key_node);
-      xmlAddChild(fp_req, fp_req_items);
+      rexmpp_xml_add_attr(fp_req_items, "node", key_node);
+      rexmpp_xml_add_child(fp_req, fp_req_items);
       rexmpp_iq_new(s, "get", jid, fp_req, rexmpp_pgp_fp_reply, NULL);
     } else if (gpg_err_code(err) != GPG_ERR_NO_ERROR) {
       rexmpp_log(s, LOG_WARNING,
                  "OpenPGP error when looking for a key: %s",
                  gpgme_strerror(err));
     }
-    free(fingerprint);
   }
 
   return REXMPP_SUCCESS;
 }
 
-xmlNodePtr rexmpp_published_fingerprints (rexmpp_t *s, const char *jid) {
-  xmlNodePtr published =
+rexmpp_xml_t *rexmpp_published_fingerprints (rexmpp_t *s, const char *jid) {
+  rexmpp_xml_t *published =
     rexmpp_find_event(s, jid, "urn:xmpp:openpgp:0:public-keys", NULL);
   if (published == NULL) {
     return NULL;
   }
-  xmlNodePtr event =
+  rexmpp_xml_t *event =
     rexmpp_xml_find_child(published, "http://jabber.org/protocol/pubsub#event",
                           "event");
-  xmlNodePtr items =
+  rexmpp_xml_t *items =
     rexmpp_xml_find_child(event, "http://jabber.org/protocol/pubsub#event",
                           "items");
-  xmlNodePtr item =
+  rexmpp_xml_t *item =
     rexmpp_xml_find_child(items, "http://jabber.org/protocol/pubsub#event",
                           "item");
-  xmlNodePtr list =
+  rexmpp_xml_t *list =
     rexmpp_xml_find_child(item, "urn:xmpp:openpgp:0",
                           "public-keys-list");
-  xmlNodePtr published_fps = xmlFirstElementChild(list);
+  rexmpp_xml_t *published_fps = list->alt.elem.children;
   return published_fps;
 }
 
 int rexmpp_openpgp_key_is_published (rexmpp_t *s, const char *fp) {
-  xmlNodePtr metadata;
+  rexmpp_xml_t *metadata;
   for (metadata = rexmpp_published_fingerprints(s, s->assigned_jid.bare);
        metadata != NULL;
-       metadata = xmlNextElementSibling(metadata)) {
+       metadata = metadata->next) {
     if (! rexmpp_xml_match(metadata, "urn:xmpp:openpgp:0", "pubkey-metadata")) {
       continue;
     }
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    const char *fingerprint = rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
     if (fingerprint == NULL) {
       rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
       continue;
     }
-    int matches = (strcmp(fingerprint, fp) == 0);
-    free(fingerprint);
-    if (matches) {
+    if (strcmp(fingerprint, fp) == 0) {
       return 1;
     }
   }
   return 0;
 }
 
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_remove_key_from_list (rexmpp_t *s,
                                      const char *fp)
 {
-  xmlNodePtr fps =
-    xmlCopyNodeList(rexmpp_published_fingerprints(s, s->assigned_jid.bare));
-  xmlNodePtr metadata, prev = NULL;
+  rexmpp_xml_t *fps =
+    rexmpp_xml_clone_list(rexmpp_published_fingerprints(s, s->assigned_jid.bare));
+  rexmpp_xml_t *metadata, *prev = NULL;
   for (metadata = fps;
        metadata != NULL;
-       prev = metadata, metadata = xmlNextElementSibling(metadata)) {
+       prev = metadata, metadata = rexmpp_xml_next_elem_sibling(metadata)) {
     if (! rexmpp_xml_match(metadata, "urn:xmpp:openpgp:0", "pubkey-metadata")) {
       continue;
     }
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+    const char *fingerprint =
+      rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
     if (fingerprint == NULL) {
       rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
       continue;
     }
     int matches = (strcmp(fingerprint, fp) == 0);
-    free(fingerprint);
     if (matches) {
       if (prev != NULL) {
         prev->next = metadata->next;
       } else {
         fps = metadata->next;
       }
-      xmlFreeNode(metadata);
+      rexmpp_xml_free(metadata);
       return fps;
     }
   }
@@ -261,8 +259,8 @@ rexmpp_openpgp_remove_key_from_list (rexmpp_t *s,
 
 void rexmpp_pgp_key_publish_list_iq (rexmpp_t *s,
                                      void *ptr,
-                                     xmlNodePtr req,
-                                     xmlNodePtr response,
+                                     rexmpp_xml_t *req,
+                                     rexmpp_xml_t *response,
                                      int success)
 {
   (void)ptr;
@@ -275,18 +273,18 @@ void rexmpp_pgp_key_publish_list_iq (rexmpp_t *s,
   rexmpp_log(s, LOG_INFO, "Published an OpenpPGP key list");
 }
 
-void rexmpp_pgp_key_fp_list_upload (rexmpp_t *s, xmlNodePtr metadata) {
-  xmlNodePtr keylist = xmlNewNode(NULL, "public-keys-list");
-  xmlNewNs(keylist, "urn:xmpp:openpgp:0", NULL);
-  xmlAddChild(keylist, metadata);
+void rexmpp_pgp_key_fp_list_upload (rexmpp_t *s, rexmpp_xml_t *metadata) {
+  rexmpp_xml_t *keylist =
+    rexmpp_xml_new_elem("public-keys-list", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_child(keylist, metadata);
   rexmpp_pubsub_item_publish(s, NULL, "urn:xmpp:openpgp:0:public-keys",
                              NULL, keylist, rexmpp_pgp_key_publish_list_iq, NULL);
 }
 
 void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
                                void *ptr,
-                               xmlNodePtr req,
-                               xmlNodePtr response,
+                               rexmpp_xml_t *req,
+                               rexmpp_xml_t *response,
                                int success)
 {
   (void)ptr;
@@ -295,18 +293,17 @@ void rexmpp_pgp_key_delete_iq (rexmpp_t *s,
     rexmpp_log(s, LOG_WARNING, "Failed to delete an OpenpPGP key");
     return;
   }
-  xmlNodePtr pubsub = xmlFirstElementChild(req);
-  xmlNodePtr publish = xmlFirstElementChild(pubsub);
-  char *node = xmlGetProp(publish, "node");
-  char *fingerprint = node + 31;
+  rexmpp_xml_t *pubsub = req->alt.elem.children;
+  rexmpp_xml_t *publish = pubsub->alt.elem.children;;
+  const char *node = rexmpp_xml_find_attr_val(publish, "node");
+  const char *fingerprint = node + 31;
   rexmpp_log(s, LOG_INFO, "Removed OpenpPGP key %s", fingerprint);
-  free(node);
 }
 
 void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
                                 void *ptr,
-                                xmlNodePtr req,
-                                xmlNodePtr response,
+                                rexmpp_xml_t *req,
+                                rexmpp_xml_t *response,
                                 int success)
 {
   (void)ptr;
@@ -316,10 +313,10 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
     return;
   }
   rexmpp_log(s, LOG_INFO, "Uploaded an OpenpPGP key");
-  xmlNodePtr pubsub = xmlFirstElementChild(req);
-  xmlNodePtr publish = xmlFirstElementChild(pubsub);
-  char *node = xmlGetProp(publish, "node");
-  char *fingerprint = node + 31;
+  rexmpp_xml_t *pubsub = req->alt.elem.children;
+  rexmpp_xml_t *publish = pubsub->alt.elem.children;;
+  const char *node = rexmpp_xml_find_attr_val(publish, "node");
+  const char *fingerprint = node + 31;
 
   char time_str[42];
   time_t t = time(NULL);
@@ -327,22 +324,20 @@ void rexmpp_pgp_key_publish_iq (rexmpp_t *s,
   gmtime_r(&t, &utc_time);
   strftime(time_str, 42, "%FT%TZ", &utc_time);
 
-  xmlNodePtr metadata = xmlNewNode(NULL, "pubkey-metadata");
-  xmlNewNs(metadata, "urn:xmpp:openpgp:0", NULL);
-  xmlNewProp(metadata, "date", time_str);
-  xmlNewProp(metadata, "v4-fingerprint", fingerprint);
+  rexmpp_xml_t *metadata =
+    rexmpp_xml_new_elem("pubkey-metadata", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_attr(metadata, "date", time_str);
+  rexmpp_xml_add_attr(metadata, "v4-fingerprint", fingerprint);
 
-  free(node);
-
-  xmlNodePtr fps = rexmpp_openpgp_remove_key_from_list(s, fingerprint);
+  rexmpp_xml_t *fps = rexmpp_openpgp_remove_key_from_list(s, fingerprint);
   if (fps != NULL) {
-    metadata->next = xmlCopyNodeList(fps);
+    metadata->next = fps;
   }
   rexmpp_pgp_key_fp_list_upload(s, metadata);
 }
 
 void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
-  xmlNodePtr new_fp_list = rexmpp_openpgp_remove_key_from_list(s, fp);
+  rexmpp_xml_t *new_fp_list = rexmpp_openpgp_remove_key_from_list(s, fp);
   if (new_fp_list != NULL) {
     rexmpp_pgp_key_fp_list_upload(s, new_fp_list);
   }
@@ -382,14 +377,14 @@ rexmpp_err_t rexmpp_openpgp_publish_key (rexmpp_t *s, const char *fp) {
   key_raw = gpgme_data_release_and_get_mem(key_dh, &key_raw_len);
   rexmpp_base64_to(key_raw, key_raw_len, &key_base64, &key_base64_len);
   free(key_raw);
-  xmlNodePtr data = xmlNewNode(NULL, "data");
-  xmlNewNs(data, "urn:xmpp:openpgp:0", NULL);
-  xmlNodeAddContent(data, key_base64);
+  rexmpp_xml_t *data =
+    rexmpp_xml_new_elem("data", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_text(data, key_base64);
   free(key_base64);
 
-  xmlNodePtr pubkey = xmlNewNode(NULL, "pubkey");
-  xmlNewNs(pubkey, "urn:xmpp:openpgp:0", NULL);
-  xmlAddChild(pubkey, data);
+  rexmpp_xml_t *pubkey =
+    rexmpp_xml_new_elem("pubkey", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_child(pubkey, data);
 
   char time_str[42];
   time_t t = time(NULL);
@@ -421,9 +416,9 @@ int rexmpp_openpgp_fingerprint_matches (const char *f1, const char *f2) {
   return 1;
 }
 
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
-                                       xmlNodePtr message,
+                                       rexmpp_xml_t *message,
                                        int *valid)
 {
   gpgme_error_t err;
@@ -433,14 +428,13 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "Not a message element");
     return NULL;
   }
-  char *from_str = xmlGetProp(message, "from");
+  const char *from_str = rexmpp_xml_find_attr_val(message, "from");
   if (from_str == NULL) {
     rexmpp_log(s, LOG_ERR, "No 'from' attribute");
     return NULL;
   }
   rexmpp_jid_parse(from_str, &from);
-  free(from_str);
-  char *to_str = xmlGetProp(message, "to");
+  const char *to_str = rexmpp_xml_find_attr_val(message, "to");
   if (to_str == NULL) {
     if (strcmp(from.bare, s->assigned_jid.bare) != 0) {
       rexmpp_log(s, LOG_ERR, "No 'to' attribute");
@@ -449,18 +443,16 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
     rexmpp_jid_parse(from.full, &to);
   } else {
     rexmpp_jid_parse(to_str, &to);
-    free(to_str);
   }
-  xmlNodePtr openpgp =
+  rexmpp_xml_t *openpgp =
     rexmpp_xml_find_child(message, "urn:xmpp:openpgp:0", "openpgp");
   if (openpgp == NULL) {
     rexmpp_log(s, LOG_ERR, "No 'openpgp' child element");
     return NULL;
   }
-  char *cipher_str = xmlNodeGetContent(openpgp);
-  xmlNodePtr plain =
+  const char *cipher_str = rexmpp_xml_text_child(openpgp);
+  rexmpp_xml_t *plain =
     rexmpp_openpgp_decrypt_verify(s, cipher_str);
-  free(cipher_str);
   if (plain == NULL) {
     return NULL;
   }
@@ -476,22 +468,19 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
     return plain;
   }
 
-  xmlNodePtr child;
+  rexmpp_xml_t *child;
   int found = 0;
-  for (child = xmlFirstElementChild(plain);
+  for (child = rexmpp_xml_first_elem_child(plain);
        child != NULL && ! found;
-       child = xmlNextElementSibling(child))
+       child = rexmpp_xml_next_elem_sibling(child))
     {
       if (rexmpp_xml_match(child, "urn:xmpp:openpgp:0", "to")) {
-        char *to_jid = xmlGetProp(child, "jid");
+        const char *to_jid = rexmpp_xml_find_attr_val(child, "jid");
         if (to_jid == NULL) {
           rexmpp_log(s, LOG_WARNING,
                      "Found a 'to' element without a 'jid' attribute");
         } else if (strcmp(to_jid, to.bare) == 0) {
           found = 1;
-        }
-        if (to_jid != NULL) {
-          free(to_jid);
         }
       }
     }
@@ -520,11 +509,11 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
     }
 
     found = 0;
-    xmlNodePtr metadata;
+    rexmpp_xml_t *metadata;
     for (metadata = rexmpp_published_fingerprints(s, from.bare);
          metadata != NULL && ! found;
-         metadata = xmlNextElementSibling(metadata)) {
-      char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+         metadata = metadata->next) {
+      const char *fingerprint = rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
       if (fingerprint == NULL) {
         rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
         continue;
@@ -532,7 +521,6 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
       if (rexmpp_openpgp_fingerprint_matches(fingerprint, sig->fpr)) {
         found = 1;
       }
-      free(fingerprint);
     }
     if (! found) {
       rexmpp_log(s, LOG_ERR, "No %s's known key matches that of the signature",
@@ -570,7 +558,7 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
   return plain;
 }
 
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
                                const char *cipher_base64)
 {
@@ -600,7 +588,7 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "Failed to release and get memory");
     return NULL;
   }
-  xmlNodePtr elem = rexmpp_xml_parse(plain, plain_len);
+  rexmpp_xml_t *elem = rexmpp_xml_parse(plain, plain_len);
   if(elem == NULL) {
     rexmpp_log(s, LOG_ERR, "Failed to parse an XML document");
   }
@@ -615,11 +603,11 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
                               int *allocated)
 {
   gpgme_error_t err;
-  xmlNodePtr metadata;
+  rexmpp_xml_t *metadata;
   for (metadata = rexmpp_published_fingerprints(s, jid);
        metadata != NULL;
-       metadata = xmlNextElementSibling(metadata)) {
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+       metadata = metadata->next) {
+    const char *fingerprint = rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
     if (fingerprint == NULL) {
       rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
       continue;
@@ -643,19 +631,18 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
       rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
                  fingerprint, gpgme_strerror(err));
     }
-    free(fingerprint);
   }
 }
 
 void rexmpp_openpgp_set_signers (rexmpp_t *s) {
   gpgme_error_t err;
-  xmlNodePtr metadata;
+  rexmpp_xml_t *metadata;
   gpgme_key_t sec_key;
   gpgme_signers_clear(s->pgp_ctx);
   for (metadata = rexmpp_published_fingerprints(s, s->initial_jid.bare);
        metadata != NULL;
-       metadata = xmlNextElementSibling(metadata)) {
-    char *fingerprint = xmlGetProp(metadata, "v4-fingerprint");
+       metadata = metadata->next) {
+    const char *fingerprint = rexmpp_xml_find_attr_val(metadata, "v4-fingerprint");
     if (fingerprint == NULL) {
       rexmpp_log(s, LOG_WARNING, "No fingerprint found in pubkey-metadata");
       continue;
@@ -670,12 +657,11 @@ void rexmpp_openpgp_set_signers (rexmpp_t *s) {
       rexmpp_log(s, LOG_ERR, "Failed to read key %s: %s",
                  fingerprint, gpgme_strerror(err));
     }
-    free(fingerprint);
   }
 }
 
 char *rexmpp_openpgp_payload (rexmpp_t *s,
-                              xmlNodePtr payload,
+                              rexmpp_xml_t *payload,
                               const char **recipients,
                               const char **signers,
                               enum rexmpp_ox_mode mode)
@@ -693,8 +679,8 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   } else if (mode == REXMPP_OX_CRYPT) {
     elem_name = "crypt";
   }
-  xmlNodePtr elem = xmlNewNode(NULL, elem_name);
-  xmlNewNs(elem, "urn:xmpp:openpgp:0", NULL);
+  rexmpp_xml_t *elem =
+    rexmpp_xml_new_elem(elem_name, "urn:xmpp:openpgp:0");
 
   if (mode == REXMPP_OX_SIGN || mode == REXMPP_OX_SIGNCRYPT) {
     if (signers == NULL) {
@@ -717,10 +703,10 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
 
     /* Add all the recipients. */
     for (i = 0; recipients[i] != NULL; i++) {
-      xmlNodePtr to = xmlNewNode(NULL, "to");
-      xmlNewNs(to, "urn:xmpp:openpgp:0", NULL);
-      xmlNewProp(to, "jid", recipients[i]);
-      xmlAddChild(elem, to);
+      rexmpp_xml_t *to =
+        rexmpp_xml_new_elem("to", "urn:xmpp:openpgp:0");
+      rexmpp_xml_add_attr(to, "jid", recipients[i]);
+      rexmpp_xml_add_child(elem, to);
     }
   }
 
@@ -730,16 +716,16 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   struct tm utc_time;
   gmtime_r(&t, &utc_time);
   strftime(time_str, 42, "%FT%TZ", &utc_time);
-  xmlNodePtr time = xmlNewNode(NULL, "time");
-  xmlNewNs(time, "urn:xmpp:openpgp:0", NULL);
-  xmlNewProp(time, "stamp", time_str);
-  xmlAddChild(elem, time);
+  rexmpp_xml_t *time =
+    rexmpp_xml_new_elem("time", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_attr(time, "stamp", time_str);
+  rexmpp_xml_add_child(elem, time);
 
   /* Add the payload. */
-  xmlNodePtr pl = xmlNewNode(NULL, "payload");
-  xmlNewNs(pl, "urn:xmpp:openpgp:0", NULL);
-  xmlAddChild(pl, payload);
-  xmlAddChild(elem, pl);
+  rexmpp_xml_t *pl =
+    rexmpp_xml_new_elem("payload", "urn:xmpp:openpgp:0");
+  rexmpp_xml_add_child(pl, payload);
+  rexmpp_xml_add_child(elem, pl);
 
   if (mode == REXMPP_OX_CRYPT || mode == REXMPP_OX_SIGNCRYPT) {
     /* Add keys for encryption. */
@@ -758,16 +744,16 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
     gcry_create_nonce(rand, rand_len);
     rexmpp_base64_to(rand, rand_len, &rand_str, &rand_str_len);
 
-    xmlNodePtr rpad = xmlNewNode(NULL, "rpad");
-    xmlNewNs(rpad, "urn:xmpp:openpgp:0", NULL);
-    xmlNodeAddContent(rpad, rand_str);
+    rexmpp_xml_t *rpad =
+      rexmpp_xml_new_elem("rpad", "urn:xmpp:openpgp:0");
+    rexmpp_xml_add_text(rpad, rand_str);
     free(rand_str);
-    xmlAddChild(elem, rpad);
+    rexmpp_xml_add_child(elem, rpad);
   }
 
   /* Serialize the resulting XML. */
   char *plaintext = rexmpp_xml_serialize(elem);
-  xmlFreeNode(elem);
+  rexmpp_xml_free(elem);
 
   /* Encrypt, base64-encode. */
   gpgme_data_t cipher_dh, plain_dh;
@@ -832,7 +818,7 @@ rexmpp_err_t gpgme_not_supported(rexmpp_t *s) {
 rexmpp_err_t
 rexmpp_openpgp_check_keys (rexmpp_t *s,
                            const char *jid,
-                           xmlNodePtr items) {
+                           rexmpp_xml_t *items) {
   (void)jid;
   (void)items;
   return gpgme_not_supported(s);
@@ -848,7 +834,7 @@ void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp) {
   gpgme_not_supported(s);
 }
 
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
                                const char *cipher_base64) {
   (void)cipher_base64;
@@ -856,9 +842,9 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
   return  NULL;
 }
 
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
-                                       xmlNodePtr message,
+                                       rexmpp_xml_t *message,
                                        int *valid) {
   (void)message;
   (void)valid;
@@ -867,7 +853,7 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
 }
 
 char *rexmpp_openpgp_payload (rexmpp_t *s,
-                              xmlNodePtr payload,
+                              rexmpp_xml_t *payload,
                               const char **recipients,
                               const char **signers,
                               enum rexmpp_ox_mode mode) {

@@ -29,6 +29,7 @@
 #endif
 
 #include "rexmpp.h"
+#include "rexmpp_xml.h"
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_roster.h"
@@ -114,21 +115,21 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
   }
 }
 
-char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
+char *rexmpp_capabilities_string (rexmpp_t *s, rexmpp_xml_t *info) {
   /* Assuming the info is sorted already. Would be better to sort it
      here (todo). */
-  xmlNodePtr cur;
+  rexmpp_xml_t *cur;
   int buf_len = 1024, str_len = 0;
   char *str = malloc(buf_len);
   for (cur = info; cur; cur = cur->next) {
-    if (strcmp(cur->name, "identity") == 0) {
+    if (strcmp(cur->alt.elem.qname.name, "identity") == 0) {
       int cur_len = 5;          /* ///< for an empty identity */
 
       /* Collect the properties we'll need. */
-      char *category = xmlGetProp(cur, "category");
-      char *type = xmlGetProp(cur, "type");
-      char *lang = xmlGetProp(cur, "xml:lang");
-      char *name = xmlGetProp(cur, "name");
+      const char *category = rexmpp_xml_find_attr_val(cur, "category");
+      const char *type = rexmpp_xml_find_attr_val(cur, "type");
+      const char *lang = rexmpp_xml_find_attr_val(cur, "xml:lang");
+      const char *name = rexmpp_xml_find_attr_val(cur, "name");
 
       /* Calculate the length needed. */
       if (category != NULL) {
@@ -177,22 +178,8 @@ char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
       }
       str[str_len] = '<';
       str_len++;
-
-      /* Free the values. */
-      if (category != NULL) {
-        free(category);
-      }
-      if (type != NULL) {
-        free(type);
-      }
-      if (lang != NULL) {
-        free(lang);
-      }
-      if (name != NULL) {
-        free(name);
-      }
-    } else if (strcmp(cur->name, "feature") == 0) {
-      char *var = xmlGetProp(cur, "var");
+    } else if (strcmp(cur->alt.elem.qname.name, "feature") == 0) {
+      const char *var = rexmpp_xml_find_attr_val(cur, "var");
       int cur_len = 2 + strlen(var);
       if (cur_len > buf_len - str_len) {
         while (cur_len > buf_len - str_len) {
@@ -204,10 +191,9 @@ char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
       str_len += strlen(var);
       str[str_len] = '<';
       str_len++;
-      free(var);
     } else {
       rexmpp_log(s, LOG_ERR,
-                 "Unsupported node type in disco info: %s", cur->name);
+                 "Unsupported node type in disco info: %s", cur->alt.elem.qname.name);
     }
   }
   str[str_len] = '\0';
@@ -215,7 +201,7 @@ char *rexmpp_capabilities_string (rexmpp_t *s, xmlNodePtr info) {
 }
 
 char *rexmpp_capabilities_hash (rexmpp_t *s,
-                                xmlNodePtr info)
+                                rexmpp_xml_t *info)
 {
   char *out = NULL;
   size_t out_len = 0;
@@ -233,38 +219,35 @@ char *rexmpp_capabilities_hash (rexmpp_t *s,
   return out;
 }
 
-xmlNodePtr rexmpp_find_event (rexmpp_t *s,
-                              const char *from,
-                              const char *node,
-                              xmlNodePtr *prev_event)
+rexmpp_xml_t *rexmpp_find_event (rexmpp_t *s,
+                                 const char *from,
+                                 const char *node,
+                                 rexmpp_xml_t **prev_event)
 {
-  xmlNodePtr prev, cur;
+  rexmpp_xml_t *prev, *cur;
   for (prev = NULL, cur = s->roster_events;
        cur != NULL;
-       prev = cur, cur = xmlNextElementSibling(cur)) {
-    char *cur_from = xmlGetProp(cur, "from");
+       prev = cur, cur = cur->next) {
+    const char *cur_from = rexmpp_xml_find_attr_val(cur, "from");
     if (cur_from == NULL) {
       continue;
     }
-    xmlNodePtr cur_event =
+    rexmpp_xml_t *cur_event =
       rexmpp_xml_find_child(cur,
                             "http://jabber.org/protocol/pubsub#event",
                             "event");
-    xmlNodePtr cur_items =
+    rexmpp_xml_t *cur_items =
       rexmpp_xml_find_child(cur_event,
                             "http://jabber.org/protocol/pubsub#event",
                             "items");
     if (cur_items == NULL) {
-      free(cur_from);
       continue;
     }
-    char *cur_node = xmlGetProp(cur_items, "node");
+    const char *cur_node = rexmpp_xml_find_attr_val(cur_items, "node");
     if (cur_node == NULL) {
       continue;
     }
     int match = (strcmp(cur_from, from) == 0 && strcmp(cur_node, node) == 0);
-    free(cur_node);
-    free(cur_from);
     if (match) {
       if (prev_event != NULL) {
         *prev_event = prev;
@@ -282,36 +265,39 @@ char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
     return NULL;
   }
   if (s->manage_roster) {
-    xmlNodePtr roster_item = rexmpp_roster_find_item(s, jid.bare, NULL);
-    if (roster_item) {
-      char *name = xmlGetProp(roster_item, "name");
+    rexmpp_xml_t *roster_item = rexmpp_roster_find_item(s, jid.bare, NULL);
+    if (roster_item != NULL) {
+      char *name = strdup(rexmpp_xml_find_attr_val(roster_item, "name"));
       if (name != NULL) {
         return name;
       }
     }
     if (s->track_roster_events) {
-      xmlNodePtr elem =
+      rexmpp_xml_t *elem =
         rexmpp_find_event(s, jid.bare, "http://jabber.org/protocol/nick", NULL);
       if (elem != NULL) {
-        xmlNodePtr event =
+        rexmpp_xml_t *event =
           rexmpp_xml_find_child(elem,
                                 "http://jabber.org/protocol/pubsub#event",
                                 "event");
-        xmlNodePtr items =
+        rexmpp_xml_t *items =
           rexmpp_xml_find_child(event,
                                 "http://jabber.org/protocol/pubsub#event",
                                 "items");
-        xmlNodePtr item =
+        rexmpp_xml_t *item =
           rexmpp_xml_find_child(items,
                                 "http://jabber.org/protocol/pubsub#event",
                                 "item");
         if (item != NULL) {
-          xmlNodePtr nick =
+          rexmpp_xml_t *nick =
             rexmpp_xml_find_child(item,
                                   "http://jabber.org/protocol/nick",
                                   "nick");
-          if (nick != NULL) {
-            return xmlNodeGetContent(nick);
+          if (nick != NULL &&
+              nick->type == REXMPP_XML_ELEMENT &&
+              nick->alt.elem.children != NULL &&
+              nick->alt.elem.children->type == REXMPP_XML_TEXT) {
+            return strdup(rexmpp_xml_text_child(nick));
           }
         }
       }
@@ -323,93 +309,75 @@ char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
   return strdup(jid.bare);
 }
 
-xmlNodePtr rexmpp_xml_feature (const char *var) {
-  xmlNodePtr feature = xmlNewNode(NULL, "feature");
-  xmlNewProp(feature, "var", var);
+rexmpp_xml_t *rexmpp_xml_feature (const char *var) {
+  rexmpp_xml_t *feature = rexmpp_xml_new_elem("feature", NULL);
+  rexmpp_xml_add_attr(feature, "var", var);
   return feature;
-}
-
-xmlNodePtr rexmpp_xml_new_node (const char *name, const char *namespace) {
-  xmlNodePtr node = xmlNewNode(NULL, name);
-  xmlNewNs(node, namespace, NULL);
-  return node;
-}
-
-xmlNodePtr rexmpp_xml_error (const char *type, const char *condition) {
-  xmlNodePtr error = xmlNewNode(NULL, "error");
-  xmlNewProp(error, "type", type);
-  xmlNodePtr cond = xmlNewNode(NULL, condition);
-  xmlNewNs(cond, "urn:ietf:params:xml:ns:xmpp-stanzas", NULL);
-  xmlAddChild(error, cond);
-  return error;
 }
 
 void rexmpp_disco_find_feature_cb (rexmpp_t *s,
                                    void *ptr,
-                                   xmlNodePtr request,
-                                   xmlNodePtr response,
+                                   rexmpp_xml_t *request,
+                                   rexmpp_xml_t *response,
                                    int success)
 {
   struct rexmpp_feature_search *search = ptr;
   if (! success) {
-    char *to = xmlGetProp(request, "to");
-    xmlNodePtr query = xmlFirstElementChild(request);
-    rexmpp_log(s, LOG_ERR, "Failed to query %s for %s.", to, query->nsDef->href);
-    free(to);
+    const char *to = rexmpp_xml_find_attr_val(request, "to");
+    rexmpp_xml_t *query = request->alt.elem.children;
+    rexmpp_log(s, LOG_ERR, "Failed to query %s for %s.", to, query->alt.elem.qname.namespace);
   } else if (! search->found) {
-    xmlNodePtr query = xmlFirstElementChild(response);
+    rexmpp_xml_t *query = rexmpp_xml_first_elem_child(response);
     if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info",
                          "query")) {
-      xmlNodePtr child = xmlFirstElementChild(query);
+      rexmpp_xml_t *child = rexmpp_xml_first_elem_child(query);
       while (child != NULL && (! search->found)) {
         if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#info",
                              "feature")) {
-          char *var = xmlGetProp(child, "var");
+          const char *var = rexmpp_xml_find_attr_val(child, "var");
           if (var != NULL) {
             if (strcmp(var, search->feature_var) == 0) {
               search->cb(s, search->cb_data, request, response, success);
               search->found = 1;
             }
-            free(var);
           }
         }
-        child = child->next;
+        child = rexmpp_xml_next_elem_sibling(child);
       }
       if ((! search->found) && (search->max_requests > 0)) {
         /* Still not found, request items */
-        char *jid = xmlGetProp(request, "to");
+        const char *jid = rexmpp_xml_find_attr_val(request, "to");
         if (jid != NULL) {
           search->pending++;
           search->max_requests--;
-          xmlNodePtr query =
-            rexmpp_xml_new_node("query",
+          rexmpp_xml_t *query =
+            rexmpp_xml_new_elem("query",
                                 "http://jabber.org/protocol/disco#items");
           rexmpp_cached_iq_new(s, "get", jid, query,
                                rexmpp_disco_find_feature_cb,
                                search, search->fresh);
-          free(jid);
         }
       }
     } else if (rexmpp_xml_match(query,
                                 "http://jabber.org/protocol/disco#items",
                                 "query")) {
-      xmlNodePtr child = xmlFirstElementChild(query);
+      rexmpp_xml_t *child = rexmpp_xml_first_elem_child(query);
       while (child != NULL && (search->max_requests > 0)) {
         if (rexmpp_xml_match(child, "http://jabber.org/protocol/disco#items",
                              "item")) {
-          char *jid = xmlGetProp(child, "jid");
+          const char *jid = rexmpp_xml_find_attr_val(child, "jid");
           if (jid != NULL) {
             search->pending++;
             search->max_requests--;
-            xmlNodePtr query =
-              rexmpp_xml_new_node("query",
+            rexmpp_xml_t *query =
+              rexmpp_xml_new_elem("query",
                                   "http://jabber.org/protocol/disco#info");
             rexmpp_cached_iq_new(s, "get", jid, query,
                                  rexmpp_disco_find_feature_cb,
                                  search, search->fresh);
           }
         }
-        child = child->next;
+        child = rexmpp_xml_next_elem_sibling(child);
       }
     }
   }
@@ -440,8 +408,8 @@ rexmpp_disco_find_feature (rexmpp_t *s,
   search->cb_data = cb_data;
   search->fresh = fresh;
   search->feature_var = feature_var;
-  xmlNodePtr query =
-    rexmpp_xml_new_node("query", "http://jabber.org/protocol/disco#info");
+  rexmpp_xml_t *query =
+    rexmpp_xml_new_elem("query", "http://jabber.org/protocol/disco#info");
   if (jid == NULL) {
     jid = s->initial_jid.domain;
   }
@@ -449,18 +417,18 @@ rexmpp_disco_find_feature (rexmpp_t *s,
                               rexmpp_disco_find_feature_cb, search, fresh);
 }
 
-xmlNodePtr rexmpp_disco_info (rexmpp_t *s) {
+rexmpp_xml_t *rexmpp_disco_info (rexmpp_t *s) {
   if (s->disco_info != NULL) {
     return s->disco_info;
   }
-  xmlNodePtr prev = NULL, cur;
+  rexmpp_xml_t *prev = NULL, *cur;
   /* There must be at least one identity, so filling in somewhat
      sensible defaults. A basic client may leave them be, while an
      advanced one would adjust and/or extend them. */
-  s->disco_info = xmlNewNode(NULL, "identity");
-  xmlNewProp(s->disco_info, "category", "client");
-  xmlNewProp(s->disco_info, "type", s->client_type);
-  xmlNewProp(s->disco_info, "name", s->client_name);
+  s->disco_info = rexmpp_xml_new_elem("identity", NULL);
+  rexmpp_xml_add_attr(s->disco_info, "category", "client");
+  rexmpp_xml_add_attr(s->disco_info, "type", s->client_type);
+  rexmpp_xml_add_attr(s->disco_info, "name", s->client_name);
   prev = s->disco_info;
   cur = rexmpp_xml_feature("http://jabber.org/protocol/disco#info");
   prev->next = cur;
@@ -601,37 +569,37 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
      external for now, this may be adjusted by an application or a
      user. */
   s->jingle_rtp_description =
-    rexmpp_xml_new_node("description", "urn:xmpp:jingle:apps:rtp:1");
-  xmlNewProp(s->jingle_rtp_description, "media", "audio");
-  xmlNodePtr pl_type;
+    rexmpp_xml_new_elem("description", "urn:xmpp:jingle:apps:rtp:1");
+  rexmpp_xml_add_attr(s->jingle_rtp_description, "media", "audio");
+  rexmpp_xml_t *pl_type;
 
-  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
-  xmlNewProp(pl_type, "id", "97");
-  xmlNewProp(pl_type, "name", "opus");
-  xmlNewProp(pl_type, "clockrate", "48000");
-  xmlNewProp(pl_type, "channels", "2");
-  xmlAddChild(s->jingle_rtp_description, pl_type);
+  pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  rexmpp_xml_add_attr(pl_type, "id", "97");
+  rexmpp_xml_add_attr(pl_type, "name", "opus");
+  rexmpp_xml_add_attr(pl_type, "clockrate", "48000");
+  rexmpp_xml_add_attr(pl_type, "channels", "2");
+  rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
 
-  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
-  xmlNewProp(pl_type, "id", "96");
-  xmlNewProp(pl_type, "name", "speex");
-  xmlNewProp(pl_type, "clockrate", "32000");
-  xmlNewProp(pl_type, "channels", "1");
-  xmlAddChild(s->jingle_rtp_description, pl_type);
+  pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  rexmpp_xml_add_attr(pl_type, "id", "96");
+  rexmpp_xml_add_attr(pl_type, "name", "speex");
+  rexmpp_xml_add_attr(pl_type, "clockrate", "32000");
+  rexmpp_xml_add_attr(pl_type, "channels", "1");
+  rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
 
-  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
-  xmlNewProp(pl_type, "id", "0");
-  xmlNewProp(pl_type, "name", "PCMU");
-  xmlNewProp(pl_type, "clockrate", "8000");
-  xmlNewProp(pl_type, "channels", "1");
-  xmlAddChild(s->jingle_rtp_description, pl_type);
+  pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  rexmpp_xml_add_attr(pl_type, "id", "0");
+  rexmpp_xml_add_attr(pl_type, "name", "PCMU");
+  rexmpp_xml_add_attr(pl_type, "clockrate", "8000");
+  rexmpp_xml_add_attr(pl_type, "channels", "1");
+  rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
 
-  pl_type = rexmpp_xml_new_node("payload-type", "urn:xmpp:jingle:apps:rtp:1");
-  xmlNewProp(pl_type, "id", "8");
-  xmlNewProp(pl_type, "name", "PCMA");
-  xmlNewProp(pl_type, "clockrate", "8000");
-  xmlNewProp(pl_type, "channels", "1");
-  xmlAddChild(s->jingle_rtp_description, pl_type);
+  pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
+  rexmpp_xml_add_attr(pl_type, "id", "8");
+  rexmpp_xml_add_attr(pl_type, "name", "PCMA");
+  rexmpp_xml_add_attr(pl_type, "clockrate", "8000");
+  rexmpp_xml_add_attr(pl_type, "channels", "1");
+  rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
 
   if (jid == NULL) {
     rexmpp_log(s, LOG_CRIT, "No initial JID is provided.");
@@ -744,11 +712,11 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->send_buffer = NULL;
   }
   if (s->stream_features != NULL) {
-    xmlFreeNode(s->stream_features);
+    rexmpp_xml_free(s->stream_features);
     s->stream_features = NULL;
   }
   if (s->send_queue != NULL) {
-    xmlFreeNodeList(s->send_queue);
+    rexmpp_xml_free_list(s->send_queue);
     s->send_queue = NULL;
   }
   if (s->current_element_root != NULL) {
@@ -778,12 +746,12 @@ void rexmpp_cleanup (rexmpp_t *s) {
 void rexmpp_iq_finish (rexmpp_t *s,
                        rexmpp_iq_t *iq,
                        int success,
-                       xmlNodePtr response)
+                       rexmpp_xml_t *response)
 {
   if (iq->cb != NULL) {
     iq->cb(s, iq->cb_data, iq->request, response, success);
   }
-  xmlFreeNode(iq->request);
+  rexmpp_xml_free(iq->request);
   free(iq);
 }
 
@@ -803,7 +771,7 @@ void rexmpp_done (rexmpp_t *s) {
   rexmpp_dns_ctx_deinit(s);
   xmlFreeParserCtxt(s->xml_parser);
   if (s->jingle_rtp_description != NULL) {
-    xmlFreeNode(s->jingle_rtp_description);
+    rexmpp_xml_free(s->jingle_rtp_description);
     s->jingle_rtp_description = NULL;
   }
   if (s->stream_id != NULL) {
@@ -811,15 +779,15 @@ void rexmpp_done (rexmpp_t *s) {
     s->stream_id = NULL;
   }
   if (s->roster_items != NULL) {
-    xmlFreeNodeList(s->roster_items);
+    rexmpp_xml_free_list(s->roster_items);
     s->roster_items = NULL;
   }
   if (s->roster_presence != NULL) {
-    xmlFreeNodeList(s->roster_presence);
+    rexmpp_xml_free_list(s->roster_presence);
     s->roster_presence = NULL;
   }
   if (s->roster_events != NULL) {
-    xmlFreeNodeList(s->roster_events);
+    rexmpp_xml_free_list(s->roster_events);
     s->roster_events = NULL;
   }
   if (s->roster_ver != NULL) {
@@ -827,11 +795,11 @@ void rexmpp_done (rexmpp_t *s) {
     s->roster_ver = NULL;
   }
   if (s->disco_info != NULL) {
-    xmlFreeNodeList(s->disco_info);
+    rexmpp_xml_free_list(s->disco_info);
     s->disco_info = NULL;
   }
   if (s->stanza_queue != NULL) {
-    xmlFreeNodeList(s->stanza_queue);
+    rexmpp_xml_free_list(s->stanza_queue);
     s->stanza_queue = NULL;
   }
   while (s->active_iq != NULL) {
@@ -841,7 +809,7 @@ void rexmpp_done (rexmpp_t *s) {
     rexmpp_iq_finish(s, iq, 0, NULL);
   }
   if (s->iq_cache != NULL) {
-    xmlFreeNodeList(s->iq_cache);
+    rexmpp_xml_free_list(s->iq_cache);
     s->iq_cache = NULL;
   }
 }
@@ -894,87 +862,7 @@ char *rexmpp_gen_id (rexmpp_t *s) {
   return buf_base64;
 }
 
-xmlNodePtr rexmpp_xml_add_id (rexmpp_t *s, xmlNodePtr node) {
-  char *buf = rexmpp_gen_id(s);
-  if (buf == NULL) {
-    return NULL;
-  }
-  xmlNewProp(node, "id", buf);
-  free(buf);
-  return node;
-}
-
-unsigned int rexmpp_xml_siblings_count (xmlNodePtr node) {
-  unsigned int i;
-  for (i = 0; node != NULL; i++) {
-    node = xmlNextElementSibling(node);
-  }
-  return i;
-}
-
-int rexmpp_xml_match (xmlNodePtr node,
-                      const char *namespace,
-                      const char *name)
-{
-  if (node == NULL) {
-    return 0;
-  }
-  if (name != NULL) {
-    if (strcmp(name, node->name) != 0) {
-      return 0;
-    }
-  }
-  if (namespace != NULL) {
-    if (node->nsDef == NULL || node->nsDef->href == NULL) {
-      if (strcmp(namespace, "jabber:client") != 0) {
-        return 0;
-      }
-    } else {
-      if (node->nsDef) {
-        if (strcmp(namespace, node->nsDef->href) != 0) {
-          return 0;
-        }
-      } else {
-        if (namespace != NULL) {
-          return 0;
-        }
-      }
-    }
-  }
-  return 1;
-}
-
-int rexmpp_xml_eq (xmlNodePtr n1, xmlNodePtr n2) {
-  /* Just serialize and compare strings for now: awkward, but
-     simple. */
-  char *n1str = rexmpp_xml_serialize(n1);
-  char *n2str = rexmpp_xml_serialize(n2);
-  int eq = (strcmp(n1str, n2str) == 0);
-  free(n1str);
-  free(n2str);
-  return eq;
-}
-
-xmlNodePtr rexmpp_xml_find_child (xmlNodePtr node,
-                                  const char *namespace,
-                                  const char *name)
-{
-  if (node == NULL) {
-    return NULL;
-  }
-  xmlNodePtr child;
-  for (child = xmlFirstElementChild(node);
-       child != NULL;
-       child = xmlNextElementSibling(child))
-    {
-      if (rexmpp_xml_match(child, namespace, name)) {
-        return child;
-      }
-    }
-  return NULL;
-}
-
-xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
+rexmpp_xml_t *rexmpp_xml_set_delay (rexmpp_t *s, rexmpp_xml_t *node) {
   if (rexmpp_xml_find_child (node, NULL, "delay")) {
     return node;
   }
@@ -983,41 +871,14 @@ xmlNodePtr rexmpp_xml_set_delay (rexmpp_t *s, xmlNodePtr node) {
   struct tm utc_time;
   gmtime_r(&t, &utc_time);
   strftime(buf, 42, "%FT%TZ", &utc_time);
-  xmlNodePtr delay = xmlNewChild(node, NULL, "delay", NULL);
-  xmlNewProp(delay, "stamp", buf);
+  rexmpp_xml_t *delay = rexmpp_xml_new_elem("delay", NULL);
+  rexmpp_xml_add_child(node, delay);
+  rexmpp_xml_add_attr(delay, "stamp", buf);
   if (s != NULL && s->assigned_jid.full[0]) {
-    xmlNewProp(delay, "from", s->assigned_jid.full);
+    rexmpp_xml_add_attr(delay, "from", s->assigned_jid.full);
   }
   return node;
 }
-
-xmlNodePtr rexmpp_xml_parse (const char *str, int str_len) {
-  xmlNodePtr elem = NULL;
-  xmlDocPtr doc = xmlReadMemory(str, str_len, "", "utf-8", XML_PARSE_NONET);
-  if (doc != NULL) {
-    elem = xmlCopyNode(xmlDocGetRootElement(doc), 1);
-    xmlFreeDoc(doc);
-  }
-  return elem;
-}
-
-char *rexmpp_xml_serialize (xmlNodePtr node) {
-  xmlBufferPtr buf = xmlBufferCreate();
-  xmlSaveCtxtPtr ctx = xmlSaveToBuffer(buf, "utf-8", 0);
-  xmlSaveTree(ctx, node);
-  xmlSaveFlush(ctx);
-  xmlSaveClose(ctx);
-  unsigned char *out = xmlBufferDetach(buf);
-  xmlBufferFree(buf);
-  return out;
-}
-
-int rexmpp_xml_is_stanza (xmlNodePtr node) {
-  return rexmpp_xml_match(node, "jabber:client", "message") ||
-    rexmpp_xml_match(node, "jabber:client", "iq") ||
-    rexmpp_xml_match(node, "jabber:client", "presence");
-}
-
 
 rexmpp_err_t rexmpp_send_start (rexmpp_t *s, const void *data, size_t data_len)
 {
@@ -1074,15 +935,15 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
         free(s->send_buffer);
         s->send_buffer = NULL;
         if (s->send_queue != NULL) {
-          xmlNodePtr node = s->send_queue;
+          rexmpp_xml_t *node = s->send_queue;
           unsigned char *buf = rexmpp_xml_serialize(node);
           ret = rexmpp_send_start(s, buf, strlen(buf));
           free(buf);
           if (ret != REXMPP_SUCCESS) {
             return ret;
           }
-          s->send_queue = xmlNextElementSibling(s->send_queue);
-          xmlFreeNode(node);
+          s->send_queue = s->send_queue->next;
+          rexmpp_xml_free(node);
         } else {
           return REXMPP_SUCCESS;
         }
@@ -1122,19 +983,19 @@ rexmpp_err_t rexmpp_send_raw (rexmpp_t *s, const void *data, size_t data_len)
 
 rexmpp_err_t rexmpp_sm_send_req (rexmpp_t *s);
 
-rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
+rexmpp_err_t rexmpp_send (rexmpp_t *s, rexmpp_xml_t *node)
 {
   int need_ack = 0;
   int ret;
 
   if (s->xml_out_cb != NULL && s->xml_out_cb(s, node) == 1) {
-    xmlFreeNode(node);
+    rexmpp_xml_free(node);
     rexmpp_log(s, LOG_WARNING, "Message sending was cancelled by xml_out_cb.");
     return REXMPP_E_CANCELLED;
   }
 
   if (rexmpp_xml_siblings_count(s->send_queue) >= s->send_queue_size) {
-    xmlFreeNode(node);
+    rexmpp_xml_free(node);
     rexmpp_log(s, LOG_ERR, "The send queue is full, not sending.");
     return REXMPP_E_SEND_QUEUE_FULL;
   }
@@ -1145,20 +1006,21 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
     if (s->sm_state == REXMPP_SM_ACTIVE) {
       if (s->stanzas_out_count >=
           s->stanza_queue_size + s->stanzas_out_acknowledged) {
-        xmlFreeNode(node);
+        rexmpp_xml_free(node);
         rexmpp_log(s, LOG_ERR, "The stanza queue is full, not sending.");
         return REXMPP_E_STANZA_QUEUE_FULL;
       }
       need_ack = 1;
-      xmlNodePtr queued_stanza = rexmpp_xml_set_delay(s, xmlCopyNode(node, 1));
+      rexmpp_xml_t *queued_stanza =
+        rexmpp_xml_set_delay(s, rexmpp_xml_clone(node));
       if (s->stanza_queue == NULL) {
         s->stanza_queue = queued_stanza;
       } else {
-        xmlNodePtr last = s->stanza_queue;
-        while (xmlNextElementSibling(last) != NULL) {
-          last = xmlNextElementSibling(last);
+        rexmpp_xml_t *last = s->stanza_queue;
+        while (last->next != NULL) {
+          last = last->next;
         }
-        xmlAddNextSibling(last, queued_stanza);
+        last->next = queued_stanza;
       }
     }
     if (s->sm_state != REXMPP_SM_INACTIVE) {
@@ -1170,7 +1032,7 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
     unsigned char *buf = rexmpp_xml_serialize(node);
     ret = rexmpp_send_raw(s, buf, strlen(buf));
     free(buf);
-    xmlFreeNode(node);
+    rexmpp_xml_free(node);
     if (ret != REXMPP_SUCCESS && ret != REXMPP_E_AGAIN) {
       return ret;
     }
@@ -1178,11 +1040,11 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
     if (s->send_queue == NULL) {
       s->send_queue = node;
     } else {
-      xmlNodePtr last = s->send_queue;
-      while (xmlNextElementSibling(last) != NULL) {
-        last = xmlNextElementSibling(last);
+      rexmpp_xml_t *last = s->send_queue;
+      while (last->next != NULL) {
+        last = last->next;
       }
-      xmlAddNextSibling(last, node);
+      last->next = node;
     }
     ret = REXMPP_E_AGAIN;
   }
@@ -1193,28 +1055,25 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, xmlNodePtr node)
 }
 
 void rexmpp_iq_reply (rexmpp_t *s,
-                      xmlNodePtr req,
+                      rexmpp_xml_t *req,
                       const char *type,
-                      xmlNodePtr payload)
+                      rexmpp_xml_t *payload)
 {
-  xmlNodePtr iq_stanza = xmlNewNode(NULL, "iq");
-  xmlNewNs(iq_stanza, "jabber:client", NULL);
-  xmlNewProp(iq_stanza, "type", type);
-  char *id = xmlGetProp(req, "id");
+  rexmpp_xml_t *iq_stanza = rexmpp_xml_new_elem("iq", "jabber:client");
+  rexmpp_xml_add_attr(iq_stanza, "type", type);
+  const char *id = rexmpp_xml_find_attr_val(req, "id");
   if (id != NULL) {
-    xmlNewProp(iq_stanza, "id", id);
-    free(id);
+    rexmpp_xml_add_attr(iq_stanza, "id", id);
   }
-  char *to = xmlGetProp(req, "from");
+  const char *to = rexmpp_xml_find_attr_val(req, "from");
   if (to != NULL) {
-    xmlNewProp(iq_stanza, "to", to);
-    free(to);
+    rexmpp_xml_add_attr(iq_stanza, "to", to);
   }
   if (s->assigned_jid.full[0]) {
-    xmlNewProp(iq_stanza, "from", s->assigned_jid.full);
+    rexmpp_xml_add_attr(iq_stanza, "from", s->assigned_jid.full);
   }
   if (payload != NULL) {
-    xmlAddChild(iq_stanza, payload);
+    rexmpp_xml_add_child(iq_stanza, payload);
   }
   rexmpp_send(s, iq_stanza);
 }
@@ -1222,7 +1081,7 @@ void rexmpp_iq_reply (rexmpp_t *s,
 rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
                             const char *type,
                             const char *to,
-                            xmlNodePtr payload,
+                            rexmpp_xml_t *payload,
                             rexmpp_iq_callback_t cb,
                             void *cb_data)
 {
@@ -1239,18 +1098,19 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
     rexmpp_iq_finish(s, last, 0, NULL);
   }
 
-  xmlNodePtr iq_stanza = rexmpp_xml_add_id(s, xmlNewNode(NULL, "iq"));
-  xmlNewNs(iq_stanza, "jabber:client", NULL);
-  xmlNewProp(iq_stanza, "type", type);
+  rexmpp_xml_t *iq_stanza =
+    rexmpp_xml_new_elem("iq", "jabber:client");
+  rexmpp_xml_add_id(s, iq_stanza);
+  rexmpp_xml_add_attr(iq_stanza, "type", type);
   if (to != NULL) {
-    xmlNewProp(iq_stanza, "to", to);
+    rexmpp_xml_add_attr(iq_stanza, "to", to);
   }
   if (s->assigned_jid.full[0]) {
-    xmlNewProp(iq_stanza, "from", s->assigned_jid.full);
+    rexmpp_xml_add_attr(iq_stanza, "from", s->assigned_jid.full);
   }
-  xmlAddChild(iq_stanza, payload);
+  rexmpp_xml_add_child(iq_stanza, payload);
   rexmpp_iq_t *iq = malloc(sizeof(rexmpp_iq_t));
-  iq->request = xmlCopyNode(iq_stanza, 1);
+  iq->request = rexmpp_xml_clone(iq_stanza);
   iq->cb = cb;
   iq->cb_data = cb_data;
   iq->next = s->active_iq;
@@ -1260,12 +1120,12 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
 
 void rexmpp_iq_cache_cb (rexmpp_t *s,
                          void *cb_data,
-                         xmlNodePtr request,
-                         xmlNodePtr response,
+                         rexmpp_xml_t *request,
+                         rexmpp_xml_t *response,
                          int success)
 {
   if (success && response != NULL) {
-    xmlNodePtr prev_last = NULL, last = NULL, ciq = s->iq_cache;
+    rexmpp_xml_t *prev_last = NULL, *last = NULL, *ciq = s->iq_cache;
     uint32_t size = 0;
     while (ciq != NULL && ciq->next != NULL) {
       prev_last = last;
@@ -1274,12 +1134,12 @@ void rexmpp_iq_cache_cb (rexmpp_t *s,
       ciq = ciq->next->next;
     }
     if (size >= s->iq_queue_size && prev_last != NULL) {
-      xmlFreeNode(last->next);
-      xmlFreeNode(last);
+      rexmpp_xml_free(last->next);
+      rexmpp_xml_free(last);
       prev_last->next->next = NULL;
     }
-    xmlNodePtr req = xmlCopyNode(request, 1);
-    xmlNodePtr resp = xmlCopyNode(response, 1);
+    rexmpp_xml_t *req = rexmpp_xml_clone(request);
+    rexmpp_xml_t *resp = rexmpp_xml_clone(response);
     req->next = resp;
     resp->next = s->iq_cache;
     s->iq_cache = req;
@@ -1294,24 +1154,22 @@ void rexmpp_iq_cache_cb (rexmpp_t *s,
 rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
                                    const char *type,
                                    const char *to,
-                                   xmlNodePtr payload,
+                                   rexmpp_xml_t *payload,
                                    rexmpp_iq_callback_t cb,
                                    void *cb_data,
                                    int fresh)
 {
   if (! fresh) {
-    xmlNodePtr ciq = s->iq_cache;
+    rexmpp_xml_t *ciq = s->iq_cache;
     while (ciq != NULL && ciq->next != NULL) {
-      xmlNodePtr ciq_pl = xmlFirstElementChild(ciq);
-      char *ciq_type = xmlGetProp(ciq, "type");
-      char *ciq_to = xmlGetProp(ciq, "to");
+      rexmpp_xml_t *ciq_pl = ciq->alt.elem.children;
+      const char *ciq_type = rexmpp_xml_find_attr_val(ciq, "type");
+      const char *ciq_to = rexmpp_xml_find_attr_val(ciq, "to");
       int matches = (rexmpp_xml_eq(ciq_pl, payload) &&
                      strcmp(ciq_type, type) == 0 &&
                      strcmp(ciq_to, to) == 0);
-      free(ciq_to);
-      free(ciq_type);
       if (matches) {
-        xmlFreeNode(payload);
+        rexmpp_xml_free(payload);
         if (cb != NULL) {
           cb(s, cb_data, ciq, ciq->next, 1);
         }
@@ -1329,20 +1187,18 @@ rexmpp_err_t rexmpp_cached_iq_new (rexmpp_t *s,
 
 rexmpp_err_t rexmpp_sm_ack (rexmpp_t *s) {
   char buf[11];
-  xmlNodePtr ack = xmlNewNode(NULL, "a");
-  xmlNewNs(ack, "urn:xmpp:sm:3", NULL);
+  rexmpp_xml_t *ack = rexmpp_xml_new_elem("a", "urn:xmpp:sm:3");
   snprintf(buf, 11, "%u", s->stanzas_in_count);
-  xmlNewProp(ack, "h", buf);
+  rexmpp_xml_add_attr(ack, "h", buf);
   return rexmpp_send(s, ack);
 }
 
 rexmpp_err_t rexmpp_sm_send_req (rexmpp_t *s) {
-  xmlNodePtr ack = xmlNewNode(NULL, "r");
-  xmlNewNs(ack, "urn:xmpp:sm:3", NULL);
-  return rexmpp_send(s, ack);
+  rexmpp_xml_t *req = rexmpp_xml_new_elem("r", "urn:xmpp:sm:3");
+  return rexmpp_send(s, req);
 }
 
-rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem);
+rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem);
 
 rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
   char chunk_raw[4096], *chunk;
@@ -1387,12 +1243,14 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
            elem != NULL && (err == REXMPP_SUCCESS || err == REXMPP_E_AGAIN);
            elem = elem->next)
         {
-          if (s->xml_in_cb != NULL && s->xml_in_cb(s, elem) != 0) {
+          rexmpp_xml_t *elem_tmp = rexmpp_xml_from_libxml2(elem);
+          if (s->xml_in_cb != NULL && s->xml_in_cb(s, elem_tmp) != 0) {
             rexmpp_log(s, LOG_WARNING,
                        "Message processing was cancelled by xml_in_cb.");
           } else {
-            err = rexmpp_process_element(s, elem);
+            err = rexmpp_process_element(s, elem_tmp);
           }
+          rexmpp_xml_free(elem_tmp);
         }
       xmlFreeNodeList(s->input_queue);
       s->input_queue = NULL;
@@ -1632,10 +1490,10 @@ void rexmpp_srv_cb (rexmpp_t *s,
 rexmpp_err_t rexmpp_resend_stanzas (rexmpp_t *s) {
   uint32_t i, count;
   rexmpp_err_t ret = REXMPP_SUCCESS;
-  xmlNodePtr sq;
+  rexmpp_xml_t *sq;
   count = s->stanzas_out_count - s->stanzas_out_acknowledged;
   for (i = 0; i < count && s->stanza_queue != NULL; i++) {
-    sq = xmlNextElementSibling(s->stanza_queue);
+    sq = s->stanza_queue->next;
     ret = rexmpp_send(s, s->stanza_queue);
     if (ret > REXMPP_E_AGAIN) {
       return ret;
@@ -1652,12 +1510,11 @@ rexmpp_err_t rexmpp_resend_stanzas (rexmpp_t *s) {
   return ret;
 }
 
-void rexmpp_sm_handle_ack (rexmpp_t *s, xmlNodePtr elem) {
-  char *h = xmlGetProp(elem, "h");
+void rexmpp_sm_handle_ack (rexmpp_t *s, rexmpp_xml_t *elem) {
+  const char *h = rexmpp_xml_find_attr_val(elem, "h");
   if (h != NULL) {
     uint32_t prev_ack = s->stanzas_out_acknowledged;
     s->stanzas_out_acknowledged = strtoul(h, NULL, 10);
-    xmlFree(h);
     rexmpp_log(s, LOG_DEBUG,
                "server acknowledged %u out of %u sent stanzas",
                s->stanzas_out_acknowledged,
@@ -1666,8 +1523,8 @@ void rexmpp_sm_handle_ack (rexmpp_t *s, xmlNodePtr elem) {
       if (prev_ack <= s->stanzas_out_acknowledged) {
         uint32_t i;
         for (i = prev_ack; i < s->stanzas_out_acknowledged; i++) {
-          xmlNodePtr sq = xmlNextElementSibling(s->stanza_queue);
-          xmlFreeNode(s->stanza_queue);
+          rexmpp_xml_t *sq = s->stanza_queue->next;
+          rexmpp_xml_free(s->stanza_queue);
           s->stanza_queue = sq;
         }
       } else {
@@ -1686,8 +1543,8 @@ void rexmpp_sm_handle_ack (rexmpp_t *s, xmlNodePtr elem) {
 
 void rexmpp_carbons_enabled (rexmpp_t *s,
                              void *ptr,
-                             xmlNodePtr req,
-                             xmlNodePtr response,
+                             rexmpp_xml_t *req,
+                             rexmpp_xml_t *response,
                              int success)
 {
   (void)ptr;
@@ -1704,8 +1561,8 @@ void rexmpp_carbons_enabled (rexmpp_t *s,
 
 void rexmpp_pong (rexmpp_t *s,
                   void *ptr,
-                  xmlNodePtr req,
-                  xmlNodePtr response,
+                  rexmpp_xml_t *req,
+                  rexmpp_xml_t *response,
                   int success)
 {
   (void)ptr;
@@ -1717,15 +1574,15 @@ void rexmpp_pong (rexmpp_t *s,
 
 void rexmpp_disco_carbons_cb (rexmpp_t *s,
                               void *ptr,
-                              xmlNodePtr req,
-                              xmlNodePtr response,
+                              rexmpp_xml_t *req,
+                              rexmpp_xml_t *response,
                               int success) {
   (void)ptr;
   (void)req;
   (void)response;
   if (success) {
-    xmlNodePtr carbons_enable =
-      rexmpp_xml_new_node("enable", "urn:xmpp:carbons:2");
+    rexmpp_xml_t *carbons_enable =
+      rexmpp_xml_new_elem("enable", "urn:xmpp:carbons:2");
     s->carbons_state = REXMPP_CARBONS_NEGOTIATION;
     rexmpp_iq_new(s, "set", NULL, carbons_enable,
                   rexmpp_carbons_enabled, NULL);
@@ -1748,27 +1605,31 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
     if (s->roster_cache_file != NULL) {
       rexmpp_roster_cache_read(s);
     }
-    xmlNodePtr roster_query = xmlNewNode(NULL, "query");
-    xmlNewNs(roster_query, "jabber:iq:roster", NULL);
+    rexmpp_xml_t *roster_query =
+      rexmpp_xml_new_elem("query", "jabber:iq:roster");
     if (s->roster_ver != NULL) {
-      xmlNewProp(roster_query, "ver", s->roster_ver);
+      rexmpp_xml_add_attr(roster_query, "ver", s->roster_ver);
     } else {
-      xmlNewProp(roster_query, "ver", "");
+      rexmpp_xml_add_attr(roster_query, "ver", "");
     }
     rexmpp_iq_new(s, "get", NULL,
                   roster_query, rexmpp_iq_roster_get, NULL);
   }
-  xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
+  rexmpp_xml_t *presence =
+    rexmpp_xml_new_elem("presence", "jabber:client");
+  rexmpp_xml_add_id(s, presence);
+
   char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
   if (caps_hash != NULL) {
-    xmlNodePtr c = xmlNewNode(NULL, "c");
-    xmlNewNs(c, "http://jabber.org/protocol/caps", NULL);
-    xmlNewProp(c, "hash", "sha-1");
-    xmlNewProp(c, "node", s->disco_node);
-    xmlNewProp(c, "ver", caps_hash);
-    xmlAddChild(presence, c);
+    rexmpp_xml_t *c =
+      rexmpp_xml_new_elem("c", "http://jabber.org/protocol/caps");
+    rexmpp_xml_add_attr(c, "hash", "sha-1");
+    rexmpp_xml_add_attr(c, "node", s->disco_node);
+    rexmpp_xml_add_attr(c, "ver", caps_hash);
+    rexmpp_xml_add_child(presence, c);
     free(caps_hash);
   }
+
   rexmpp_send(s, presence);
 }
 
@@ -1776,8 +1637,8 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
    https://tools.ietf.org/html/rfc6120#section-7 */
 void rexmpp_bound (rexmpp_t *s,
                    void *ptr,
-                   xmlNodePtr req,
-                   xmlNodePtr response,
+                   rexmpp_xml_t *req,
+                   rexmpp_xml_t *response,
                    int success)
 {
   (void)ptr;
@@ -1788,24 +1649,22 @@ void rexmpp_bound (rexmpp_t *s,
     return;
   }
   /* todo: handle errors */
-  xmlNodePtr child = xmlFirstElementChild(response);
+  rexmpp_xml_t *child = rexmpp_xml_first_elem_child(response);
   if (rexmpp_xml_match(child, "urn:ietf:params:xml:ns:xmpp-bind", "bind")) {
-    xmlNodePtr jid = xmlFirstElementChild(child);
+    rexmpp_xml_t *jid = rexmpp_xml_first_elem_child(child);
     if (rexmpp_xml_match(jid, "urn:ietf:params:xml:ns:xmpp-bind", "jid")) {
-      char *jid_str = xmlNodeGetContent(jid);
+      const char *jid_str = rexmpp_xml_text_child(jid);
       rexmpp_log(s, LOG_INFO, "jid: %s", jid_str);
       rexmpp_jid_parse(jid_str, &(s->assigned_jid));
-      free(jid_str);
     }
     if (s->stream_id == NULL &&
-        (child = rexmpp_xml_find_child(s->stream_features, "urn:xmpp:sm:3",
-                                       "sm"))) {
+        (rexmpp_xml_find_child(s->stream_features, "urn:xmpp:sm:3",
+                               "sm") != NULL)) {
       /* Try to resume a stream. */
       s->sm_state = REXMPP_SM_NEGOTIATION;
       s->stream_state = REXMPP_STREAM_SM_FULL;
-      xmlNodePtr sm_enable = xmlNewNode(NULL, "enable");
-      xmlNewNs(sm_enable, "urn:xmpp:sm:3", NULL);
-      xmlNewProp(sm_enable, "resume", "true");
+      rexmpp_xml_t *sm_enable =
+        rexmpp_xml_new_elem("enable", "urn:xmpp:sm:3");
       rexmpp_send(s, sm_enable);
       s->stanzas_out_count = 0;
       s->stanzas_out_acknowledged = 0;
@@ -1820,12 +1679,12 @@ void rexmpp_bound (rexmpp_t *s,
 rexmpp_err_t rexmpp_stream_bind (rexmpp_t *s) {
   /* Issue a bind request. */
   s->stream_state = REXMPP_STREAM_BIND;
-  xmlNodePtr bind_cmd = xmlNewNode(NULL, "bind");
-  xmlNewNs(bind_cmd, "urn:ietf:params:xml:ns:xmpp-bind", NULL);
+  rexmpp_xml_t *bind_cmd =
+    rexmpp_xml_new_elem("bind", "urn:ietf:params:xml:ns:xmpp-bind");
   return rexmpp_iq_new(s, "set", NULL, bind_cmd, rexmpp_bound, NULL);
 }
 
-rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
+rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
   rexmpp_console_on_recv(s, elem);
 
   /* Stream negotiation,
@@ -1835,22 +1694,23 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
 
       /* Remember features. */
       if (s->stream_features != NULL) {
-        xmlFreeNode(s->stream_features);
+        rexmpp_xml_free(s->stream_features);
       }
-      s->stream_features = xmlCopyNode(elem, 1);
+      s->stream_features = rexmpp_xml_clone(elem);
 
       /* TODO: check for required features properly here. Currently
          assuming that STARTTLS, SASL, and BIND (with an exception for
          SM) are always required if they are present. */
-      xmlNodePtr starttls =
+      rexmpp_xml_t *starttls =
         rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-tls",
                               "starttls");
-      xmlNodePtr sasl =
+      rexmpp_xml_t *sasl =
         rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                               "mechanisms");
-      xmlNodePtr bind =
+      rexmpp_xml_t *bind =
         rexmpp_xml_find_child(elem, "urn:ietf:params:xml:ns:xmpp-bind", "bind");
-      xmlNodePtr sm = rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
+      rexmpp_xml_t *sm =
+        rexmpp_xml_find_child(elem, "urn:xmpp:sm:3", "sm");
 
       if (starttls != NULL) {
         /* Go for TLS, unless we're both trying to avoid it, and have
@@ -1858,8 +1718,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         if (! (s->tls_policy == REXMPP_TLS_AVOID &&
                (sasl != NULL || bind != NULL || sm != NULL))) {
           s->stream_state = REXMPP_STREAM_STARTTLS;
-          xmlNodePtr starttls_cmd = xmlNewNode(NULL, "starttls");
-          xmlNewNs(starttls_cmd, "urn:ietf:params:xml:ns:xmpp-tls", NULL);
+          rexmpp_xml_t *starttls_cmd =
+            rexmpp_xml_new_elem("starttls", "urn:ietf:params:xml:ns:xmpp-tls");
           rexmpp_send(s, starttls_cmd);
           return REXMPP_SUCCESS;
         }
@@ -1873,7 +1733,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       }
 
       /* Nothing to negotiate. */
-      if (xmlFirstElementChild(elem) == NULL) {
+      if (rexmpp_xml_first_elem_child(elem) == NULL) {
         rexmpp_stream_is_ready(s);
         return REXMPP_SUCCESS;
       }
@@ -1883,18 +1743,17 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         s->sasl_state = REXMPP_SASL_NEGOTIATION;
         char mech_list[2048];   /* todo: perhaps grow it dynamically */
         mech_list[0] = '\0';
-        xmlNodePtr mechanism;
-        for (mechanism = xmlFirstElementChild(sasl);
+        rexmpp_xml_t *mechanism;
+        for (mechanism = rexmpp_xml_first_elem_child(sasl);
              mechanism != NULL;
-             mechanism = xmlNextElementSibling(mechanism)) {
+             mechanism = rexmpp_xml_next_elem_sibling(mechanism)) {
           if (rexmpp_xml_match(mechanism, "urn:ietf:params:xml:ns:xmpp-sasl",
                                "mechanism")) {
-            char *mech_str = xmlNodeGetContent(mechanism);
+            const char *mech_str = rexmpp_xml_text_child(mechanism);
             snprintf(mech_list + strlen(mech_list),
                      2048 - strlen(mech_list),
                      "%s ",
                      mech_str);
-            free(mech_str);
           }
         }
         const char *mech = rexmpp_sasl_suggest_mechanism(s, mech_list);
@@ -1913,10 +1772,10 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           s->sasl_state = REXMPP_SASL_ERROR;
           return REXMPP_E_SASL;
         }
-        xmlNodePtr auth_cmd = xmlNewNode(NULL, "auth");
-        xmlNewProp(auth_cmd, "mechanism", mech);
-        xmlNewNs(auth_cmd, "urn:ietf:params:xml:ns:xmpp-sasl", NULL);
-        xmlNodeAddContent(auth_cmd, sasl_buf);
+        rexmpp_xml_t *auth_cmd =
+          rexmpp_xml_new_elem("auth", "urn:ietf:params:xml:ns:xmpp-sasl");
+        rexmpp_xml_add_attr(auth_cmd, "mechanism", mech);
+        rexmpp_xml_add_text(auth_cmd, sasl_buf);
         free(sasl_buf);
         rexmpp_send(s, auth_cmd);
         return REXMPP_SUCCESS;
@@ -1926,10 +1785,10 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         s->stream_state = REXMPP_STREAM_SM_RESUME;
         char buf[11];
         snprintf(buf, 11, "%u", s->stanzas_in_count);
-        xmlNodePtr sm_resume = xmlNewNode(NULL, "resume");
-        xmlNewNs(sm_resume, "urn:xmpp:sm:3", NULL);
-        xmlNewProp(sm_resume, "previd", s->stream_id);
-        xmlNewProp(sm_resume, "h", buf);
+        rexmpp_xml_t *sm_resume =
+          rexmpp_xml_new_elem("resume", "urn:xmpp:sm:3");
+        rexmpp_xml_add_attr(sm_resume, "previd", s->stream_id);
+        rexmpp_xml_add_attr(sm_resume, "h", buf);
         rexmpp_send(s, sm_resume);
         return REXMPP_SUCCESS;
       }
@@ -1938,7 +1797,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         return rexmpp_stream_bind(s);
       }
     } else {
-      rexmpp_log(s, LOG_ERR, "Expected stream features, received %s", elem->name);
+      rexmpp_log(s, LOG_ERR, "Expected stream features, received %s",
+                 elem->alt.elem.qname.name);
       return REXMPP_E_STREAM;
     }
   }
@@ -1948,18 +1808,18 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
      should cancel further processing by the library (so we can send
      errors for unhandled IQs here). */
   if (rexmpp_xml_match(elem, "jabber:client", "iq")) {
-    char *type = xmlGetProp(elem, "type");
+    const char *type = rexmpp_xml_find_attr_val(elem, "type");
     /* IQ responses. */
     if (strcmp(type, "result") == 0 || strcmp(type, "error") == 0) {
-      char *id = xmlGetProp(elem, "id");
+      const char *id = rexmpp_xml_find_attr_val(elem, "id");
       rexmpp_iq_t *req = s->active_iq, *prev_req = NULL;
       int found = 0;
       while (req != NULL && found == 0) {
-        char *req_id = xmlGetProp(req->request, "id");
-        char *req_to = xmlGetProp(req->request, "to");
-        char *rep_from = xmlGetProp(elem, "from");
+        const char *req_id = rexmpp_xml_find_attr_val(req->request, "id");
+        const char *req_to = rexmpp_xml_find_attr_val(req->request, "to");
+        const char *rep_from = rexmpp_xml_find_attr_val(elem, "from");
         rexmpp_iq_t *req_next = req->next;
-        int id_matches = (strcmp(id, req_id) == 0);
+        int id_matches = (req_id != NULL) && (strcmp(id, req_id) == 0);
         int jid_matches = 0;
         if (rep_from == NULL) {
           jid_matches = 1;
@@ -1981,29 +1841,20 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           /* Finish and free the IQ request structure. */
           rexmpp_iq_finish(s, req, success, elem);
         }
-        if (req_to != NULL) {
-          free(req_to);
-        }
-        if (rep_from != NULL) {
-          free(rep_from);
-        }
-        free(req_id);
         prev_req = req;
         req = req_next;
       }
-      free(id);
     } else if (! rexmpp_jingle_iq(s, elem)) {
       if (strcmp(type, "set") == 0) {
-        xmlNodePtr query = xmlFirstElementChild(elem);
+        rexmpp_xml_t *query = rexmpp_xml_first_elem_child(elem);
         int from_server = 0;
-        char *from = xmlGetProp(elem, "from");
+        const char *from = rexmpp_xml_find_attr_val(elem, "from");
         if (from == NULL) {
           from_server = 1;
         } else {
           if (strcmp(from, s->initial_jid.domain) == 0) {
             from_server = 1;
           }
-          free(from);
         }
         if (from_server &&
             s->manage_roster &&
@@ -2012,8 +1863,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           if (s->roster_ver != NULL) {
             free(s->roster_ver);
           }
-          s->roster_ver = xmlGetProp(query, "ver");
-          rexmpp_modify_roster(s, xmlFirstElementChild(query));
+          s->roster_ver = strdup(rexmpp_xml_find_attr_val(query, "ver"));
+          rexmpp_modify_roster(s, rexmpp_xml_first_elem_child(query));
           /* todo: check for errors */
           rexmpp_iq_reply(s, elem, "result", NULL);
           if (s->roster_cache_file != NULL) {
@@ -2025,9 +1876,9 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                           rexmpp_xml_error("cancel", "service-unavailable"));
         }
       } else if (strcmp(type, "get") == 0) {
-        xmlNodePtr query = xmlFirstElementChild(elem);
+        rexmpp_xml_t *query = rexmpp_xml_first_elem_child(elem);
         if (rexmpp_xml_match(query, "http://jabber.org/protocol/disco#info", "query")) {
-          char *node = xmlGetProp(query, "node");
+          const char *node = rexmpp_xml_find_attr_val(query, "node");
           char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
           if (node == NULL ||
               (caps_hash != NULL &&
@@ -2036,12 +1887,13 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                strncmp(node, s->disco_node, strlen(s->disco_node)) == 0 &&
                node[strlen(s->disco_node)] == '#' &&
                strcmp(node + strlen(s->disco_node) + 1, caps_hash) == 0)) {
-            xmlNodePtr result = xmlNewNode(NULL, "query");
-            xmlNewNs(result, "http://jabber.org/protocol/disco#info", NULL);
+            rexmpp_xml_t *result =
+              rexmpp_xml_new_elem("query", "http://jabber.org/protocol/disco#info");
             if (node != NULL) {
-              xmlNewProp(result, "node", node);
+              rexmpp_xml_add_attr(result, "node", node);
             }
-            xmlAddChild(result, xmlCopyNodeList(rexmpp_disco_info(s)));
+            rexmpp_xml_add_child(result,
+                                 rexmpp_xml_clone_list(rexmpp_disco_info(s)));
             rexmpp_iq_reply(s, elem, "result", result);
           } else {
             rexmpp_log(s, LOG_WARNING,
@@ -2052,20 +1904,17 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
           if (caps_hash != NULL) {
             free(caps_hash);
           }
-          if (node != NULL) {
-            free(node);
-          }
         } else if (rexmpp_xml_match(query, "urn:xmpp:ping", "ping")) {
           rexmpp_iq_reply(s, elem, "result", NULL);
         } else if (rexmpp_xml_match(query, "jabber:iq:version", "query")) {
-          xmlNodePtr reply = xmlNewNode(NULL, "query");
-          xmlNewNs(reply, "jabber:iq:version", NULL);
-          xmlNodePtr name = xmlNewNode(NULL, "name");
-          xmlNodeAddContent(name, s->client_name);
-          xmlAddChild(reply, name);
-          xmlNodePtr version = xmlNewNode(NULL, "version");
-          xmlNodeAddContent(version, s->client_version);
-          xmlAddChild(reply, version);
+          rexmpp_xml_t *reply =
+            rexmpp_xml_new_elem("query", "jabber:iq:version");
+          rexmpp_xml_t *name = rexmpp_xml_new_elem("name", NULL);
+          rexmpp_xml_add_text(name, s->client_name);
+          rexmpp_xml_add_child(reply, name);
+          rexmpp_xml_t *version = rexmpp_xml_new_elem("version", NULL);
+          rexmpp_xml_add_text(version, s->client_version);
+          rexmpp_xml_add_child(reply, version);
           rexmpp_iq_reply(s, elem, "result", reply);
         } else {
           /* An unknown request. */
@@ -2074,49 +1923,44 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         }
       }
     }
-    free(type);
   }
 
   /* Incoming presence information. */
   if (rexmpp_xml_match(elem, "jabber:client", "presence") &&
       s->manage_roster &&
       s->track_roster_presence) {
-    char *from = xmlGetProp(elem, "from");
+    const char *from = rexmpp_xml_find_attr_val(elem, "from");
     if (from != NULL) {
       struct rexmpp_jid from_jid;
       rexmpp_jid_parse(from, &from_jid);
-      xmlFree(from);
       if (rexmpp_roster_find_item(s, from_jid.bare, NULL) != NULL) {
         /* The bare JID is in the roster. */
-        char *type = xmlGetProp(elem, "type");
-        xmlNodePtr cur, prev;
+        const char *type = rexmpp_xml_find_attr_val(elem, "type");
+        rexmpp_xml_t *cur, *prev;
         if (type == NULL || strcmp(type, "unavailable") == 0) {
           /* Either a new "available" presence or an "unavailable"
              one: remove the previously stored presence for this
              JID. */
           for (prev = NULL, cur = s->roster_presence;
                cur != NULL;
-               prev = cur, cur = xmlNextElementSibling(cur)) {
-            char *cur_from = xmlGetProp(cur, "from");
+               prev = cur, cur = cur->next) {
+            const char *cur_from = rexmpp_xml_find_attr_val(cur, "from");
             if (strcmp(cur_from, from_jid.full) == 0) {
               if (prev == NULL) {
                 s->roster_presence = cur->next;
               } else {
                 prev->next = cur->next;
               }
-              xmlFreeNode(cur);
-              cur = NULL;
+              rexmpp_xml_free(cur);
+              break;
             }
-            free(cur_from);
           }
         }
         if (type == NULL) {
           /* An "available" presence: add it. */
-          xmlNodePtr presence = xmlCopyNode(elem, 1);
+          rexmpp_xml_t *presence = rexmpp_xml_clone(elem);
           presence->next = s->roster_presence;
           s->roster_presence = presence;
-        } else {
-          free(type);
         }
       }
     }
@@ -2124,28 +1968,27 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
 
   /* Incoming messages. */
   if (rexmpp_xml_match(elem, "jabber:client", "message")) {
-    char *from = xmlGetProp(elem, "from");
+    const char *from = rexmpp_xml_find_attr_val(elem, "from");
     if (from != NULL) {
       struct rexmpp_jid from_jid;
       rexmpp_jid_parse(from, &from_jid);
-      xmlFree(from);
       if (rexmpp_roster_find_item(s, from_jid.bare, NULL) != NULL ||
           strcmp(from_jid.bare, s->assigned_jid.bare) == 0) {
-        xmlNodePtr event =
+        rexmpp_xml_t *event =
           rexmpp_xml_find_child(elem,
                                 "http://jabber.org/protocol/pubsub#event",
                                 "event");
         if (event != NULL && s->manage_roster && s->track_roster_events) {
-          xmlNodePtr items =
+          rexmpp_xml_t *items =
             rexmpp_xml_find_child(event,
                                   "http://jabber.org/protocol/pubsub#event",
                                   "items");
           if (items != NULL) {
-            char *node = xmlGetProp(items, "node");
+            const char *node = rexmpp_xml_find_attr_val(items, "node");
             if (node != NULL) {
               /* Remove the previously stored items for the same sender
                  and node, if any. */
-              xmlNodePtr prev, cur;
+              rexmpp_xml_t *prev, *cur;
               cur = rexmpp_find_event(s, from_jid.bare, node, &prev);
               if (cur) {
                 if (prev == NULL) {
@@ -2153,12 +1996,12 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
                 } else {
                   prev->next = cur->next;
                 }
-                xmlFreeNode(cur);
+                rexmpp_xml_free(cur);
                 cur = NULL;
               }
 
               /* Add the new message. */
-              xmlNodePtr message = xmlCopyNode(elem, 1);
+              rexmpp_xml_t *message = rexmpp_xml_clone(elem);
               message->next = s->roster_events;
               s->roster_events = message;
 
@@ -2170,56 +2013,54 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
               if (s->autojoin_bookmarked_mucs &&
                   strcmp(node, "urn:xmpp:bookmarks:1") == 0 &&
                   strcmp(from_jid.bare, s->assigned_jid.bare) == 0) {
-                xmlNodePtr item;
-                for (item = xmlFirstElementChild(items);
+                rexmpp_xml_t *item;
+                for (item = rexmpp_xml_first_elem_child(items);
                      item != NULL;
-                     item = xmlNextElementSibling(item)) {
-                  xmlNodePtr conference =
+                     item = rexmpp_xml_next_elem_sibling(item)) {
+                  rexmpp_xml_t *conference =
                     rexmpp_xml_find_child(item,
                                           "urn:xmpp:bookmarks:1",
                                           "conference");
                   if (conference == NULL) {
                     continue;
                   }
-                  char *item_id = xmlGetProp(item, "id");
+                  const char *item_id = rexmpp_xml_find_attr_val(item, "id");
                   if (item_id == NULL) {
                     continue;
                   }
-                  char *autojoin = xmlGetProp(conference, "autojoin");
+                  const char *autojoin = rexmpp_xml_find_attr_val(conference, "autojoin");
                   if (autojoin == NULL) {
-                    free(item_id);
                     continue;
                   }
                   if (strcmp(autojoin, "true") == 0 ||
                       strcmp(autojoin, "1") == 0) {
-                    xmlNodePtr presence =
-                      rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-                    xmlNewProp(presence, "from", s->assigned_jid.full);
-                    xmlNodePtr nick =
+                    rexmpp_xml_t *presence =
+                      rexmpp_xml_new_elem("presence", "jabber:client");
+                    rexmpp_xml_add_id(s, presence);
+                    rexmpp_xml_add_attr(presence, "from",
+                                             s->assigned_jid.full);
+                    rexmpp_xml_t *nick =
                       rexmpp_xml_find_child(conference,
                                             "urn:xmpp:bookmarks:1",
                                             "nick");
-                    char *nick_str;
+                    const char *nick_str;
                     if (nick != NULL) {
-                      nick_str = xmlNodeGetContent(nick);
+                      nick_str = rexmpp_xml_text_child(nick);
                     } else {
-                      nick_str = strdup(s->initial_jid.local);
+                      nick_str = s->initial_jid.local;
                     }
                     char *jid = malloc(strlen(item_id) + strlen(nick_str) + 2);
                     sprintf(jid, "%s/%s", item_id, nick_str);
-                    free(nick_str);
-                    xmlNewProp(presence, "to", jid);
+                    rexmpp_xml_add_attr(presence, "to", jid);
                     free(jid);
-                    xmlNodePtr x = xmlNewNode(NULL, "x");
-                    xmlNewNs(x, "http://jabber.org/protocol/muc", NULL);
-                    xmlAddChild(presence, x);
+                    rexmpp_xml_t *x =
+                      rexmpp_xml_new_elem("x",
+                                          "http://jabber.org/protocol/muc");
+                    rexmpp_xml_add_child(presence, x);
                     rexmpp_send(s, presence);
                   }
-                  free(item_id);
-                  free(autojoin);
                 }
               }
-              free(node);
             }
           }
         }
@@ -2264,23 +2105,21 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
     int sasl_err;
     if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                          "challenge")) {
-      char *challenge = xmlNodeGetContent(elem);
+      const char *challenge = rexmpp_xml_text_child(elem);
       sasl_err = rexmpp_sasl_step64 (s, challenge, (char**)&sasl_buf);
-      free(challenge);
       if (sasl_err) {
         s->sasl_state = REXMPP_SASL_ERROR;
         return REXMPP_E_SASL;
       }
-      xmlNodePtr response = xmlNewNode(NULL, "response");
-      xmlNewNs(response, "urn:ietf:params:xml:ns:xmpp-sasl", NULL);
-      xmlNodeAddContent(response, sasl_buf);
+      rexmpp_xml_t *response =
+        rexmpp_xml_new_elem("response", "urn:ietf:params:xml:ns:xmpp-sasl");
+      rexmpp_xml_add_text(response, sasl_buf);
       free(sasl_buf);
-      return rexmpp_send(s, response);
+      rexmpp_send(s, response);
     } else if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                                 "success")) {
-      char *success = xmlNodeGetContent(elem);
+      const char *success = rexmpp_xml_text_child(elem);
       sasl_err = rexmpp_sasl_step64 (s, success, (char**)&sasl_buf);
-      free(success);
       free(sasl_buf);
       if (! sasl_err) {
         rexmpp_log(s, LOG_DEBUG, "SASL success");
@@ -2303,20 +2142,19 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
   if (s->stream_state == REXMPP_STREAM_SM_FULL) {
     if (rexmpp_xml_match(elem, "urn:xmpp:sm:3", "enabled")) {
       s->sm_state = REXMPP_SM_ACTIVE;
-      char *resume = xmlGetProp(elem, "resume");
+      const char *resume = rexmpp_xml_find_attr_val(elem, "resume");
       if (resume != NULL) {
         if (s->stream_id != NULL) {
           free(s->stream_id);
         }
-        s->stream_id = xmlGetProp(elem, "id");
-        xmlFree(resume);
+        s->stream_id = strdup(rexmpp_xml_find_attr_val(elem, "id"));
       }
       rexmpp_stream_is_ready(s);
     } else if (rexmpp_xml_match(elem, "urn:xmpp:sm:3", "failed")) {
       s->stream_state = REXMPP_STREAM_SM_ACKS;
       s->sm_state = REXMPP_SM_NEGOTIATION;
-      xmlNodePtr sm_enable = xmlNewNode(NULL, "enable");
-      xmlNewNs(sm_enable, "urn:xmpp:sm:3", NULL);
+      rexmpp_xml_t *sm_enable =
+        rexmpp_xml_new_elem("enable", "urn:xmpp:sm:3");
       rexmpp_send(s, sm_enable);
     }
   } else if (s->stream_state == REXMPP_STREAM_SM_ACKS) {
@@ -2328,8 +2166,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
       }
     } else if (rexmpp_xml_match(elem, "urn:xmpp:sm:3", "failed")) {
       s->sm_state = REXMPP_SM_INACTIVE;
-      xmlNodePtr sm_enable = xmlNewNode(NULL, "enable");
-      xmlNewNs(sm_enable, "urn:xmpp:sm:3", NULL);
+      rexmpp_xml_t *sm_enable =
+        rexmpp_xml_new_elem("enable", "urn:xmpp:sm:3");
       rexmpp_send(s, sm_enable);
     }
     rexmpp_stream_is_ready(s);
@@ -2350,7 +2188,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, xmlNodePtr elem) {
         s->active_iq = next;
         rexmpp_iq_finish(s, iq, 0, NULL);
       }
-      xmlNodePtr child =
+      rexmpp_xml_t *child =
         rexmpp_xml_find_child(s->stream_features,
                               "urn:ietf:params:xml:ns:xmpp-bind",
                               "bind");
@@ -2475,12 +2313,16 @@ rexmpp_err_t rexmpp_close (rexmpp_t *s) {
 }
 
 rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
-  s->stream_state = REXMPP_STREAM_CLOSE_REQUESTED;
   if (s->stream_state == REXMPP_STREAM_READY) {
-    xmlNodePtr presence = rexmpp_xml_add_id(s, xmlNewNode(NULL, "presence"));
-    xmlNewProp(presence, "type", "unavailable");
+    rexmpp_xml_t *presence =
+      rexmpp_xml_new_elem("presence", "jabber:client");
+    rexmpp_xml_add_id(s, presence);
+    rexmpp_xml_add_attr(presence, "type", "unavailable");
     rexmpp_send(s, presence);
   }
+
+  s->stream_state = REXMPP_STREAM_CLOSE_REQUESTED;
+
   if (s->sm_state == REXMPP_SM_ACTIVE) {
     int ret = rexmpp_sm_ack(s);
     if (ret > REXMPP_E_AGAIN) {
@@ -2642,8 +2484,8 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       s->last_network_activity + s->ping_delay <= time(NULL)) {
     if (s->ping_requested == 0) {
       s->ping_requested = 1;
-      xmlNodePtr ping_cmd = xmlNewNode(NULL, "ping");
-      xmlNewNs(ping_cmd, "urn:xmpp:ping", NULL);
+      rexmpp_xml_t *ping_cmd =
+        rexmpp_xml_new_elem("ping", "urn:xmpp:ping");
       rexmpp_iq_new(s, "get", s->initial_jid.domain,
                     ping_cmd, rexmpp_pong, NULL);
     } else {

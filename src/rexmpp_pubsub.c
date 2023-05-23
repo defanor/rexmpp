@@ -7,25 +7,22 @@
 */
 
 #include "rexmpp.h"
+#include "rexmpp_xml.h"
 
 void
 rexmpp_pubsub_iq (rexmpp_t *s,
                   const char *iq_type,
                   const char *pubsub_namespace,
                   const char *service_jid,
-                  xmlNodePtr payload,
+                  rexmpp_xml_t *payload,
                   rexmpp_iq_callback_t callback,
                   void *cb_data)
 {
-  xmlNodePtr pubsub = xmlNewNode(NULL, "pubsub");
   if (pubsub_namespace == NULL) {
-    xmlNewNs(pubsub, "http://jabber.org/protocol/pubsub", NULL);
-  } else {
-    xmlNewNs(pubsub, pubsub_namespace, NULL);
+    pubsub_namespace = "http://jabber.org/protocol/pubsub";
   }
-
-  xmlAddChild(pubsub, payload);
-
+  rexmpp_xml_t *pubsub = rexmpp_xml_new_elem("pubsub", pubsub_namespace);
+  rexmpp_xml_add_child(pubsub, payload);
   rexmpp_iq_new(s, iq_type, service_jid, pubsub, callback, cb_data);
 }
 
@@ -34,21 +31,21 @@ rexmpp_pubsub_item_publish (rexmpp_t *s,
                             const char *service_jid,
                             const char *node,
                             const char *item_id,
-                            xmlNodePtr payload,
+                            rexmpp_xml_t *payload,
                             rexmpp_iq_callback_t callback,
                             void *cb_data)
 {
-  xmlNodePtr item = xmlNewNode(NULL, "item");
-  xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
+  rexmpp_xml_t *item =
+    rexmpp_xml_new_elem("item", "http://jabber.org/protocol/pubsub");
   if (item_id != NULL) {
-    xmlNewProp(item, "id", item_id);
+    rexmpp_xml_add_attr(item, "id", item_id);
   }
-  xmlAddChild(item, payload);
+  rexmpp_xml_add_child(item, payload);
 
-  xmlNodePtr publish = xmlNewNode(NULL, "publish");
-  xmlNewNs(publish, "http://jabber.org/protocol/pubsub", NULL);
-  xmlNewProp(publish, "node", node);
-  xmlAddChild(publish, item);
+  rexmpp_xml_t *publish =
+    rexmpp_xml_new_elem("publish", "http://jabber.org/protocol/pubsub");
+  rexmpp_xml_add_attr(publish, "node", node);
+  rexmpp_xml_add_child(publish, item);
 
   rexmpp_pubsub_iq(s, "set", NULL, service_jid, publish, callback, cb_data);
 }
@@ -61,16 +58,16 @@ rexmpp_pubsub_item_retract (rexmpp_t *s,
                             rexmpp_iq_callback_t callback,
                             void *cb_data)
 {
-  xmlNodePtr item = xmlNewNode(NULL, "item");
-  xmlNewNs(item, "http://jabber.org/protocol/pubsub", NULL);
+  rexmpp_xml_t *item =
+    rexmpp_xml_new_elem("item", "http://jabber.org/protocol/pubsub");
   if (item_id != NULL) {
-    xmlNewProp(item, "id", item_id);
+    rexmpp_xml_add_attr(item, "id", item_id);
   }
 
-  xmlNodePtr retract = xmlNewNode(NULL, "retract");
-  xmlNewNs(retract, "http://jabber.org/protocol/pubsub", NULL);
-  xmlNewProp(retract, "node", node);
-  xmlAddChild(retract, item);
+  rexmpp_xml_t *retract =
+    rexmpp_xml_new_elem("retract", "http://jabber.org/protocol/pubsub");
+  rexmpp_xml_add_attr(retract, "node", node);
+  rexmpp_xml_add_child(retract, item);
 
   rexmpp_pubsub_iq(s, "set", NULL, service_jid, retract, callback, cb_data);
 }
@@ -82,9 +79,9 @@ rexmpp_pubsub_node_delete (rexmpp_t *s,
                            rexmpp_iq_callback_t callback,
                            void *cb_data)
 {
-  xmlNodePtr delete = xmlNewNode(NULL, "delete");
-  xmlNewNs(delete, "http://jabber.org/protocol/pubsub#owner", NULL);
-  xmlNewProp(delete, "node", node);
+  rexmpp_xml_t *delete =
+    rexmpp_xml_new_elem("delete", "http://jabber.org/protocol/pubsub#owner");
+  rexmpp_xml_add_attr(delete, "node", node);
 
   rexmpp_pubsub_iq(s, "set", "http://jabber.org/protocol/pubsub#owner",
                    service_jid, delete, callback, cb_data);

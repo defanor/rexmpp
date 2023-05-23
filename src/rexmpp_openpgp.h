@@ -29,7 +29,7 @@ enum rexmpp_ox_mode {
 rexmpp_err_t
 rexmpp_openpgp_check_keys (rexmpp_t *s,
                            const char *jid,
-                           xmlNodePtr items);
+                           rexmpp_xml_t *items);
 
 /**
    @brief Publishes a key via PEP/pubsub.
@@ -52,7 +52,7 @@ void rexmpp_openpgp_retract_key (rexmpp_t *s, const char *fp);
    @param[in] cipher_base64 An OpenPGP ciphertext.
    @returns A plaintext message body.
 */
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
                                const char *cipher_base64);
 
@@ -65,9 +65,9 @@ rexmpp_openpgp_decrypt_verify (rexmpp_t *s,
    valid.
    @returns A decrypted message body.
 */
-xmlNodePtr
+rexmpp_xml_t *
 rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
-                                       xmlNodePtr message,
+                                       rexmpp_xml_t *message,
                                        int *valid);
 
 /**
@@ -83,7 +83,7 @@ rexmpp_openpgp_decrypt_verify_message (rexmpp_t *s,
    @returns An encoded <openpgp> payload.
 */
 char *rexmpp_openpgp_payload (rexmpp_t *s,
-                              xmlNodePtr payload,
+                              rexmpp_xml_t *payload,
                               const char **recipients,
                               const char **signers,
                               enum rexmpp_ox_mode mode);

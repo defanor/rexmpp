@@ -53,8 +53,8 @@ A rough roadmap:
 [.] Texinfo manual.
 [.] Proper JID handling (RFC 7622).
 [+] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
-    optional usage of alternative ones. Though left libxml2 for now:
-    could reuse existing libxml2 bindings that way.
+    optional usage of alternative ones. Though only supporting libxml2
+    for XML parsing and printing for now.
 [.] Automated testing.
 [.] Alternative module implementations in Rust.
 

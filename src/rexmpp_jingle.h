@@ -24,7 +24,7 @@
 #include "rexmpp.h"
 
 /** @brief Processes incoming Jingle IQs. */
-int rexmpp_jingle_iq (rexmpp_t *s, xmlNodePtr elem);
+int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem);
 
 /** @brief Destroys Jingle sessions. */
 void rexmpp_jingle_stop (rexmpp_t *s);
@@ -45,7 +45,7 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 rexmpp_err_t
 rexmpp_jingle_session_terminate (rexmpp_t *s,
                                  const char *sid,
-                                 xmlNodePtr reason_node,
+                                 rexmpp_xml_t *reason_node,
                                  const char *reason_text);
 
 typedef struct rexmpp_jingle_component rexmpp_jingle_component_t;
@@ -79,8 +79,8 @@ struct rexmpp_jingle_component {
 struct rexmpp_jingle_session {
   char *jid;
   char *sid;
-  xmlNodePtr initiate;
-  xmlNodePtr accept;
+  rexmpp_xml_t *initiate;
+  rexmpp_xml_t *accept;
   rexmpp_jingle_session_t *next;
   /* Sessions are commonly passed to callbacks by external libraries,
      so it's convenient to have the corresponding rexmpp_t accessible
