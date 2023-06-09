@@ -91,7 +91,11 @@ void rexmpp_roster_set (rexmpp_t *s, rexmpp_xml_t *query) {
   if (s->roster_ver != NULL) {
     free(s->roster_ver);
   }
-  s->roster_ver = strdup(rexmpp_xml_find_attr_val(query, "ver"));
+  const char *roster_ver = rexmpp_xml_find_attr_val(query, "ver");
+  s->roster_ver = NULL;
+  if (roster_ver != NULL) {
+    s->roster_ver = strdup(roster_ver);
+  }
   s->roster_items = rexmpp_xml_clone_list(query->alt.elem.children);
   if (s->roster_modify_cb != NULL) {
     rexmpp_xml_t *item;

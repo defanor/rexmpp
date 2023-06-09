@@ -267,9 +267,9 @@ char *rexmpp_get_name (rexmpp_t *s, const char *jid_str) {
   if (s->manage_roster) {
     rexmpp_xml_t *roster_item = rexmpp_roster_find_item(s, jid.bare, NULL);
     if (roster_item != NULL) {
-      char *name = strdup(rexmpp_xml_find_attr_val(roster_item, "name"));
+      const char *name = rexmpp_xml_find_attr_val(roster_item, "name");
       if (name != NULL) {
-        return name;
+        return strdup(name);
       }
     }
     if (s->track_roster_events) {
@@ -1863,7 +1863,11 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
           if (s->roster_ver != NULL) {
             free(s->roster_ver);
           }
-          s->roster_ver = strdup(rexmpp_xml_find_attr_val(query, "ver"));
+          s->roster_ver = NULL;
+          const char *roster_ver = rexmpp_xml_find_attr_val(query, "ver");
+          if (roster_ver != NULL) {
+            s->roster_ver = strdup(roster_ver);
+          }
           rexmpp_modify_roster(s, rexmpp_xml_first_elem_child(query));
           /* todo: check for errors */
           rexmpp_iq_reply(s, elem, "result", NULL);
@@ -2147,7 +2151,11 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
         if (s->stream_id != NULL) {
           free(s->stream_id);
         }
-        s->stream_id = strdup(rexmpp_xml_find_attr_val(elem, "id"));
+        const char *stream_id = rexmpp_xml_find_attr_val(elem, "id");
+        s->stream_id = NULL;
+        if (stream_id != NULL) {
+          s->stream_id = strdup(stream_id);
+        }
       }
       rexmpp_stream_is_ready(s);
     } else if (rexmpp_xml_match(elem, "urn:xmpp:sm:3", "failed")) {

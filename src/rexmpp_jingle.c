@@ -1511,7 +1511,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                                   "description");
 
           if (file_description != NULL && ibb_transport != NULL) {
-            char *ibb_sid = strdup(rexmpp_xml_find_attr_val(ibb_transport, "sid"));
+            const char *ibb_sid = rexmpp_xml_find_attr_val(ibb_transport, "sid");
             if (ibb_sid != NULL) {
               rexmpp_log(s, LOG_DEBUG,
                          "Jingle session-initiate from %s, sid %s, ibb sid %s",
@@ -1521,7 +1521,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                                              REXMPP_JINGLE_SESSION_FILE, 0);
               if (sess != NULL) {
                 sess->initiate = rexmpp_xml_clone(jingle);
-                sess->ibb_sid = ibb_sid;
+                sess->ibb_sid = strdup(ibb_sid);
               } else {
                 rexmpp_jingle_session_terminate(s, sid,
                                                 rexmpp_xml_new_elem("failed-transport",
