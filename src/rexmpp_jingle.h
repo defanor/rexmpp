@@ -113,7 +113,6 @@ struct rexmpp_jingle_session {
 struct rexmpp_jingle_ctx {
 #ifdef ENABLE_CALLS
   GMainLoop* gloop;
-  gnutls_certificate_credentials_t dtls_cred;
 #endif
   rexmpp_jingle_session_t *sessions;
 };

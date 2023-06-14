@@ -53,7 +53,7 @@ rexmpp_jingle_session_by_id (rexmpp_t *s, const char *sid) {
   if (sid == NULL) {
     return NULL;
   }
-  rexmpp_jingle_session_t *cur = s->jingle.sessions;
+  rexmpp_jingle_session_t *cur = s->jingle->sessions;
   while (cur != NULL) {
     if (strcmp(cur->sid, sid) == 0) {
       return cur;
@@ -136,11 +136,11 @@ void rexmpp_jingle_session_delete (rexmpp_t *s, rexmpp_jingle_session_t *sess) {
     return;
   }
   rexmpp_log(s, LOG_DEBUG, "Removing Jingle session %s", sess->sid);
-  rexmpp_jingle_session_t *cur = s->jingle.sessions, *prev = NULL;
+  rexmpp_jingle_session_t *cur = s->jingle->sessions, *prev = NULL;
   while (cur != NULL) {
     if (sess == cur) {
       if (prev == NULL) {
-        s->jingle.sessions = cur->next;
+        s->jingle->sessions = cur->next;
       } else {
         prev->next = cur->next;
       }
@@ -158,7 +158,7 @@ void rexmpp_jingle_session_delete_by_id (rexmpp_t *s, const char *sid) {
 
 int rexmpp_jingle_session_add (rexmpp_t *s, rexmpp_jingle_session_t *sess) {
   uint32_t sessions_num = 0;
-  rexmpp_jingle_session_t *cur = s->jingle.sessions;
+  rexmpp_jingle_session_t *cur = s->jingle->sessions;
   while (cur != NULL) {
     sessions_num++;
     cur = cur->next;
@@ -169,8 +169,8 @@ int rexmpp_jingle_session_add (rexmpp_t *s, rexmpp_jingle_session_t *sess) {
     return 0;
   }
   rexmpp_log(s, LOG_DEBUG, "Adding Jingle session %s", sess->sid);
-  sess->next = s->jingle.sessions;
-  s->jingle.sessions = sess;
+  sess->next = s->jingle->sessions;
+  s->jingle->sessions = sess;
   return 1;
 }
 
@@ -231,7 +231,7 @@ rexmpp_jingle_session_by_ibb_sid (rexmpp_t *s, const char *ibb_sid) {
   if (ibb_sid == NULL) {
     return NULL;
   }
-  rexmpp_jingle_session_t *cur = s->jingle.sessions;
+  rexmpp_jingle_session_t *cur = s->jingle->sessions;
   while (cur != NULL) {
     if (cur->type == REXMPP_JINGLE_SESSION_FILE &&
         strcmp(cur->ibb_sid, ibb_sid) == 0) {
@@ -245,24 +245,27 @@ rexmpp_jingle_session_by_ibb_sid (rexmpp_t *s, const char *ibb_sid) {
 }
 
 int rexmpp_jingle_init (rexmpp_t *s) {
-  s->jingle.sessions = NULL;
+  s->jingle = malloc(sizeof(struct rexmpp_jingle_ctx));
+  s->jingle->sessions = NULL;
 #ifdef ENABLE_CALLS
   g_networking_init();
   srtp_init();
-  s->jingle.gloop = g_main_loop_new(NULL, FALSE);
+  s->jingle->gloop = g_main_loop_new(NULL, FALSE);
 #endif
   return 0;
 }
 
 void rexmpp_jingle_stop (rexmpp_t *s) {
-  while (s->jingle.sessions != NULL) {
-    rexmpp_jingle_session_delete(s, s->jingle.sessions);
+  while (s->jingle->sessions != NULL) {
+    rexmpp_jingle_session_delete(s, s->jingle->sessions);
   }
 #ifdef ENABLE_CALLS
-  g_main_loop_quit(s->jingle.gloop);
-  s->jingle.gloop = NULL;
+  g_main_loop_quit(s->jingle->gloop);
+  s->jingle->gloop = NULL;
   srtp_shutdown();
 #endif
+  free(s->jingle);
+  s->jingle = NULL;
 }
 
 
@@ -740,7 +743,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   int cert_list_size = 0;
   /* We'll need a certificate a bit later, but checking it before
      allocating other things. */
-  int err = gnutls_certificate_get_x509_crt(sess->s->jingle.dtls_cred, 0,
+  int err = gnutls_certificate_get_x509_crt(sess->s->tls->dtls_cred, 0,
                                             &cert_list, &cert_list_size);
   if (err) {
     rexmpp_log(sess->s, LOG_ERR,
@@ -1112,7 +1115,7 @@ rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
     }
     gnutls_set_default_priority(*tls_session);
     gnutls_credentials_set(*tls_session, GNUTLS_CRD_CERTIFICATE,
-                           sess->s->jingle.dtls_cred);
+                           sess->s->tls->dtls_cred);
 
     gnutls_transport_set_ptr(*tls_session, &sess->component[component_id - 1]);
     gnutls_transport_set_push_function(*tls_session, rexmpp_jingle_dtls_push_func);
@@ -1197,7 +1200,7 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
 int
 rexmpp_jingle_ice_agent_init (rexmpp_jingle_session_t *sess)
 {
-  sess->ice_agent = nice_agent_new(g_main_loop_get_context (sess->s->jingle.gloop),
+  sess->ice_agent = nice_agent_new(g_main_loop_get_context (sess->s->jingle->gloop),
                                    NICE_COMPATIBILITY_RFC5245);
   if (sess->s->local_address != NULL) {
     NiceAddress *address = nice_address_new();
@@ -1222,7 +1225,7 @@ rexmpp_jingle_ice_agent_init (rexmpp_jingle_session_t *sess)
   int i;
   for (i = 0; i < (sess->rtcp_mux ? 1 : 2); i++) {
     nice_agent_attach_recv(sess->ice_agent, sess->ice_stream_id, i + 1,
-                           g_main_loop_get_context (sess->s->jingle.gloop),
+                           g_main_loop_get_context (sess->s->jingle->gloop),
                            rexmpp_jingle_ice_recv_cb,
                            &sess->component[i]);
   }
@@ -1691,7 +1694,7 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 #ifdef ENABLE_CALLS
   gint poll_timeout;
   GPollFD poll_fds[10];
-  GMainContext* gctx = g_main_loop_get_context(s->jingle.gloop);
+  GMainContext* gctx = g_main_loop_get_context(s->jingle->gloop);
   if (g_main_context_acquire(gctx)) {
     gint poll_fds_n = g_main_context_query(gctx,
                                            G_PRIORITY_HIGH,
@@ -1713,7 +1716,7 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     }
 
     rexmpp_jingle_session_t *sess;
-    for (sess = s->jingle.sessions; sess != NULL; sess = sess->next) {
+    for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
       for (i = 0; i < 2; i++) {
         if (sess->component[i].dtls_state != REXMPP_TLS_INACTIVE &&
             sess->component[i].dtls_state != REXMPP_TLS_CLOSED &&
@@ -1757,7 +1760,7 @@ struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
 #ifdef ENABLE_CALLS
   gint poll_timeout;
   GPollFD poll_fds[10];
-  GMainContext* gctx = g_main_loop_get_context(s->jingle.gloop);
+  GMainContext* gctx = g_main_loop_get_context(s->jingle->gloop);
   if (g_main_context_acquire(gctx)) {
     g_main_context_query(gctx,
                          G_PRIORITY_HIGH,
@@ -1767,7 +1770,7 @@ struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
     g_main_context_release(gctx);
 
     rexmpp_jingle_session_t *sess;
-    for (sess = s->jingle.sessions; sess != NULL; sess = sess->next) {
+    for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
       int i;
       for (i = 0; i < 2; i++) {
         if (sess->component[i].dtls_state != REXMPP_TLS_INACTIVE &&
@@ -1817,7 +1820,7 @@ rexmpp_jingle_run (rexmpp_t *s,
   gnutls_datum_t client_key, client_salt, server_key, server_salt;
   char client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2],
     server_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2];
-  for (sess = s->jingle.sessions; sess != NULL; sess = sess->next) {
+  for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
     char input[4096 + SRTP_MAX_TRAILER_LEN];
     int input_len;
     int comp_id;
@@ -2030,7 +2033,7 @@ rexmpp_jingle_run (rexmpp_t *s,
       }
     }
   }
-  g_main_context_iteration(g_main_loop_get_context(s->jingle.gloop), 0);
+  g_main_context_iteration(g_main_loop_get_context(s->jingle->gloop), 0);
 #else
   (void)s;
   (void)read_fds;

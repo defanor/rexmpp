@@ -102,22 +102,22 @@ rexmpp_dns_result_t *result_from_hostent (struct hostent *hostinfo) {
 int rexmpp_dns_ctx_init (rexmpp_t *s) {
 #if defined(USE_UNBOUND)
   int err;
-  s->resolver.ctx = ub_ctx_create();
-  if (s->resolver.ctx == NULL) {
+  s->resolver = ub_ctx_create();
+  if (s->resolver == NULL) {
     rexmpp_log(s, LOG_CRIT, "Failed to create resolver context");
     return 1;
   }
-  err = ub_ctx_resolvconf(s->resolver.ctx, NULL);
+  err = ub_ctx_resolvconf(s->resolver, NULL);
   if (err != 0) {
     rexmpp_log(s, LOG_WARNING, "Failed to read resolv.conf: %s",
                ub_strerror(err));
   }
-  err = ub_ctx_hosts(s->resolver.ctx, NULL);
+  err = ub_ctx_hosts(s->resolver, NULL);
   if (err != 0) {
     rexmpp_log(s, LOG_WARNING, "Failed to read hosts file: %s",
                ub_strerror(err));
   }
-  err = ub_ctx_add_ta_file(s->resolver.ctx, DNSSEC_TRUST_ANCHOR_FILE);
+  err = ub_ctx_add_ta_file(s->resolver, DNSSEC_TRUST_ANCHOR_FILE);
   if (err != 0) {
     rexmpp_log(s, LOG_WARNING, "Failed to set root key file for DNSSEC: %s",
                ub_strerror(err));
@@ -130,7 +130,7 @@ int rexmpp_dns_ctx_init (rexmpp_t *s) {
                ares_strerror(err));
     return 1;
   }
-  err = ares_init(&(s->resolver.channel));
+  err = ares_init(&(s->resolver));
   if (err) {
     rexmpp_log(s, LOG_CRIT, "ares channel initialisation error: %s",
                ares_strerror(err));
@@ -139,7 +139,7 @@ int rexmpp_dns_ctx_init (rexmpp_t *s) {
   }
   return 0;
 #else
-  (void)s;
+  s->resolver = NULL;
   return 0;
 #endif
 }
@@ -151,12 +151,15 @@ void rexmpp_dns_ctx_cleanup (rexmpp_t *s) {
 
 void rexmpp_dns_ctx_deinit (rexmpp_t *s) {
 #if defined(USE_UNBOUND)
-  if (s->resolver.ctx != NULL) {
-    ub_ctx_delete(s->resolver.ctx);
-    s->resolver.ctx = NULL;
+  if (s->resolver != NULL) {
+    ub_ctx_delete(s->resolver);
+    s->resolver = NULL;
   }
 #elif defined(USE_CARES)
-  ares_destroy(s->resolver.channel);
+  if (s->resolver != NULL) {
+    ares_destroy(s->resolver);
+    s->resolver = NULL;
+  }
   ares_library_cleanup();
 #else
   (void)s;
@@ -166,13 +169,13 @@ void rexmpp_dns_ctx_deinit (rexmpp_t *s) {
 int rexmpp_dns_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 #if defined(USE_UNBOUND)
   (void)write_fds;
-  int max_fd = ub_fd(s->resolver.ctx) + 1;
+  int max_fd = ub_fd(s->resolver) + 1;
   if (max_fd != 0) {
     FD_SET(max_fd - 1, read_fds);
   }
   return max_fd;
 #elif defined(USE_CARES)
-  return ares_fds(s->resolver.channel, read_fds, write_fds);
+  return ares_fds(s->resolver, read_fds, write_fds);
 #else
   (void)s;
   (void)read_fds;
@@ -197,7 +200,7 @@ struct timespec * rexmpp_dns_timeout (rexmpp_t *s,
     tv_ms.tv_sec = tv->tv_sec;
     tv_ms.tv_usec = tv->tv_nsec / 1000;
   }
-  struct timeval *ret_ms = ares_timeout(s->resolver.channel, max_tv_ms, &tv_ms);
+  struct timeval *ret_ms = ares_timeout(s->resolver, max_tv_ms, &tv_ms);
   if (ret_ms == max_tv_ms) {
     return max_tv;
   } else {
@@ -349,7 +352,7 @@ int rexmpp_dns_resolve (rexmpp_t *s,
   d->s = s;
   d->cb = callback;
   d->ptr = ptr;
-  int err = ub_resolve_async(s->resolver.ctx, query, rrtype, rrclass,
+  int err = ub_resolve_async(s->resolver, query, rrtype, rrclass,
                              d, rexmpp_dns_cb, NULL);
   if (err) {
     rexmpp_log(s, LOG_ERR, "Failed to query %s: %s",
@@ -362,7 +365,7 @@ int rexmpp_dns_resolve (rexmpp_t *s,
   d->s = s;
   d->cb = callback;
   d->ptr = ptr;
-  ares_query(s->resolver.channel, query, rrclass, rrtype, rexmpp_dns_cb, d);
+  ares_query(s->resolver, query, rrclass, rrtype, rexmpp_dns_cb, d);
 #else
   if (rrclass == 1) {
     if (rrtype == 1 || rrtype == 28) {
@@ -395,8 +398,8 @@ int rexmpp_dns_process (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 #if defined(USE_UNBOUND)
   (void)read_fds;
   (void)write_fds;
-  if (ub_poll(s->resolver.ctx)) {
-    int err = ub_process(s->resolver.ctx);
+  if (ub_poll(s->resolver)) {
+    int err = ub_process(s->resolver);
     if (err != 0) {
       rexmpp_log(s, LOG_ERR, "DNS query processing error: %s",
                  ub_strerror(err));
@@ -405,7 +408,7 @@ int rexmpp_dns_process (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   }
   return 0;
 #elif defined(USE_CARES)
-  ares_process(s->resolver.channel, read_fds, write_fds);
+  ares_process(s->resolver, read_fds, write_fds);
   return 0;
 #else
   (void)s;

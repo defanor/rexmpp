@@ -21,21 +21,21 @@
 */
 #if defined(USE_UNBOUND)
 #include <unbound.h>
-struct rexmpp_dns_ctx {
-  struct ub_ctx *ctx;
-};
+typedef struct ub_ctx* rexmpp_dns_ctx_t;
+/* struct rexmpp_dns_ctx { */
+/*   struct ub_ctx *ctx; */
+/* }; */
 #elif defined(USE_CARES)
 #include <ares.h>
-struct rexmpp_dns_ctx {
-  ares_channel channel;
-};
+typedef ares_channel rexmpp_dns_ctx_t;
+/* struct rexmpp_dns_ctx { */
+/*   ares_channel channel; */
+/* }; */
 #else
-struct rexmpp_dns_ctx {
-  int dummy;
-};
+typedef void* rexmpp_dns_ctx_t;
 #endif
 
-typedef struct rexmpp_dns_ctx rexmpp_dns_ctx_t;
+/* typedef struct rexmpp_dns_ctx rexmpp_dns_ctx_t; */
 
 struct rexmpp_dns_srv {
   uint16_t priority;

@@ -318,7 +318,7 @@ struct rexmpp
   rexmpp_xml_t *iq_cache;
 
   /* Jingle context. */
-  rexmpp_jingle_ctx_t jingle;
+  rexmpp_jingle_ctx_t *jingle;
 
   /* Connection and stream management. */
   unsigned int reconnect_number;
@@ -377,19 +377,23 @@ struct rexmpp
   xmlNodePtr input_queue_last;
 
   /* TLS structures. */
-  rexmpp_tls_t tls;
+  rexmpp_tls_t *tls;
 
   /* SASL structures. */
-  rexmpp_sasl_ctx_t sasl;
+  rexmpp_sasl_ctx_t *sasl;
 
   /* OpenPGP structures */
 #ifdef HAVE_GPGME
   gpgme_ctx_t pgp_ctx;
+#else
+  void *pgp_ctx;
 #endif
 
   /* curl structures */
 #ifdef HAVE_CURL
   CURLM *curl_multi;
+#else
+  void *curl_multi;
 #endif
 };
 

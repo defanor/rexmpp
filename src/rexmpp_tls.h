@@ -43,6 +43,7 @@ struct rexmpp_tls {
   size_t tls_session_data_size;
   gnutls_session_t gnutls_session;
   gnutls_certificate_credentials_t gnutls_cred;
+  gnutls_certificate_credentials_t dtls_cred;
 };
 #elif defined(USE_OPENSSL)
 #include <openssl/ssl.h>

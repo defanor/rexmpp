@@ -670,6 +670,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     xmlFreeParserCtxt(s->xml_parser);
     return REXMPP_E_PGP;
   }
+#else
+  s->pgp_ctx = NULL;
 #endif
 #ifdef HAVE_CURL
   if (curl_global_init(CURL_GLOBAL_ALL) != 0) {
@@ -680,6 +682,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_log(s, LOG_CRIT, "Failed to initialize curl_multi");
     /* todo: free other structures and fail */
   }
+#else
+  s->curl_multi = NULL;
 #endif
 
   return REXMPP_SUCCESS;
