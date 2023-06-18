@@ -40,13 +40,13 @@ librexmpp_la_LIBADD = $(LIBXML_LIBS) \
 librexmpp_la_LDFLAGS = []
 
 if USE_RUST
-librexmpp_rust_a_SOURCES = rexmpp_socks.rs
-noinst_LIBRARIES = librexmpp_rust.a
-librexmpp_la_LIBADD += librexmpp_rust.a
+target_debug_librexmpp_rust_a_SOURCES = rexmpp_rust.rs rexmpp_socks.rs rexmpp_xml.rs
+noinst_LIBRARIES = target/debug/librexmpp_rust.a
+librexmpp_la_LIBADD += target/debug/librexmpp_rust.a
 librexmpp_la_LDFLAGS += -L. -lpthread -ldl
 
-librexmpp_rust.a: $(librexmpp_rust_a_SOURCES)
-	rustc --crate-type=staticlib -o $@ $(librexmpp_rust_a_SOURCES)
+target/debug/librexmpp_rust.a: $(target_debug_librexmpp_rust_a_SOURCES)
+	$(CARGO) build
 
 else
 librexmpp_la_SOURCES += rexmpp_socks.h rexmpp_socks.c

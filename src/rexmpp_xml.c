@@ -12,6 +12,7 @@
 #include "rexmpp.h"
 #include "rexmpp_xml.h"
 
+#ifndef USE_RUST
 void rexmpp_xml_qname_free (rexmpp_xml_qname_t *qname) {
   if (qname->name != NULL) {
     free(qname->name);
@@ -116,7 +117,7 @@ rexmpp_xml_t *rexmpp_xml_clone_list (rexmpp_xml_t *node) {
     }
   return first;
 }
-
+#endif
 
 rexmpp_xml_t *rexmpp_xml_from_libxml2 (xmlNodePtr from) {
   if (from == NULL) {
@@ -244,6 +245,7 @@ xmlNodePtr rexmpp_xml_to_libxml2_list (rexmpp_xml_t *from) {
   return to;
 }
 
+#ifndef USE_RUST
 rexmpp_xml_t *rexmpp_xml_new_text (const char *str) {
   rexmpp_xml_t *node = malloc(sizeof(rexmpp_xml_t));
   node->type = REXMPP_XML_TEXT;
@@ -272,7 +274,6 @@ int rexmpp_xml_add_text (rexmpp_xml_t *node,
   }
   return -1;
 }
-
 
 rexmpp_xml_t *rexmpp_xml_new_elem (const char *name,
                                    const char *namespace)
@@ -308,9 +309,9 @@ rexmpp_xml_attr_t *rexmpp_xml_attr_new (const char *name,
 }
 
 int rexmpp_xml_add_attr_ns (rexmpp_xml_t *node,
-                                 const char *name,
-                                 const char *namespace,
-                                 const char *value)
+                            const char *name,
+                            const char *namespace,
+                            const char *value)
 {
   if (node == NULL || node->type != REXMPP_XML_ELEMENT) {
     return -1;
@@ -323,8 +324,8 @@ int rexmpp_xml_add_attr_ns (rexmpp_xml_t *node,
 }
 
 int rexmpp_xml_remove_attr_ns (rexmpp_xml_t *node,
-                                    const char *name,
-                                    const char *namespace) {
+                               const char *name,
+                               const char *namespace) {
   if (node == NULL || node->type != REXMPP_XML_ELEMENT) {
     return -1;
   }
@@ -342,16 +343,17 @@ int rexmpp_xml_remove_attr_ns (rexmpp_xml_t *node,
 }
 
 int rexmpp_xml_add_attr (rexmpp_xml_t *node,
-                              const char *name,
-                              const char *value)
+                         const char *name,
+                         const char *value)
 {
   return rexmpp_xml_add_attr_ns(node, name, NULL, value);
 }
 
 int rexmpp_xml_remove_attr (rexmpp_xml_t *node,
-                                 const char *name) {
+                            const char *name) {
   return rexmpp_xml_remove_attr_ns(node, name, NULL);
 }
+#endif
 
 rexmpp_xml_t *
 rexmpp_xml_add_id (rexmpp_t *s,
@@ -416,6 +418,7 @@ int rexmpp_xml_write_file (const char *path, rexmpp_xml_t* node) {
   return 0;
 }
 
+#ifndef USE_RUST
 unsigned int rexmpp_xml_siblings_count (rexmpp_xml_t *node) {
   unsigned int i = 0;
   for (i = 0; node != NULL; i++) {
@@ -538,6 +541,7 @@ rexmpp_xml_find_child (rexmpp_xml_t *node,
   }
   return NULL;
 }
+#endif
 
 int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
   /* Just serialize and compare strings for now: awkward, but
@@ -550,6 +554,7 @@ int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
   return eq;
 }
 
+#ifndef USE_RUST
 rexmpp_xml_t *rexmpp_xml_children (rexmpp_xml_t *node) {
   if (node != NULL && node->type == REXMPP_XML_ELEMENT) {
     return node->alt.elem.children;
@@ -580,13 +585,14 @@ rexmpp_xml_t *rexmpp_xml_next_elem_sibling (rexmpp_xml_t *node) {
   return NULL;
 }
 
-const char *rexmpp_xml_text (rexmpp_xml_t *node) {
+char *rexmpp_xml_text (rexmpp_xml_t *node) {
   if (node != NULL && node->type == REXMPP_XML_TEXT) {
     return node->alt.text;
   }
   return NULL;
 }
 
-const char *rexmpp_xml_text_child (rexmpp_xml_t *node) {
+char *rexmpp_xml_text_child (rexmpp_xml_t *node) {
   return rexmpp_xml_text(rexmpp_xml_children(node));
 }
+#endif

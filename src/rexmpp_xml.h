@@ -47,6 +47,10 @@ struct rexmpp_xml_node {
 };
 
 
+void rexmpp_xml_qname_free (rexmpp_xml_qname_t *qname);
+void rexmpp_xml_attribute_free (rexmpp_xml_attr_t *attr);
+void rexmpp_xml_attribute_free_list (rexmpp_xml_attr_t *attr);
+
 /**
    @brief Frees a single XML node. Does not free its siblings.
 */
@@ -205,9 +209,9 @@ rexmpp_xml_t *rexmpp_xml_find_child (rexmpp_xml_t *node,
 
 rexmpp_xml_t *rexmpp_xml_children (rexmpp_xml_t *node);
 
-const char *rexmpp_xml_text (rexmpp_xml_t *node);
+char *rexmpp_xml_text (rexmpp_xml_t *node);
 
-const char *rexmpp_xml_text_child (rexmpp_xml_t *node);
+char *rexmpp_xml_text_child (rexmpp_xml_t *node);
 
 rexmpp_xml_t *rexmpp_xml_first_elem_child (rexmpp_xml_t *node);
 

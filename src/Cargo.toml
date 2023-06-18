@@ -1,0 +1,15 @@
+[package]
+name = "rexmpp_rust"
+version = "0.1.0"
+authors = ["defanor <defanor@uberspace.net>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "rexmpp_rust"
+crate-type = ["staticlib"]
+path = "rexmpp_rust.rs"
+
+[dependencies]
+libc = "0.2"
