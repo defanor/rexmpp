@@ -64,6 +64,7 @@ int rexmpp_parse_srv (char *in, int in_len, struct rexmpp_dns_srv *out) {
 }
 
 
+#ifndef USE_RUST
 void rexmpp_dns_result_free (rexmpp_dns_result_t *result) {
   if (result->data != NULL) {
     int i;
@@ -79,6 +80,7 @@ void rexmpp_dns_result_free (rexmpp_dns_result_t *result) {
   }
   free(result);
 }
+#endif
 
 rexmpp_dns_result_t *result_from_hostent (struct hostent *hostinfo) {
   rexmpp_dns_result_t *r = malloc(sizeof(rexmpp_dns_result_t));

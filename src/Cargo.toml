@@ -13,3 +13,4 @@ path = "rexmpp_rust.rs"
 
 [dependencies]
 libc = "0.2"
+errno = "0.3"

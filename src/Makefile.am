@@ -10,7 +10,6 @@ AM_CFLAGS = -Werror -Wall -Wextra -pedantic -std=gnu99 \
 lib_LTLIBRARIES = librexmpp.la
 
 librexmpp_la_SOURCES = rexmpp_roster.h rexmpp_roster.c \
-	rexmpp_tcp.h rexmpp_tcp.c \
 	rexmpp.h rexmpp.c \
 	rexmpp_dns.h rexmpp_dns.c \
 	rexmpp_tls.h rexmpp_tls.c \
@@ -40,7 +39,9 @@ librexmpp_la_LIBADD = $(LIBXML_LIBS) \
 librexmpp_la_LDFLAGS = []
 
 if USE_RUST
-target_debug_librexmpp_rust_a_SOURCES = rexmpp_rust.rs rexmpp_socks.rs rexmpp_xml.rs
+target_debug_librexmpp_rust_a_SOURCES = \
+	rexmpp_rust.rs rexmpp.rs rexmpp_jid.rs rexmpp_dns.rs rexmpp_tcp.rs \
+	rexmpp_socks.rs rexmpp_xml.rs
 noinst_LIBRARIES = target/debug/librexmpp_rust.a
 librexmpp_la_LIBADD += target/debug/librexmpp_rust.a
 librexmpp_la_LDFLAGS += -L. -lpthread -ldl
@@ -49,5 +50,6 @@ target/debug/librexmpp_rust.a: $(target_debug_librexmpp_rust_a_SOURCES)
 	$(CARGO) build
 
 else
-librexmpp_la_SOURCES += rexmpp_socks.h rexmpp_socks.c
+librexmpp_la_SOURCES += rexmpp_tcp.h rexmpp_tcp.c \
+	rexmpp_socks.h rexmpp_socks.c
 endif
