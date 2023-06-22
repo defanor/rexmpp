@@ -76,14 +76,18 @@ impl Clone for RexmppXMLAltElem {
         };
         let mut old_attr_ptr = self.attributes;
         let mut next_attr_ptr_ptr : *mut *mut RexmppXMLAttribute = &mut ret.attributes;
-        while old_attr_ptr != ptr::null_mut() {
-            let old_attr = unsafe { *old_attr_ptr };
-            let new_attr_ptr = rexmpp_xml_attr_new(old_attr.qname.name,
-                                                   old_attr.qname.namespace,
-                                                   old_attr.value);
-            unsafe { (*next_attr_ptr_ptr) = new_attr_ptr };
-            next_attr_ptr_ptr = unsafe { &mut ((*new_attr_ptr).next) };
-            old_attr_ptr = old_attr.next;
+        loop {
+            match unsafe { old_attr_ptr.as_mut() } {
+                None => break,
+                Some(old_attr) => {
+                    let new_attr_ptr = rexmpp_xml_attr_new(old_attr.qname.name,
+                                                           old_attr.qname.namespace,
+                                                           old_attr.value);
+                    unsafe { next_attr_ptr_ptr.write(new_attr_ptr) };
+                    next_attr_ptr_ptr = unsafe { &mut ((*new_attr_ptr).next) };
+                    old_attr_ptr = old_attr.next;
+                }
+            }
         }
         ret.children = rexmpp_xml_clone_list(self.children);
         return ret;
@@ -123,18 +127,19 @@ impl Clone for RexmppXML {
 
 #[no_mangle]
 extern "C"
-fn rexmpp_xml_qname_free (qname_ptr: *const RexmppXMLQName) {
-    if qname_ptr == ptr::null_mut() {
-        return;
-    }
-    let mut qname : RexmppXMLQName = unsafe { *qname_ptr };
-    if qname.name != ptr::null_mut() {
-        unsafe { free(qname.name as *mut c_void) };
-        qname.name = ptr::null_mut();
-    }
-    if qname.namespace != ptr::null_mut() {
-        unsafe { free(qname.namespace as *mut c_void) };
-        qname.namespace = ptr::null_mut();
+fn rexmpp_xml_qname_free (qname_ptr: *mut RexmppXMLQName) {
+    match unsafe { qname_ptr.as_mut() } {
+        None => return,
+        Some(qname) => {
+            if qname.name != ptr::null_mut() {
+                unsafe { free(qname.name as *mut c_void) };
+                qname.name = ptr::null_mut();
+            }
+            if qname.namespace != ptr::null_mut() {
+                unsafe { free(qname.namespace as *mut c_void) };
+                qname.namespace = ptr::null_mut();
+            }
+        }
     }
 }
 
@@ -145,7 +150,7 @@ fn rexmpp_xml_attribute_free (attr_ptr: *mut RexmppXMLAttribute) {
         return;
     }
     let mut attr : RexmppXMLAttribute = unsafe { *Box::from_raw(attr_ptr) };
-    rexmpp_xml_qname_free(&(attr.qname));
+    rexmpp_xml_qname_free(&mut (attr.qname));
     if attr.value != ptr::null_mut() {
         unsafe { free(attr.value as *mut c_void) }
         attr.value = ptr::null_mut();
@@ -179,9 +184,9 @@ fn rexmpp_xml_free (node_ptr: *mut RexmppXML) {
                 node.alt.text = ptr::null_mut();
             },
             RexmppXML { node_type : NodeType::Element,
-                        alt : RexmppXMLAlt { elem: element },
+                        alt : RexmppXMLAlt { elem: mut element },
                         next: _} => {
-                rexmpp_xml_qname_free(&(element.qname));
+                rexmpp_xml_qname_free(&mut (element.qname));
                 rexmpp_xml_attribute_free_list(element.attributes);
                 rexmpp_xml_free_list(element.children);
             }
