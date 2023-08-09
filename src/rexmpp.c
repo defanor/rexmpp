@@ -562,7 +562,8 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->console_print_cb = NULL;
   s->ping_delay = 600;
   s->ping_requested = 0;
-  s->last_network_activity = 0;
+  s->last_network_activity.tv_sec = 0;
+  s->last_network_activity.tv_nsec = 0;
   s->disco_info = NULL;
 
   /* The default description. Since the players and streamers are
@@ -933,7 +934,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
                   0);
     }
     if (ret > 0) {
-      s->last_network_activity = time(NULL);
+      clock_gettime(CLOCK_MONOTONIC, &(s->last_network_activity));
       s->send_buffer_sent += ret;
       if (s->send_buffer_sent == s->send_buffer_len) {
         free(s->send_buffer);
@@ -1221,7 +1222,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
       chunk_raw_len = recv(s->server_socket, chunk_raw, 4096, 0);
     }
     if (chunk_raw_len > 0) {
-      s->last_network_activity = time(NULL);
+      clock_gettime(CLOCK_MONOTONIC, &(s->last_network_activity));
       if (s->sasl_state == REXMPP_SASL_ACTIVE) {
         sasl_err = rexmpp_sasl_decode(s, chunk_raw, chunk_raw_len,
                                       &chunk, &chunk_len);
@@ -2493,7 +2494,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 
   /* Pinging the server. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
-      s->last_network_activity + s->ping_delay <= time(NULL)) {
+      s->last_network_activity.tv_sec + s->ping_delay <= now.tv_sec) {
     if (s->ping_requested == 0) {
       s->ping_requested = 1;
       rexmpp_xml_t *ping_cmd =
@@ -2653,8 +2654,9 @@ struct timespec *rexmpp_timeout (rexmpp_t *s,
   }
 
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
-      s->last_network_activity + s->ping_delay > now.tv_sec) {
-    time_t next_ping = s->last_network_activity + s->ping_delay - now.tv_sec;
+      s->last_network_activity.tv_sec + s->ping_delay > now.tv_sec) {
+    time_t next_ping =
+      s->last_network_activity.tv_sec + s->ping_delay - now.tv_sec;
     if (ret == NULL || next_ping < ret->tv_sec) {
       tv->tv_sec = next_ping;
       tv->tv_nsec = 0;

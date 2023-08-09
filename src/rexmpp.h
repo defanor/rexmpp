@@ -333,7 +333,7 @@ struct rexmpp
   /* Server ping configuration and state. */
   int ping_delay;
   int ping_requested;
-  time_t last_network_activity;
+  struct timespec last_network_activity;
 
   /* DNS-related structures. */
   rexmpp_dns_ctx_t resolver;

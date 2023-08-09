@@ -200,7 +200,7 @@ pub struct Rexmpp {
     // Server ping configuration and state
     pub ping_delay: c_int,
     pub ping_requested: c_int,
-    pub last_network_activity: time_t,
+    pub last_network_activity: timespec,
 
     // DNS-related structures
     pub resolver: *mut c_void,
