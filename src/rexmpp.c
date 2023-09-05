@@ -941,7 +941,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
         s->send_buffer = NULL;
         if (s->send_queue != NULL) {
           rexmpp_xml_t *node = s->send_queue;
-          unsigned char *buf = rexmpp_xml_serialize(node);
+          unsigned char *buf = rexmpp_xml_serialize(node, 0);
           ret = rexmpp_send_start(s, buf, strlen(buf));
           free(buf);
           if (ret != REXMPP_SUCCESS) {
@@ -1034,7 +1034,7 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, rexmpp_xml_t *node)
   }
 
   if (s->send_buffer == NULL) {
-    unsigned char *buf = rexmpp_xml_serialize(node);
+    unsigned char *buf = rexmpp_xml_serialize(node, 0);
     ret = rexmpp_send_raw(s, buf, strlen(buf));
     free(buf);
     rexmpp_xml_free(node);

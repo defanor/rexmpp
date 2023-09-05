@@ -752,7 +752,7 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   }
 
   /* Serialize the resulting XML. */
-  char *plaintext = rexmpp_xml_serialize(elem);
+  char *plaintext = rexmpp_xml_serialize(elem, 0);
   rexmpp_xml_free(elem);
 
   /* Encrypt, base64-encode. */

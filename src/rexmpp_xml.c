@@ -7,9 +7,11 @@
 */
 
 #include <string.h>
+#include <stdio.h>
 #include <libxml/tree.h>
 #include <libxml/xmlsave.h>
 #include "rexmpp.h"
+#include "rexmpp_utf8.h"
 #include "rexmpp_xml.h"
 
 #ifndef USE_RUST
@@ -353,6 +355,206 @@ int rexmpp_xml_remove_attr (rexmpp_xml_t *node,
                             const char *name) {
   return rexmpp_xml_remove_attr_ns(node, name, NULL);
 }
+
+/* Adds a character, grows the string as needed. */
+inline char *rexmpp_str_putc (char *str, size_t *len, char c) {
+  char *ret = str;
+  if ((*len) % 1024 == 0) {
+    ret = realloc(str, (*len) + 1024);
+    if (ret == NULL) {
+      /* A failure to realloc. */
+      if (str != NULL) {
+        free(str);
+      }
+      return NULL;
+    }
+  }
+  ret[*len] = c;
+  *len = (*len) + 1;
+  return ret;
+}
+
+inline char *rexmpp_str_putc_escaped (char *str, size_t *len, char c) {
+  char *ret = str;
+  char buf[7];
+  char *esc = buf;
+  size_t i = 0;
+  size_t esc_len;
+  if (c == '<') {
+    esc = "&lt;";
+  } else if (c == '>') {
+    esc = "&gt;";
+  } else if (c == '&') {
+    esc = "&amp;";
+  } else if (c == '\'') {
+    esc = "&apos;";
+  } else if (c == '"') {
+    esc = "&quot;";
+  } else {
+    snprintf(esc, 7, "&#%u;", c);
+  }
+  esc_len = strlen(esc);
+  while (i < esc_len) {
+    ret = rexmpp_str_putc(ret, len, esc[i]);
+    i++;
+  }
+  return ret;
+}
+
+char *rexmpp_xml_print_name (char *str, size_t *len, const char *name) {
+  char *ret = str;
+  size_t name_len = strlen(name);
+  size_t i = 0;
+  int32_t c = 0;                /* matches ICU's UChar32 */
+  size_t prev_i = 0, j;
+  do {
+    REXMPP_U8_NEXT(name, i, name_len, c);
+    if (c >= 0) {
+      if (c == ':'
+          || (c >= 'A' && c <= 'Z')
+          || c == '_'
+          || (c >= 'a' && c <= 'z')
+          || (c >= 0xC0 && c <= 0xD6)
+          || (c >= 0xD8 && c <= 0xF6)
+          || (c >= 0xF8 && c <= 0x2FF)
+          || (c >= 0x370 && c <= 0x37D)
+          || (c >= 0x37F && c <= 0x1FFF)
+          || (c >= 0x200C && c <= 0x200D)
+          || (c >= 0x2070 && c <= 0x218F)
+          || (c >= 0x2C00 && c <= 0x2FEF)
+          || (c >= 0x3001 && c <= 0xD7FF)
+          || (c >= 0xF900 && c <= 0xFDCF)
+          || (c >= 0xFDF0 && c <= 0xFFF0)
+          || (c >= 0x10000 && c <= 0xEFFFF)
+          || ((i > 0) &&
+              (c == '-'
+               || c == '.'
+               || (c >= '0' && c <= '9')
+               || c == 0xB7
+               || (c >= 0x0300 && c <= 0x036F)
+               || (c >= 0x203F && c <= 0x2040))))
+        {
+          /* Print the allowed characters. */
+          for (j = prev_i; j < i; j++) {
+            ret = rexmpp_str_putc(ret, len, name[j]);
+          }
+        }
+    } else {
+      /* Skip invalid characters. */
+      i++;
+    }
+    prev_i = i;
+  } while (i < name_len);
+  return ret;
+}
+
+char *rexmpp_xml_print_text (char *str, size_t *len, const char *text) {
+  char *ret = str;
+  size_t i = 0;
+  size_t text_len = strlen(text);
+  while (i < text_len && ret != NULL) {
+    char c = text[i];
+    if (strchr("<&>'\"", c)) {
+      /* Escape the few special characters. */
+      ret = rexmpp_str_putc_escaped(ret, len, c);
+    } else {
+      /* Write others as is. */
+      ret = rexmpp_str_putc(ret, len, c);
+    }
+    i++;
+  }
+  return ret;
+}
+
+char *rexmpp_xml_print_raw (char *str, size_t *len, const char *text) {
+  char *ret = str;
+  size_t i = 0;
+  size_t text_len = strlen(text);
+  while (i < text_len && ret != NULL) {
+    char c = text[i];
+    ret = rexmpp_str_putc(ret, len, c);
+    i++;
+  }
+  return ret;
+}
+
+inline char *rexmpp_xml_print_indent (char *str,
+                                      size_t *len,
+                                      int indent) {
+  if (indent <= 0) {
+    return str;
+  }
+  int i;
+  char *ret = str;
+  for (i = 0; i < indent * 2; i++) {
+    ret = rexmpp_str_putc(ret, len, ' ');
+  }
+  return ret;
+}
+
+char *rexmpp_xml_print (char *str,
+                        size_t *len,
+                        const rexmpp_xml_t *node,
+                        int indent) {
+  char *ret = str;
+  if (node->type == REXMPP_XML_TEXT) {
+    ret = rexmpp_xml_print_text(ret, len, node->alt.text);
+  } else if (node->type == REXMPP_XML_ELEMENT) {
+    if (indent > 0) {
+      ret = rexmpp_str_putc(ret, len, '\n');
+      ret = rexmpp_xml_print_indent(ret, len, indent);
+    }
+    ret = rexmpp_str_putc(ret, len, '<');
+    ret = rexmpp_xml_print_name(ret, len, node->alt.elem.qname.name);
+    if (node->alt.elem.qname.namespace != NULL) {
+      ret = rexmpp_xml_print_raw(ret, len, " xmlns=\"");
+      ret = rexmpp_xml_print_text(ret, len, node->alt.elem.qname.namespace);
+      ret = rexmpp_str_putc(ret, len, '"');
+    }
+    if (node->alt.elem.attributes != NULL) {
+      rexmpp_xml_attr_t *attr;
+      for (attr = node->alt.elem.attributes; attr != NULL; attr = attr->next) {
+        ret = rexmpp_str_putc(ret, len, ' ');
+        /* Ignoring namespaces here for now. */
+        ret = rexmpp_xml_print_name(ret, len, attr->qname.name);
+        ret = rexmpp_xml_print_raw(ret, len, "=\"");
+        ret = rexmpp_xml_print_text(ret, len, attr->value);
+        ret = rexmpp_str_putc(ret, len, '"');
+      }
+    }
+    if (node->alt.elem.children == NULL) {
+      ret = rexmpp_xml_print_raw(ret, len, "/>");
+    } else {
+      ret = rexmpp_str_putc(ret, len, '>');
+      rexmpp_xml_t *child;
+      int last_child_is_textual = 0;
+      for (child = rexmpp_xml_children(node);
+           child != NULL;
+           child = child->next)
+        {
+          ret = rexmpp_xml_print(ret, len, child,
+                                 indent > -1 ? indent + 1 : -1);
+          last_child_is_textual = child->type == REXMPP_XML_TEXT;
+        }
+      if (indent >= 0 && ! last_child_is_textual) {
+        ret = rexmpp_str_putc(ret, len, '\n');
+        ret = rexmpp_xml_print_indent(ret, len, indent);
+      }
+      ret = rexmpp_xml_print_raw(ret, len, "</");
+      ret = rexmpp_xml_print_name(ret, len, node->alt.elem.qname.name);
+      ret = rexmpp_str_putc(ret, len, '>');
+    }
+  }
+  return ret;
+}
+
+char *rexmpp_xml_serialize (const rexmpp_xml_t *node, int pretty) {
+  size_t s_len = 0;
+  char *s = NULL;
+  s = rexmpp_xml_print(s, &s_len, node, pretty ? 0 : -1);
+  s = rexmpp_str_putc(s, &s_len, '\0');
+  return s;
+}
 #endif
 
 rexmpp_xml_t *
@@ -366,19 +568,6 @@ rexmpp_xml_add_id (rexmpp_t *s,
   rexmpp_xml_add_attr(node, "id", buf);
   free(buf);
   return node;
-}
-
-char *rexmpp_xml_serialize (rexmpp_xml_t *node) {
-  xmlNodePtr node_libxml2 = rexmpp_xml_to_libxml2(node);
-  xmlBufferPtr buf = xmlBufferCreate();
-  xmlSaveCtxtPtr ctx = xmlSaveToBuffer(buf, "utf-8", 0);
-  xmlSaveTree(ctx, node_libxml2);
-  xmlSaveFlush(ctx);
-  xmlSaveClose(ctx);
-  unsigned char *out = xmlBufferDetach(buf);
-  xmlBufferFree(buf);
-  xmlFreeNode(node_libxml2);
-  return out;
 }
 
 xmlNodePtr rexmpp_xml_parse_libxml2 (const char *str, int str_len) {
@@ -409,16 +598,19 @@ rexmpp_xml_t *rexmpp_xml_read_file (const char *path) {
   return ret;
 }
 
+#ifndef USE_RUST
 int rexmpp_xml_write_file (const char *path, rexmpp_xml_t* node) {
-  xmlDocPtr doc = xmlNewDoc("1.0");
-  xmlNodePtr node_lxml2 = rexmpp_xml_to_libxml2(node);
-  xmlDocSetRootElement(doc, node_lxml2);
-  xmlSaveFileEnc(path, doc, "utf-8");
-  xmlFreeDoc(doc);
+  FILE *fd = fopen(path, "w");
+  if (fd == NULL) {
+    return -1;
+  }
+  char *serialized = rexmpp_xml_serialize(node, 1);
+  fputs("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n", fd);
+  fputs(serialized, fd);
+  fclose(fd);
   return 0;
 }
 
-#ifndef USE_RUST
 unsigned int rexmpp_xml_siblings_count (rexmpp_xml_t *node) {
   unsigned int i = 0;
   for (i = 0; node != NULL; i++) {
@@ -546,8 +738,8 @@ rexmpp_xml_find_child (rexmpp_xml_t *node,
 int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
   /* Just serialize and compare strings for now: awkward, but
      simple. */
-  char *n1str = rexmpp_xml_serialize(n1);
-  char *n2str = rexmpp_xml_serialize(n2);
+  char *n1str = rexmpp_xml_serialize(n1, 0);
+  char *n2str = rexmpp_xml_serialize(n2, 0);
   int eq = (strcmp(n1str, n2str) == 0);
   free(n1str);
   free(n2str);
@@ -555,7 +747,7 @@ int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
 }
 
 #ifndef USE_RUST
-rexmpp_xml_t *rexmpp_xml_children (rexmpp_xml_t *node) {
+rexmpp_xml_t *rexmpp_xml_children (const rexmpp_xml_t *node) {
   if (node != NULL && node->type == REXMPP_XML_ELEMENT) {
     return node->alt.elem.children;
   }

@@ -68,7 +68,7 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
 
 /* An XML in callback, printing what was received. */
 int my_xml_in_cb (rexmpp_t *s, rexmpp_xml_t *node) {
-  char *xml_buf = rexmpp_xml_serialize(node);
+  char *xml_buf = rexmpp_xml_serialize(node, 0);
   printf("recv: %s\n", xml_buf);
   free(xml_buf);
   return 0;
@@ -76,7 +76,7 @@ int my_xml_in_cb (rexmpp_t *s, rexmpp_xml_t *node) {
 
 /* An XML out callback, printing what is about to be sent. */
 int my_xml_out_cb (rexmpp_t *s, rexmpp_xml_t *node) {
-  char *xml_buf = rexmpp_xml_serialize(node);
+  char *xml_buf = rexmpp_xml_serialize(node, 0);
   printf("send: %s\n", xml_buf);
   free(xml_buf);
   return 0;

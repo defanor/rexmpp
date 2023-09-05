@@ -148,7 +148,7 @@ rexmpp_xml_add_id (rexmpp_t *s,
    @param[in] node An XML node.
    @returns A string (must be freed by the caller).
 */
-char *rexmpp_xml_serialize (rexmpp_xml_t *node);
+char *rexmpp_xml_serialize (const rexmpp_xml_t *node, int pretty);
 
 /**
    @brief Count the number of siblings after a given node.
@@ -207,7 +207,7 @@ rexmpp_xml_t *rexmpp_xml_find_child (rexmpp_xml_t *node,
                                      const char *namespace,
                                      const char *name);
 
-rexmpp_xml_t *rexmpp_xml_children (rexmpp_xml_t *node);
+rexmpp_xml_t *rexmpp_xml_children (const rexmpp_xml_t *node);
 
 char *rexmpp_xml_text (rexmpp_xml_t *node);
 

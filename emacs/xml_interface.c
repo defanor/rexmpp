@@ -26,7 +26,7 @@ and EOF ones, to simplify reading with libxml2.
 
 
 void print_xml (rexmpp_xml_t *node) {
-  char *s = rexmpp_xml_serialize(node);
+  char *s = rexmpp_xml_serialize(node, 0);
   printf("%s%c\n", s, '\0');
   free(s);
 }

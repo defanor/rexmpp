@@ -4,9 +4,11 @@ use std::os::raw::{c_char, c_int, c_void, c_uint};
 use std::ptr;
 use std::ffi::{CStr, CString};
 use std::clone::Clone;
+use std::fs::File;
+use std::io::Write;
+
 
 // extern {
-//     fn rexmpp_xml_serialize (node: *mut RexmppXML) -> *mut c_char;
 //     fn rexmpp_xml_parse (str: *mut c_char, str_len: c_int) -> *mut RexmppXML;
 // }
 
@@ -370,6 +372,212 @@ fn rexmpp_xml_remove_attr (node: *mut RexmppXML,
 }
 
 
+fn rexmpp_xml_push_escaped (c: char, s: &mut String) {
+    if c == '<' {
+        s.push_str("&lt;")
+    } else if c == '>' {
+        s.push_str("&gt;")
+    } else if c == '&' {
+        s.push_str("&amp;")
+    } else if c == '\'' {
+        s.push_str("&apos;")
+    } else if c == '"' {
+        s.push_str("&quot;")
+    } else {
+        s.push_str(format!("&#{};", u32::from(c)).as_str());
+    };
+}
+
+fn rexmpp_xml_print_text (c: char, s: &mut String) {
+    if "<&>'\"".chars().any(|sc| sc == c) {
+        rexmpp_xml_push_escaped(c, s);
+    } else {
+        s.push(c);
+    }
+}
+
+fn rexmpp_xml_print_name (i: usize, c: char, s: &mut String) {
+    if c == ':'
+        || (c >= 'A' && c <= 'Z')
+        || c == '_'
+        || (c >= 'a' && c <= 'z')
+        || (c >= '\u{C0}' && c <= '\u{D6}')
+        || (c >= '\u{D8}' && c <= '\u{F6}')
+        || (c >= '\u{F8}' && c <= '\u{2FF}')
+        || (c >= '\u{370}' && c <= '\u{37D}')
+        || (c >= '\u{37F}' && c <= '\u{1FFF}')
+        || (c >= '\u{200C}' && c <= '\u{200D}')
+        || (c >= '\u{2070}' && c <= '\u{218F}')
+        || (c >= '\u{2C00}' && c <= '\u{2FEF}')
+        || (c >= '\u{3001}' && c <= '\u{D7FF}')
+        || (c >= '\u{F900}' && c <= '\u{FDCF}')
+        || (c >= '\u{FDF0}' && c <= '\u{FFF0}')
+        || (c >= '\u{10000}' && c <= '\u{EFFFF}')
+        || ((i > 0) &&
+            (c == '-'
+             || c == '.'
+             || (c >= '0' && c <= '9')
+             || c == '\u{B7}'
+             || (c >= '\u{0300}' && c <= '\u{036F}')
+             || (c >= '\u{203F}' && c <= '\u{2040}')))
+    {
+        // Print the allowed characters.
+        s.push(c);
+    }
+}
+
+fn rexmpp_xml_print_indent (indent: i32, s: &mut String) {
+    let mut i = 0;
+    while i < indent {
+        s.push_str("  ");
+        i = i + 1;
+    }
+}
+
+fn rexmpp_xml_print (node_ptr: *const RexmppXML,
+                     ret: &mut String,
+                     indent: i32)
+                     -> ()
+{
+    unsafe {
+        let node : RexmppXML = *node_ptr;
+        match node {
+            RexmppXML { node_type : NodeType::Text,
+                        alt : RexmppXMLAlt { text: text_ptr },
+                        next: _} => {
+                let text_cstr : &CStr = CStr::from_ptr(text_ptr);
+                let text_str : String =
+                    String::from_utf8_lossy(text_cstr.to_bytes())
+                    .to_string();
+                // let mut escaped = String::with_capacity(text_str.capacity());
+                text_str.chars().
+                    for_each(|c| rexmpp_xml_print_text(c, ret));
+            },
+            RexmppXML { node_type : NodeType::Element,
+                        alt : RexmppXMLAlt { elem: element },
+                        next: _} => {
+                // let mut ret = String::with_capacity(1024);
+                let name_cstr : &CStr =
+                    CStr::from_ptr(element.qname.name);
+                let name_str : String =
+                    String::from_utf8_lossy(name_cstr.to_bytes())
+                    .to_string();
+                if indent > 0 {
+                    ret.push('\n');
+                    rexmpp_xml_print_indent(indent, ret);
+                }
+                ret.push('<');
+                name_str.char_indices().
+                    for_each(|(i, c)| rexmpp_xml_print_name(i, c, ret));
+                if element.qname.namespace != ptr::null_mut() {
+                    let namespace_cstr : &CStr =
+                        CStr::from_ptr(element.qname.namespace);
+                    let namespace_str : String =
+                        String::from_utf8_lossy(namespace_cstr.to_bytes())
+                        .to_string();
+                    ret.push_str(" xmlns=\"");
+                    namespace_str.chars().
+                        for_each(|c| rexmpp_xml_print_text(c, ret));
+                    ret.push('"');
+                }
+                if element.attributes != ptr::null_mut() {
+                    let mut attr_ptr : *mut RexmppXMLAttribute =
+                        element.attributes;
+                    while attr_ptr != ptr::null_mut() {
+                        let attr : RexmppXMLAttribute = *attr_ptr;
+                        let attr_name_cstr =
+                            CStr::from_ptr(attr.qname.name);
+                        let attr_name_str =
+                            String::from_utf8_lossy(attr_name_cstr.to_bytes())
+                            .to_string();
+                        // TODO: handle attribute namespaces someday.
+                        let attr_value_cstr =
+                            CStr::from_ptr(attr.value);
+                        let attr_value_str =
+                            String::from_utf8_lossy(attr_value_cstr.to_bytes())
+                            .to_string();
+                        ret.push(' ');
+                        attr_name_str.char_indices().
+                            for_each(|(i, c)|
+                                     rexmpp_xml_print_name(i, c, ret));
+                        ret.push_str("=\"");
+                        attr_value_str.chars().
+                            for_each(|c| rexmpp_xml_print_text(c, ret));
+                        ret.push('"');
+                        attr_ptr = (*attr_ptr).next;
+                    }
+                }
+                if element.children == ptr::null_mut() {
+                    ret.push_str("/>");
+                } else {
+                    ret.push('>');
+                    let mut child = rexmpp_xml_children(node_ptr);
+                    let mut last_child_is_textual = false;
+                    while child != ptr::null_mut() {
+                        rexmpp_xml_print(child, ret,
+                                         if indent > -1 { indent + 1 }
+                                         else { -1 } );
+                        last_child_is_textual =
+                            (*child).node_type == NodeType::Text;
+                        child = (*child).next;
+                    }
+                    if indent > 0 && ! last_child_is_textual {
+                        ret.push('\n');
+                        rexmpp_xml_print_indent(indent, ret);
+                    }
+                    ret.push_str("</");
+                    name_str.char_indices().
+                        for_each(|(i, c)|
+                                 rexmpp_xml_print_name(i, c, ret));
+                    ret.push('>');
+                }
+            }
+        }
+    }
+}
+
+fn rexmpp_xml_serialize_str (node_ptr: *const RexmppXML,
+                             pretty: bool)
+                             -> String
+{
+    let mut out = String::with_capacity(4096);
+    rexmpp_xml_print(node_ptr, &mut out, if pretty { 0 } else { -1 });
+    return out;
+}
+
+#[no_mangle]
+extern "C"
+fn rexmpp_xml_serialize (node_ptr: *const RexmppXML,
+                         pretty: bool)
+                         -> *mut c_char
+{
+    let out = rexmpp_xml_serialize_str(node_ptr, pretty);
+    match CString::new(out) {
+        Ok(cstr) => unsafe { strdup(cstr.as_ptr()) },
+        Err(_) => ptr::null_mut()
+    }
+}
+
+#[no_mangle]
+extern "C"
+fn rexmpp_xml_write_file (path: *const c_char,
+                          node: *const RexmppXML)
+                          -> c_int
+{
+    let path_cstr : &CStr = unsafe { CStr::from_ptr(path) };
+    let path_str : String =
+        String::from_utf8_lossy(path_cstr.to_bytes())
+        .to_string();
+    match File::create(path_str) {
+        Ok(mut fd) => {
+            fd.write_all(b"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
+            fd.write_all(rexmpp_xml_serialize_str(node, false).as_bytes());
+        },
+        Err(_) => { return -1; }
+    }
+    return 0;
+}
+
 #[no_mangle]
 extern "C"
 fn rexmpp_xml_siblings_count (mut node: *const RexmppXML) -> c_uint {
@@ -567,7 +775,7 @@ fn rexmpp_xml_find_child (node_ptr: *mut RexmppXML,
 
 #[no_mangle]
 extern "C"
-fn rexmpp_xml_children (node: *mut RexmppXML)
+fn rexmpp_xml_children (node: *const RexmppXML)
                         -> *mut RexmppXML {
     if node != ptr::null_mut()
         && unsafe { (*node).node_type } == NodeType::Element {
@@ -623,4 +831,38 @@ extern "C"
 fn rexmpp_xml_text_child (node: *mut RexmppXML)
                     -> *mut c_char {
     rexmpp_xml_text(rexmpp_xml_children(node))
+}
+
+#[no_mangle]
+extern "C"
+fn rexmpp_xml_reverse (mut node: *mut RexmppXML)
+                       -> *mut RexmppXML {
+    let mut next;
+    let mut prev = ptr::null_mut();
+    while node != ptr::null_mut() {
+        unsafe {
+            next = (*node).next;
+            (*node).next = prev;
+            prev = node;
+            node = next;
+        }
+    }
+    return prev;
+}
+
+#[no_mangle]
+extern "C"
+fn rexmpp_xml_reverse_all (node: *mut RexmppXML)
+                           -> *mut RexmppXML {
+    let mut cur = node;
+    while cur != ptr::null_mut() {
+        unsafe {
+            if (*cur).node_type == NodeType::Element {
+                (*cur).alt.elem.children =
+                    rexmpp_xml_reverse_all((*cur).alt.elem.children);
+            }
+            cur = (*cur).next;
+        }
+    }
+    return node;
 }
