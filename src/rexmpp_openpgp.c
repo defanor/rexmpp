@@ -860,7 +860,7 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
   (void)recipients;
   (void)signers;
   (void)mode;
-  xmlFreeNode(payload);
+  rexmpp_xml_free(payload);
   gpgme_not_supported(s);
   return NULL;
 }
