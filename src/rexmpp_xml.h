@@ -94,6 +94,12 @@ xmlNodePtr rexmpp_xml_to_libxml2_list (rexmpp_xml_t *from);
 rexmpp_xml_t *rexmpp_xml_new_text (const char *str);
 
 /**
+   @brief Creates a textual ::rexmpp_xml_t XML node (with type =
+   ::REXMPP_XML_TEXT).
+*/
+rexmpp_xml_t *rexmpp_xml_new_text_len (const char *str, size_t len);
+
+/**
    @brief Creates an element ::rexmpp_xml_t XML node (with type =
    ::REXMPP_XML_ELEMENT).
 */
@@ -111,6 +117,13 @@ void rexmpp_xml_add_child (rexmpp_xml_t *node,
 */
 int rexmpp_xml_add_text (rexmpp_xml_t *node,
                          const char *str);
+
+/**
+   @brief Creates a text node, and adds it as a child.
+*/
+int rexmpp_xml_add_text_len (rexmpp_xml_t *node,
+                             const char *str,
+                             size_t len);
 
 rexmpp_xml_attr_t *rexmpp_xml_attr_new (const char *name,
                                         const char *namespace,
@@ -232,5 +245,8 @@ rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len);
 
 rexmpp_xml_t *rexmpp_xml_read_file (const char *path);
 int rexmpp_xml_write_file (const char *path, rexmpp_xml_t* node);
+
+rexmpp_xml_t *rexmpp_xml_reverse (rexmpp_xml_t *node);
+rexmpp_xml_t *rexmpp_xml_reverse_all (rexmpp_xml_t *node);
 
 #endif

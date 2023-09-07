@@ -233,13 +233,17 @@ pub struct Rexmpp {
     // A queue of XML elements to send
     pub send_queue: *mut rexmpp_xml::RexmppXML,
 
+    // An input queue of parsed XML structures
+    pub input_queue: *mut rexmpp_xml::RexmppXML,
+    pub input_queue_last: *mut rexmpp_xml::RexmppXML,
+
     // XML parser context, and current element pointer for building
     // XML nodes with a SAX2 parser interface
     pub xml_parser: *mut c_void,
-    pub current_element_root: *mut c_void,
-    pub current_element: *mut c_void,
-    pub input_queue: *mut c_void,
-    pub input_queue_last: *mut c_void,
+
+    // The children are stored in reverse order during building
+    pub current_element_root: *mut rexmpp_xml::RexmppXML,
+    pub current_element: *mut rexmpp_xml::RexmppXML,
 
     // TLS structures
     pub tls: *mut c_void,

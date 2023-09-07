@@ -1,5 +1,5 @@
 extern crate libc;
-use libc::{strdup, free};
+use libc::{strdup, strndup, free};
 use std::os::raw::{c_char, c_int, c_void, c_uint};
 use std::ptr;
 use std::ffi::{CStr, CString};
@@ -247,6 +247,18 @@ fn rexmpp_xml_new_text (str: *const c_char) -> *mut RexmppXML {
 }
 
 #[no_mangle]
+extern "C"
+fn rexmpp_xml_new_text_len (str: *const c_char, len: usize) -> *mut RexmppXML {
+    let node = RexmppXML {
+        node_type: NodeType::Text,
+        alt: RexmppXMLAlt { text: unsafe { strndup(str, len) } },
+        next: ptr::null_mut()
+    };
+    let b = Box::new(node);
+    return Box::into_raw(b);
+}
+
+#[no_mangle]
 extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
                                     child: *mut RexmppXML) -> () {
     let mut last_ptr : &mut *mut RexmppXML =
@@ -261,6 +273,18 @@ extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
 extern "C" fn rexmpp_xml_add_text (node: *mut RexmppXML,
                                    str: *const c_char) -> c_int {
     let text_node : *mut RexmppXML = rexmpp_xml_new_text(str);
+    if text_node != ptr::null_mut() {
+        rexmpp_xml_add_child(node, text_node);
+        return 1;
+    }
+    return 0;
+}
+
+#[no_mangle]
+extern "C" fn rexmpp_xml_add_text_len (node: *mut RexmppXML,
+                                       str: *const c_char,
+                                       len: usize) -> c_int {
+    let text_node : *mut RexmppXML = rexmpp_xml_new_text_len(str, len);
     if text_node != ptr::null_mut() {
         rexmpp_xml_add_child(node, text_node);
         return 1;

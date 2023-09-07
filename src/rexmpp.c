@@ -725,12 +725,12 @@ void rexmpp_cleanup (rexmpp_t *s) {
     s->send_queue = NULL;
   }
   if (s->current_element_root != NULL) {
-    xmlFreeNode(s->current_element_root);
+    rexmpp_xml_free_list(s->current_element_root);
     s->current_element_root = NULL;
     s->current_element = NULL;
   }
   if (s->input_queue != NULL) {
-    xmlFreeNodeList(s->input_queue);
+    rexmpp_xml_free_list(s->input_queue);
     s->input_queue = NULL;
     s->input_queue_last = NULL;
   }
@@ -1240,7 +1240,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
       }
       chunk = NULL;
 
-      xmlNodePtr elem;
+      rexmpp_xml_t *elem;
       for (elem = s->input_queue;
            /* Skipping everything after an error. Might be better to
               process it anyway, but it could lead to more errors if
@@ -1248,16 +1248,14 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
            elem != NULL && (err == REXMPP_SUCCESS || err == REXMPP_E_AGAIN);
            elem = elem->next)
         {
-          rexmpp_xml_t *elem_tmp = rexmpp_xml_from_libxml2(elem);
-          if (s->xml_in_cb != NULL && s->xml_in_cb(s, elem_tmp) != 0) {
+          if (s->xml_in_cb != NULL && s->xml_in_cb(s, elem) != 0) {
             rexmpp_log(s, LOG_WARNING,
                        "Message processing was cancelled by xml_in_cb.");
           } else {
-            err = rexmpp_process_element(s, elem_tmp);
+            err = rexmpp_process_element(s, elem);
           }
-          rexmpp_xml_free(elem_tmp);
         }
-      xmlFreeNodeList(s->input_queue);
+      rexmpp_xml_free_list(s->input_queue);
       s->input_queue = NULL;
       s->input_queue_last = NULL;
       if (err != REXMPP_SUCCESS && err != REXMPP_E_AGAIN) {
@@ -2226,7 +2224,11 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
 void rexmpp_sax_characters (rexmpp_t *s, const char *ch, int len)
 {
   if (s->current_element != NULL) {
-    xmlNodeAddContentLen(s->current_element, ch, len);
+    rexmpp_xml_t *text_node = rexmpp_xml_new_text_len(ch, len);
+    if (text_node != NULL) {
+      text_node->next = s->current_element->alt.elem.children;
+      s->current_element->alt.elem.children = text_node;
+    }
   }
 }
 
@@ -2244,6 +2246,7 @@ void rexmpp_sax_start_elem_ns (rexmpp_t *s,
   (void)nb_namespaces;
   (void)namespaces;
   (void)nb_defaulted;
+  (void)prefix;
 
   int i;
   if (s->stream_state == REXMPP_STREAM_OPENING &&
@@ -2256,21 +2259,22 @@ void rexmpp_sax_start_elem_ns (rexmpp_t *s,
 
   if (s->stream_state != REXMPP_STREAM_OPENING) {
     if (s->current_element == NULL) {
-      s->current_element = xmlNewNode(NULL, localname);
+      s->current_element = rexmpp_xml_new_elem(localname, URI);
       s->current_element_root = s->current_element;
     } else {
-      xmlNodePtr node = xmlNewNode(NULL, localname);
-      xmlAddChild(s->current_element, node);
+      rexmpp_xml_t *node = rexmpp_xml_new_elem(localname, URI);
+      node->next = s->current_element->alt.elem.children;
+      s->current_element->alt.elem.children = node;
       s->current_element = node;
     }
-    xmlNsPtr ns = xmlNewNs(s->current_element, URI, prefix);
-    s->current_element->ns = ns;
     for (i = 0; i < nb_attributes; i++) {
       size_t attr_len = attributes[i * 5 + 4] - attributes[i * 5 + 3];
       char *attr_val = malloc(attr_len + 1);
       attr_val[attr_len] = '\0';
       strncpy(attr_val, attributes[i * 5 + 3], attr_len);
-      xmlNewProp(s->current_element, attributes[i * 5], attr_val);
+      rexmpp_xml_add_attr_ns(s->current_element,
+                             attributes[i * 5],
+                             NULL, attr_val);
       free(attr_val);
     }
   }
@@ -2305,8 +2309,16 @@ void rexmpp_sax_end_elem_ns (rexmpp_t *s,
   }
 
   if (s->current_element != s->current_element_root) {
-    s->current_element = s->current_element->parent;
+    /* Find the parent, set it as current element. */
+    rexmpp_xml_t *parent = s->current_element_root;
+    while (parent->alt.elem.children != s->current_element) {
+      parent = parent->alt.elem.children;
+    }
+    s->current_element = parent;
   } else {
+    /* Done parsing this element; reverse all the lists of children
+       and queue it. */
+    s->current_element = rexmpp_xml_reverse_all(s->current_element);
     if (s->input_queue == NULL) {
       s->input_queue = s->current_element;
       s->input_queue_last = s->current_element;

@@ -368,13 +368,17 @@ struct rexmpp
   /* A queue of XML elements to send. */
   rexmpp_xml_t *send_queue;
 
+  /* An input queue of parsed XML structures. */
+  rexmpp_xml_t *input_queue;
+  rexmpp_xml_t *input_queue_last;
+
   /* XML parser context, and current element pointer for building
      XML nodes with a SAX2 parser interface. */
   xmlParserCtxtPtr xml_parser;
-  xmlNodePtr current_element_root;
-  xmlNodePtr current_element;
-  xmlNodePtr input_queue;
-  xmlNodePtr input_queue_last;
+
+  /* The children are stored in reverse order during building. */
+  rexmpp_xml_t *current_element_root;
+  rexmpp_xml_t *current_element;
 
   /* TLS structures. */
   rexmpp_tls_t *tls;

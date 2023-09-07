@@ -256,6 +256,14 @@ rexmpp_xml_t *rexmpp_xml_new_text (const char *str) {
   return node;
 }
 
+rexmpp_xml_t *rexmpp_xml_new_text_len (const char *str, size_t len) {
+  rexmpp_xml_t *node = malloc(sizeof(rexmpp_xml_t));
+  node->type = REXMPP_XML_TEXT;
+  node->alt.text = strndup(str, len);
+  node->next = NULL;
+  return node;
+}
+
 void rexmpp_xml_add_child (rexmpp_xml_t *node,
                            rexmpp_xml_t *child)
 {
@@ -270,6 +278,18 @@ int rexmpp_xml_add_text (rexmpp_xml_t *node,
                          const char *str)
 {
   rexmpp_xml_t *text_node = rexmpp_xml_new_text(str);
+  if (text_node != NULL) {
+    rexmpp_xml_add_child(node, text_node);
+    return 0;
+  }
+  return -1;
+}
+
+int rexmpp_xml_add_text_len (rexmpp_xml_t *node,
+                             const char *str,
+                             size_t len)
+{
+  rexmpp_xml_t *text_node = rexmpp_xml_new_text_len(str, len);
   if (text_node != NULL) {
     rexmpp_xml_add_child(node, text_node);
     return 0;
@@ -787,4 +807,27 @@ char *rexmpp_xml_text (rexmpp_xml_t *node) {
 char *rexmpp_xml_text_child (rexmpp_xml_t *node) {
   return rexmpp_xml_text(rexmpp_xml_children(node));
 }
+
+rexmpp_xml_t *rexmpp_xml_reverse (rexmpp_xml_t *node) {
+  rexmpp_xml_t *next, *prev = NULL;
+  while (node != NULL) {
+    next = node->next;
+    node->next = prev;
+    prev = node;
+    node = next;
+  }
+  return prev;
+}
+
+rexmpp_xml_t *rexmpp_xml_reverse_all (rexmpp_xml_t *node) {
+  node = rexmpp_xml_reverse(node);
+  rexmpp_xml_t *cur;
+  for (cur = node; cur != NULL; cur = cur->next) {
+    if (cur->type == REXMPP_XML_ELEMENT) {
+      cur->alt.elem.children = rexmpp_xml_reverse_all(cur->alt.elem.children);
+    }
+  }
+  return node;
+}
+
 #endif
