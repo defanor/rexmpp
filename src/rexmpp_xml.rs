@@ -1,5 +1,5 @@
 extern crate libc;
-use libc::{strdup, strndup, free};
+use libc::{strdup, strndup, free, strcmp};
 use std::os::raw::{c_char, c_int, c_void, c_uint};
 use std::ptr;
 use std::ffi::{CStr, CString};
@@ -7,6 +7,7 @@ use std::clone::Clone;
 use std::fs::File;
 use std::io::Write;
 
+use super::{rexmpp};
 
 // extern {
 //     fn rexmpp_xml_parse (str: *mut c_char, str_len: c_int) -> *mut RexmppXML;
@@ -584,6 +585,25 @@ fn rexmpp_xml_serialize (node_ptr: *const RexmppXML,
 
 #[no_mangle]
 extern "C"
+fn rexmpp_xml_add_id (s: *mut rexmpp::Rexmpp, node: *mut RexmppXML)
+                      -> *mut RexmppXML
+{
+    match CString::new("id") {
+        Err(_) => return ptr::null_mut(),
+        Ok(id_cstr) => {
+            let buf = unsafe { rexmpp::rexmpp_gen_id(s) };
+            if buf == ptr::null_mut() {
+                return ptr::null_mut();
+            }
+            rexmpp_xml_add_attr(node, id_cstr.as_ptr(), buf);
+            unsafe { free(buf as *mut c_void) };
+            return node;
+        }
+    }
+}
+
+#[no_mangle]
+extern "C"
 fn rexmpp_xml_write_file (path: *const c_char,
                           node: *const RexmppXML)
                           -> c_int
@@ -795,6 +815,102 @@ fn rexmpp_xml_find_child (node_ptr: *mut RexmppXML,
         unsafe { child = (*child).next };
     }
     return ptr::null_mut();
+}
+
+
+#[no_mangle]
+extern "C"
+fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
+    if n1 == n2 {
+        return true;
+    }
+    if n1 == ptr::null_mut() || n1 == ptr::null_mut() {
+        return false;
+    }
+    unsafe {
+        match (*n1, *n2) {
+            (RexmppXML { node_type : NodeType::Text,
+                         alt : RexmppXMLAlt { text: text1 },
+                         next: next1 },
+             RexmppXML { node_type : NodeType::Text,
+                         alt : RexmppXMLAlt { text: text2 },
+                         next: next2 }
+            ) => strcmp(text1, text2) == 0,
+            (RexmppXML
+             { node_type : NodeType::Element,
+               alt : RexmppXMLAlt
+               { elem: RexmppXMLAltElem {
+                   qname: RexmppXMLQName {
+                       name: name1,
+                       namespace: namespace1
+                   },
+                   attributes: attributes1,
+                   children: children1
+               } },
+               next: _},
+             RexmppXML
+             { node_type : NodeType::Element,
+               alt : RexmppXMLAlt
+               { elem: RexmppXMLAltElem {
+                   qname: RexmppXMLQName {
+                       name: name2,
+                       namespace: namespace2
+                   },
+                   attributes: attributes2,
+                   children: children2
+               } },
+               next: _}
+            ) => {
+                // Compare names
+                if strcmp(name1, name2) != 0
+                { return false; }
+                // Compare namespaces
+                if (namespace1 != namespace2 &&
+                    (namespace1 == ptr::null_mut() ||
+                     namespace2 == ptr::null_mut() ||
+                     strcmp(namespace1, namespace2) != 0))
+                { return false; }
+                // Compare attributes
+                let mut attr1 = attributes1;
+                let mut attr2 = attributes2;
+                while ! (attr1 == ptr::null_mut() && attr2 == ptr::null_mut()) {
+                    if attr1 == ptr::null_mut() {
+                        return false;
+                    }
+                    if attr2 == ptr::null_mut() {
+                        return false;
+                    }
+                    if strcmp((*attr1).qname.name, (*attr2).qname.name) != 0 {
+                        return false;
+                    }
+                    if strcmp((*attr1).value, (*attr2).value) != 0 {
+                        return false;
+                    }
+                    attr1 = (*attr1).next;
+                    attr2 = (*attr2).next;
+                }
+                // Compare children
+                let mut child1 = children1;
+                let mut child2 = children2;
+                while ! (child1 == ptr::null_mut() && child2 == ptr::null_mut())
+                {
+                    if child1 == ptr::null_mut() {
+                        return false;
+                    }
+                    if child2 == ptr::null_mut() {
+                        return false;
+                    }
+                    if ! rexmpp_xml_eq(child1, child2) {
+                        return false;
+                    }
+                    child1 = (*child1).next;
+                    child2 = (*child2).next;
+                }
+                true
+            }
+            _ => false
+        }
+    }
 }
 
 #[no_mangle]

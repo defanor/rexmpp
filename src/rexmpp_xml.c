@@ -575,7 +575,6 @@ char *rexmpp_xml_serialize (const rexmpp_xml_t *node, int pretty) {
   s = rexmpp_str_putc(s, &s_len, '\0');
   return s;
 }
-#endif
 
 rexmpp_xml_t *
 rexmpp_xml_add_id (rexmpp_t *s,
@@ -589,6 +588,7 @@ rexmpp_xml_add_id (rexmpp_t *s,
   free(buf);
   return node;
 }
+#endif
 
 xmlNodePtr rexmpp_xml_parse_libxml2 (const char *str, int str_len) {
   xmlNodePtr elem = NULL;
@@ -753,7 +753,6 @@ rexmpp_xml_find_child (rexmpp_xml_t *node,
   }
   return NULL;
 }
-#endif
 
 int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
   /* Just serialize and compare strings for now: awkward, but
@@ -766,7 +765,6 @@ int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2) {
   return eq;
 }
 
-#ifndef USE_RUST
 rexmpp_xml_t *rexmpp_xml_children (const rexmpp_xml_t *node) {
   if (node != NULL && node->type == REXMPP_XML_ELEMENT) {
     return node->alt.elem.children;
