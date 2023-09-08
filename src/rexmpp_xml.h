@@ -9,8 +9,6 @@
 #ifndef REXMPP_XML_H
 #define REXMPP_XML_H
 
-#include <libxml/tree.h>
-
 typedef struct rexmpp_xml_qname rexmpp_xml_qname_t;
 typedef struct rexmpp_xml_attribute rexmpp_xml_attr_t;
 typedef struct rexmpp_xml_node rexmpp_xml_t;
@@ -46,6 +44,10 @@ struct rexmpp_xml_node {
   rexmpp_xml_t *next;
 };
 
+struct rexmpp_xml_builder {
+  rexmpp_xml_t *current;
+  rexmpp_xml_t *root;
+};
 
 void rexmpp_xml_qname_free (rexmpp_xml_qname_t *qname);
 void rexmpp_xml_attribute_free (rexmpp_xml_attr_t *attr);
@@ -70,22 +72,6 @@ rexmpp_xml_t *rexmpp_xml_clone (rexmpp_xml_t *node);
    @brief Clones an XML node, together with its siblings.
 */
 rexmpp_xml_t *rexmpp_xml_clone_list (rexmpp_xml_t *node);
-
-/**
-   @brief Creates a single ::rexmpp_xml_t XML node out of libxml2's
-   xmlNode, without siblings.
-*/
-rexmpp_xml_t *rexmpp_xml_from_libxml2 (xmlNodePtr from);
-
-/**
-   @brief Creates a ::rexmpp_xml_t XML node out of libxml2's xmlNode,
-   with siblings.
-*/
-rexmpp_xml_t *rexmpp_xml_from_libxml2_list (xmlNodePtr from);
-
-xmlNodePtr rexmpp_xml_to_libxml2 (rexmpp_xml_t *from);
-
-xmlNodePtr rexmpp_xml_to_libxml2_list (rexmpp_xml_t *from);
 
 /**
    @brief Creates a textual ::rexmpp_xml_t XML node (with type =
@@ -243,10 +229,40 @@ int rexmpp_xml_eq (rexmpp_xml_t *n1, rexmpp_xml_t *n2);
 */
 rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len);
 
+/**
+   @brief Reads XML from a file stream, reading the stream line by
+   line.
+   @param[in] fd A file stream
+   @returns Parsed XML, or NULL on failure.
+*/
+rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd);
+
+/**
+   @brief Reads XML from a file
+   @param[in] path A file path
+   @returns Parsed XML, or NULL on failure.
+*/
 rexmpp_xml_t *rexmpp_xml_read_file (const char *path);
+
+/**
+   @brief Writes XML into a file
+   @param[in] path A file path
+   @param[in] node XML to write
+   @returns 0 on success, -1 on failure.
+*/
 int rexmpp_xml_write_file (const char *path, rexmpp_xml_t* node);
 
-rexmpp_xml_t *rexmpp_xml_reverse (rexmpp_xml_t *node);
-rexmpp_xml_t *rexmpp_xml_reverse_all (rexmpp_xml_t *node);
+/**
+   @brief Reverses a linked list of XML nodes
+   @param[in,out] node The head of the list to reverse
+   @returns The new head of the list
+*/
+rexmpp_xml_t *rexmpp_xml_reverse_list (rexmpp_xml_t *node);
+
+/**
+   @brief Recursively reverses children of an XML element
+   @param[in,out] node The root XML element
+*/
+void rexmpp_xml_reverse_children (rexmpp_xml_t *node);
 
 #endif

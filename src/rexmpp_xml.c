@@ -8,8 +8,6 @@
 
 #include <string.h>
 #include <stdio.h>
-#include <libxml/tree.h>
-#include <libxml/xmlsave.h>
 #include "rexmpp.h"
 #include "rexmpp_utf8.h"
 #include "rexmpp_xml.h"
@@ -119,135 +117,7 @@ rexmpp_xml_t *rexmpp_xml_clone_list (rexmpp_xml_t *node) {
     }
   return first;
 }
-#endif
 
-rexmpp_xml_t *rexmpp_xml_from_libxml2 (xmlNodePtr from) {
-  if (from == NULL) {
-    return NULL;
-  }
-
-  rexmpp_xml_t *to = NULL;
-  if (from->type == XML_ELEMENT_NODE) {
-    to = malloc(sizeof(rexmpp_xml_t));
-
-    /* Type */
-    to->type = REXMPP_XML_ELEMENT;
-
-    /* Name and namespace */
-    to->alt.elem.qname.name = strdup(from->name);
-    if (from->nsDef != NULL && from->nsDef->href != NULL) {
-      to->alt.elem.qname.namespace = strdup(from->nsDef->href);
-    } else {
-      to->alt.elem.qname.namespace = NULL;
-    }
-
-    /* Attributes */
-    to->alt.elem.attributes = NULL;
-    struct _xmlAttr *from_attr;
-    rexmpp_xml_attr_t **to_next_attr = &(to->alt.elem.attributes);
-    for (from_attr = from->properties;
-         from_attr != NULL;
-         from_attr = from_attr->next)
-      {
-        rexmpp_xml_attr_t *to_attr =
-          malloc(sizeof(rexmpp_xml_attr_t));
-        to_attr->qname.name = strdup(from_attr->name);
-        to_attr->qname.namespace = NULL;
-        if (from_attr->ns != NULL && from_attr->ns->href != NULL) {
-          to_attr->qname.namespace = strdup(from_attr->ns->href);
-          to_attr->value =
-            xmlGetNsProp(from, to_attr->qname.name, to_attr->qname.namespace);
-        } else {
-          to_attr->value = xmlGetProp(from, to_attr->qname.name);
-        }
-        to_attr->next = NULL;
-
-        *to_next_attr = to_attr;
-        to_next_attr = &(to_attr->next);
-      }
-
-    /* Children */
-    to->alt.elem.children = NULL;
-    xmlNodePtr from_child;
-    rexmpp_xml_t **to_next_child = &(to->alt.elem.children);
-    for (from_child = from->children;
-         from_child != NULL;
-         from_child = from_child->next)
-      {
-        rexmpp_xml_t *next_child = rexmpp_xml_from_libxml2(from_child);
-        if (next_child != NULL) {
-          *to_next_child = next_child;
-          to_next_child = &(next_child->next);
-        }
-      }
-
-    /* Next */
-    to->next = NULL;
-
-  } else if (from->type == XML_TEXT_NODE) {
-    to = malloc(sizeof(rexmpp_xml_t));
-    to->type = REXMPP_XML_TEXT;
-    to->alt.text = xmlNodeGetContent(from);
-    to->next = NULL;
-  }
-  return to;
-}
-
-rexmpp_xml_t *rexmpp_xml_from_libxml2_list (xmlNodePtr from) {
-  if (from == NULL) {
-    return NULL;
-  }
-  rexmpp_xml_t *to = rexmpp_xml_from_libxml2(from);
-  if (from->next != NULL) {
-    to->next = rexmpp_xml_from_libxml2_list(from->next);
-  }
-  return to;
-}
-
-xmlNodePtr rexmpp_xml_to_libxml2 (rexmpp_xml_t *from) {
-  if (from == NULL) {
-    return NULL;
-  }
-
-  if (from->type == REXMPP_XML_TEXT) {
-    xmlNodePtr to = xmlNewText(from->alt.text);
-    to->next = rexmpp_xml_to_libxml2(from->next);
-    return to;
-  }
-
-  /* Name and namespace */
-  xmlNodePtr to = xmlNewNode(NULL, from->alt.elem.qname.name);
-  if (from->alt.elem.qname.namespace != NULL) {
-    xmlNewNs(to, from->alt.elem.qname.namespace, NULL);
-  }
-
-  /* Attributes */
-  rexmpp_xml_attr_t *attr = from->alt.elem.attributes;
-  while (attr != NULL) {
-    /* TODO: Would be nice to take namespaces into account, though
-       they are currently not used for attributes. */
-    xmlNewProp(to, attr->qname.name, attr->value);
-    attr = attr->next;
-  }
-
-  /* Children */
-  rexmpp_xml_t *child = from->alt.elem.children;
-  while (child != NULL) {
-    xmlAddChild(to, rexmpp_xml_to_libxml2(child));
-    child = child->next;
-  }
-  return to;
-}
-
-xmlNodePtr rexmpp_xml_to_libxml2_list (rexmpp_xml_t *from) {
-  xmlNodePtr to = rexmpp_xml_to_libxml2(from);
-  if (from->next != NULL) {
-    xmlAddNextSibling(to, rexmpp_xml_to_libxml2_list(from->next));
-  }
-  return to;
-}
-
-#ifndef USE_RUST
 rexmpp_xml_t *rexmpp_xml_new_text (const char *str) {
   rexmpp_xml_t *node = malloc(sizeof(rexmpp_xml_t));
   node->type = REXMPP_XML_TEXT;
@@ -590,32 +460,126 @@ rexmpp_xml_add_id (rexmpp_t *s,
 }
 #endif
 
-xmlNodePtr rexmpp_xml_parse_libxml2 (const char *str, int str_len) {
-  xmlNodePtr elem = NULL;
-  xmlDocPtr doc = xmlReadMemory(str, str_len, "", "utf-8", XML_PARSE_NONET);
-  if (doc != NULL) {
-    elem = xmlCopyNode(xmlDocGetRootElement(doc), 1);
-    xmlFreeDoc(doc);
+/* These SAX handlers are similar to those from rexmpp.c, and perhaps
+   can be reused. */
+void rexmpp_xml_parse_sax_characters (struct rexmpp_xml_builder *builder,
+                                      const char *ch,
+                                      size_t len)
+{
+  if (builder->current != NULL) {
+    rexmpp_xml_t *last_node = builder->current->alt.elem.children;
+    if (last_node != NULL && last_node->type == REXMPP_XML_TEXT) {
+      /* The last child is textual as well, just extend it */
+      size_t last_len = strlen(last_node->alt.text);
+      last_node->alt.text = realloc(last_node->alt.text, last_len + len + 1);
+      strncpy(last_node->alt.text + last_len, ch, len);
+      last_node->alt.text[last_len + len] = '\0';
+    } else {
+      rexmpp_xml_t *text_node = rexmpp_xml_new_text_len(ch, len);
+      if (text_node != NULL) {
+        text_node->next = builder->current->alt.elem.children;
+        builder->current->alt.elem.children = text_node;
+      }
+    }
   }
-  return elem;
 }
 
-rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len) {
-  xmlNodePtr node_lxml2 = rexmpp_xml_parse_libxml2(str, str_len);
-  if (node_lxml2 != NULL) {
-    rexmpp_xml_t *node = rexmpp_xml_from_libxml2(node_lxml2);
-    xmlFreeNode(node_lxml2);
-    return node;
+void rexmpp_xml_parse_sax_start_elem_ns (struct rexmpp_xml_builder *builder,
+                                         const char *name,
+                                         const char *namespace,
+                                         rexmpp_xml_attr_t *attributes)
+{
+  if (builder->current == NULL && builder->root == NULL) {
+    /* Just started */
+    builder->current = rexmpp_xml_new_elem(name, namespace);
+    builder->root = builder->current;
+  } else if (builder->current != NULL) {
+    /* Parsing is in progress */
+    rexmpp_xml_t *node = rexmpp_xml_new_elem(name, namespace);
+    node->next = builder->current->alt.elem.children;
+    builder->current->alt.elem.children = node;
+    builder->current = node;
+  } else {
+    /* The parsind is over, but we are receiving these events
+       still. Just free the attribute lists, ignore the rest. */
+    rexmpp_xml_attribute_free_list(attributes);
   }
-  return NULL;
+  builder->current->alt.elem.attributes = attributes;
+}
+
+void rexmpp_xml_parse_sax_end_elem_ns (struct rexmpp_xml_builder *builder)
+{
+  if (builder->current != builder->root) {
+    /* Find the parent, set it as current element. */
+    rexmpp_xml_t *parent = builder->root;
+    while (parent->alt.elem.children != builder->current) {
+      parent = parent->alt.elem.children;
+    }
+    builder->current = parent;
+  } else {
+    /* Done parsing this element; reverse all the lists of children. */
+    builder->current = NULL;
+    rexmpp_xml_reverse_children(builder->root);
+  }
+}
+
+struct rexmpp_xml_parser_handlers builder_sax = {
+  (rexmpp_xml_parser_element_start)rexmpp_xml_parse_sax_start_elem_ns,
+  (rexmpp_xml_parser_element_end)rexmpp_xml_parse_sax_end_elem_ns,
+  (rexmpp_xml_parser_characters)rexmpp_xml_parse_sax_characters
+};
+
+rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len) {
+  struct rexmpp_xml_builder builder = { NULL, NULL };
+  rexmpp_xml_parser_ctx_t parser =
+    rexmpp_xml_parser_new(&builder_sax, &builder);
+  rexmpp_xml_parser_feed(parser, str, str_len);
+  rexmpp_xml_parser_free(parser);
+  if (builder.current != NULL) {
+    /* The parsing is not complete. */
+    rexmpp_xml_free(builder.root);
+    return NULL;
+  }
+  return builder.root;
+}
+
+rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
+  struct rexmpp_xml_builder builder = { NULL, NULL };
+  rexmpp_xml_parser_ctx_t parser =
+    rexmpp_xml_parser_new(&builder_sax, &builder);
+  if (parser == NULL) {
+    return NULL;
+  }
+
+  char *buf;
+  size_t len = 0;
+  do {
+    len = getline(&buf, &len, fd);
+    if (len > 0) {
+      rexmpp_xml_parser_feed(parser, buf, len);
+    }
+  } while (len > 0 &&
+           ! (builder.root != NULL && builder.current == NULL) );
+
+  rexmpp_xml_parser_free(parser);
+
+  if (builder.current != NULL) {
+    /* The parsing is not complete. */
+    rexmpp_xml_free(builder.root);
+    return NULL;
+  }
+
+  return builder.root;
 }
 
 rexmpp_xml_t *rexmpp_xml_read_file (const char *path) {
-  xmlDocPtr doc = xmlReadFile(path, "utf-8", XML_PARSE_NONET);
-  xmlNodePtr lxml2 = xmlDocGetRootElement(doc);
-  rexmpp_xml_t *ret = rexmpp_xml_from_libxml2(lxml2);
-  xmlFreeDoc(doc);
-  return ret;
+  FILE *fd = fopen(path, "r");
+  if (fd == NULL) {
+    return NULL;
+  }
+  rexmpp_xml_t *node = rexmpp_xml_read_fd(fd);
+  fclose(fd);
+  return node;
 }
 
 #ifndef USE_RUST
@@ -806,7 +770,7 @@ char *rexmpp_xml_text_child (rexmpp_xml_t *node) {
   return rexmpp_xml_text(rexmpp_xml_children(node));
 }
 
-rexmpp_xml_t *rexmpp_xml_reverse (rexmpp_xml_t *node) {
+rexmpp_xml_t *rexmpp_xml_reverse_list (rexmpp_xml_t *node) {
   rexmpp_xml_t *next, *prev = NULL;
   while (node != NULL) {
     next = node->next;
@@ -817,15 +781,17 @@ rexmpp_xml_t *rexmpp_xml_reverse (rexmpp_xml_t *node) {
   return prev;
 }
 
-rexmpp_xml_t *rexmpp_xml_reverse_all (rexmpp_xml_t *node) {
-  node = rexmpp_xml_reverse(node);
+void rexmpp_xml_reverse_children (rexmpp_xml_t *node) {
+  if (node == NULL || node->type != REXMPP_XML_ELEMENT) {
+    return;
+  }
+  node->alt.elem.children = rexmpp_xml_reverse_list(node->alt.elem.children);
   rexmpp_xml_t *cur;
-  for (cur = node; cur != NULL; cur = cur->next) {
-    if (cur->type == REXMPP_XML_ELEMENT) {
-      cur->alt.elem.children = rexmpp_xml_reverse_all(cur->alt.elem.children);
+  for (cur = node->alt.elem.children; cur != NULL; cur = cur->next) {
+    if (cur->type == REXMPP_XML_ELEMENT && cur->alt.elem.children != NULL) {
+      rexmpp_xml_reverse_children(cur);
     }
   }
-  return node;
 }
 
 #endif

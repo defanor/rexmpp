@@ -10,8 +10,6 @@
 #include "rexmpp_xml.h"
 #include <syslog.h>
 #include <string.h>
-#include <libxml/tree.h>
-#include <libxml/xmlsave.h>
 
 rexmpp_xml_t *
 rexmpp_roster_find_item (rexmpp_t *s,

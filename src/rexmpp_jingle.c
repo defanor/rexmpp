@@ -454,7 +454,7 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   char *hash_base64 = NULL;
   size_t hash_base64_len = 0;
-  rexmpp_base64_to(gcry_md_read(hd, GCRY_MD_SHA256),
+  rexmpp_base64_to((char*)gcry_md_read(hd, GCRY_MD_SHA256),
                    gcry_md_get_algo_dlen(GCRY_MD_SHA256),
                    &hash_base64,
                    &hash_base64_len);
@@ -467,7 +467,7 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   hash_base64 = NULL;
   hash_base64_len = 0;
-  rexmpp_base64_to(gcry_md_read(hd, GCRY_MD_SHA3_256),
+  rexmpp_base64_to((char*)gcry_md_read(hd, GCRY_MD_SHA3_256),
                    gcry_md_get_algo_dlen(GCRY_MD_SHA3_256),
                    &hash_base64,
                    &hash_base64_len);
@@ -740,7 +740,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   rexmpp_jingle_session_t *sess = data;
 
   gnutls_x509_crt_t *cert_list;
-  int cert_list_size = 0;
+  unsigned int cert_list_size = 0;
   /* We'll need a certificate a bit later, but checking it before
      allocating other things. */
   int err = gnutls_certificate_get_x509_crt(sess->s->tls->dtls_cred, 0,
@@ -755,7 +755,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   char fp[32], fp_str[97];
   size_t fp_size = 32;
   gnutls_x509_crt_get_fingerprint(cert_list[0], GNUTLS_DIG_SHA256, fp, &fp_size);
-  int i;
+  unsigned int i;
   for (i = 0; i < 32; i++) {
     snprintf(fp_str + i * 3, 4, "%02X:", fp[i] & 0xFF);
   }
@@ -1166,15 +1166,15 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
     }
     uint16_t port_out = comp->udp_port_out;
     if (component_id == 1) {
-      err = srtp_unprotect(srtp_in, buf, &len);
+      err = srtp_unprotect(srtp_in, buf, (int*)&len);
       if (err == srtp_err_status_auth_fail && comp->session->rtcp_mux) {
         /* Try to demultiplex. Maybe there's a better way to do it,
            but this will do for now. */
-        err = srtp_unprotect_rtcp(srtp_in, buf, &len);
+        err = srtp_unprotect_rtcp(srtp_in, buf, (int*)&len);
         port_out = comp->session->component[0].udp_port_out;
       }
     } else {
-      err = srtp_unprotect_rtcp(srtp_in, buf, &len);
+      err = srtp_unprotect_rtcp(srtp_in, buf, (int*)&len);
     }
     if (err) {
       rexmpp_log(comp->s, LOG_ERR, "SRT(C)P unprotect error %d on component %d",
@@ -1818,7 +1818,7 @@ rexmpp_jingle_run (rexmpp_t *s,
   char key_mat[4096];
   int err;
   gnutls_datum_t client_key, client_salt, server_key, server_salt;
-  char client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2],
+  unsigned char client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2],
     server_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2];
   for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
     char input[4096 + SRTP_MAX_TRAILER_LEN];

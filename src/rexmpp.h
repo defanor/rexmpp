@@ -13,7 +13,6 @@
 
 #include "config.h"
 
-#include <libxml/tree.h>
 #ifdef HAVE_GPGME
 #include <gpgme.h>
 #endif
@@ -188,6 +187,7 @@ enum tls_pol {
 typedef enum rexmpp_err rexmpp_err_t;
 
 #include "rexmpp_xml.h"
+#include "rexmpp_xml_parser.h"
 #include "rexmpp_tcp.h"
 #include "rexmpp_socks.h"
 #include "rexmpp_dns.h"
@@ -362,8 +362,8 @@ struct rexmpp
      NULL if there is anything in the send queue). Not appending data
      to it, see send_queue for queuing. */
   char *send_buffer;
-  ssize_t send_buffer_len;
-  ssize_t send_buffer_sent;
+  size_t send_buffer_len;
+  size_t send_buffer_sent;
 
   /* A queue of XML elements to send. */
   rexmpp_xml_t *send_queue;
@@ -374,7 +374,7 @@ struct rexmpp
 
   /* XML parser context, and current element pointer for building
      XML nodes with a SAX2 parser interface. */
-  xmlParserCtxtPtr xml_parser;
+  rexmpp_xml_parser_ctx_t xml_parser;
 
   /* The children are stored in reverse order during building. */
   rexmpp_xml_t *current_element_root;

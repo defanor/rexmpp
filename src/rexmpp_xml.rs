@@ -975,8 +975,8 @@ fn rexmpp_xml_text_child (node: *mut RexmppXML)
 
 #[no_mangle]
 extern "C"
-fn rexmpp_xml_reverse (mut node: *mut RexmppXML)
-                       -> *mut RexmppXML {
+fn rexmpp_xml_reverse_list (mut node: *mut RexmppXML)
+                            -> *mut RexmppXML {
     let mut next;
     let mut prev = ptr::null_mut();
     while node != ptr::null_mut() {
@@ -992,14 +992,22 @@ fn rexmpp_xml_reverse (mut node: *mut RexmppXML)
 
 #[no_mangle]
 extern "C"
-fn rexmpp_xml_reverse_all (node: *mut RexmppXML)
-                           -> *mut RexmppXML {
-    let mut cur = node;
-    while cur != ptr::null_mut() {
-        unsafe {
-            if (*cur).node_type == NodeType::Element {
+fn rexmpp_xml_reverse_children (node: *mut RexmppXML)
+                                -> *mut RexmppXML {
+    unsafe {
+        if node == ptr::null_mut() || (*node).node_type != NodeType::Element {
+            return node;
+        }
+        (*node).alt.elem.children =
+            rexmpp_xml_reverse_list((*node).alt.elem.children);;
+
+        let mut cur = node;
+        while cur != ptr::null_mut() {
+            if (*cur).node_type == NodeType::Element &&
+                (*cur).alt.elem.children != ptr::null_mut()
+            {
                 (*cur).alt.elem.children =
-                    rexmpp_xml_reverse_all((*cur).alt.elem.children);
+                    rexmpp_xml_reverse_children((*cur).alt.elem.children);
             }
             cur = (*cur).next;
         }

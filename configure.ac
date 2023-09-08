@@ -29,7 +29,15 @@ LT_INIT
 
 # Checks for libraries and related parameters.
 
-PKG_CHECK_MODULES([LIBXML], [libxml-2.0])
+AC_ARG_WITH([expat],
+        AS_HELP_STRING([--with-expat], [use libexpat instead of libxml2]))
+
+AS_IF([test "x$with_expat" == "xyes"],
+      [PKG_CHECK_MODULES([EXPAT], [expat],
+        [AC_DEFINE([USE_EXPAT], [1], [Use libexpat])])],
+      [PKG_CHECK_MODULES([LIBXML2], [libxml-2.0],
+        [AC_DEFINE([USE_LIBXML2], [1], [Use libxml2])])])
+
 
 AM_PATH_LIBGCRYPT
 

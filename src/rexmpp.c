@@ -18,8 +18,6 @@
 #include "config.h"
 
 #include <gcrypt.h>
-#include <libxml/tree.h>
-#include <libxml/xmlsave.h>
 #include <unbound.h>
 #ifdef HAVE_GPGME
 #include <gpgme.h>
@@ -89,21 +87,13 @@ const char *rexmpp_strerror (rexmpp_err_t error) {
 }
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
-                               const char *localname,
-                               const char *prefix,
-                               const char *URI,
-                               int nb_namespaces,
-                               const char **namespaces,
-                               int nb_attributes,
-                               int nb_defaulted,
-                               const char **attributes);
+                               const char *name,
+                               const char *namespace,
+                               rexmpp_xml_attr_t *attributes);
 
-void rexmpp_sax_end_elem_ns(rexmpp_t *s,
-                            const char *localname,
-                            const char *prefix,
-                            const char *URI);
+void rexmpp_sax_end_elem_ns(rexmpp_t *s);
 
-void rexmpp_sax_characters (rexmpp_t *s, const char * ch, int len);
+void rexmpp_sax_characters (rexmpp_t *s, const char * ch, size_t len);
 
 void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
 {
@@ -479,17 +469,17 @@ rexmpp_xml_t *rexmpp_disco_info (rexmpp_t *s) {
   return s->disco_info;
 }
 
+struct rexmpp_xml_parser_handlers sax = {
+  (rexmpp_xml_parser_element_start)rexmpp_sax_start_elem_ns,
+  (rexmpp_xml_parser_element_end)rexmpp_sax_end_elem_ns,
+  (rexmpp_xml_parser_characters)rexmpp_sax_characters
+};
+
 rexmpp_err_t rexmpp_init (rexmpp_t *s,
                           const char *jid,
                           log_function_t log_func)
 {
   int err;
-  xmlSAXHandler sax = {
-    .initialized = XML_SAX2_MAGIC,
-    .characters = (charactersSAXFunc)rexmpp_sax_characters,
-    .startElementNs = (startElementNsSAX2Func)rexmpp_sax_start_elem_ns,
-    .endElementNs = (endElementNsSAX2Func)rexmpp_sax_end_elem_ns,
-  };
 
   s->tcp_state = REXMPP_TCP_NONE;
   s->resolver_state = REXMPP_RESOLVER_NONE;
@@ -625,7 +615,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
   }
 
-  s->xml_parser = xmlCreatePushParserCtxt(&sax, s, "", 0, NULL);
+  s->xml_parser = rexmpp_xml_parser_new(&sax, s);
 
   if (s->xml_parser == NULL) {
     rexmpp_log(s, LOG_CRIT, "Failed to create an XML parser context.");
@@ -633,13 +623,13 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   }
 
   if (rexmpp_dns_ctx_init(s)) {
-    xmlFreeParserCtxt(s->xml_parser);
+    rexmpp_xml_parser_free(s->xml_parser);
     return REXMPP_E_DNS;
   }
 
   if (rexmpp_tls_init(s)) {
     rexmpp_dns_ctx_deinit(s);
-    xmlFreeParserCtxt(s->xml_parser);
+    rexmpp_xml_parser_free(s->xml_parser);
     return REXMPP_E_TLS;
   }
 
@@ -647,7 +637,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   if (err) {
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
-    xmlFreeParserCtxt(s->xml_parser);
+    rexmpp_xml_parser_free(s->xml_parser);
     return REXMPP_E_SASL;
   }
 
@@ -655,7 +645,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_sasl_ctx_deinit(s);
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
-    xmlFreeParserCtxt(s->xml_parser);
+    rexmpp_xml_parser_free(s->xml_parser);
   }
 
 #ifdef HAVE_GPGME
@@ -668,7 +658,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     rexmpp_tls_deinit(s);
     rexmpp_dns_ctx_deinit(s);
     rexmpp_jingle_stop(s);
-    xmlFreeParserCtxt(s->xml_parser);
+    rexmpp_xml_parser_free(s->xml_parser);
     return REXMPP_E_PGP;
   }
 #else
@@ -774,7 +764,7 @@ void rexmpp_done (rexmpp_t *s) {
   rexmpp_sasl_ctx_deinit(s);
   rexmpp_tls_deinit(s);
   rexmpp_dns_ctx_deinit(s);
-  xmlFreeParserCtxt(s->xml_parser);
+  rexmpp_xml_parser_free(s->xml_parser);
   if (s->jingle_rtp_description != NULL) {
     rexmpp_xml_free(s->jingle_rtp_description);
     s->jingle_rtp_description = NULL;
@@ -941,7 +931,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
         s->send_buffer = NULL;
         if (s->send_queue != NULL) {
           rexmpp_xml_t *node = s->send_queue;
-          unsigned char *buf = rexmpp_xml_serialize(node, 0);
+          char *buf = rexmpp_xml_serialize(node, 0);
           ret = rexmpp_send_start(s, buf, strlen(buf));
           free(buf);
           if (ret != REXMPP_SUCCESS) {
@@ -1034,7 +1024,7 @@ rexmpp_err_t rexmpp_send (rexmpp_t *s, rexmpp_xml_t *node)
   }
 
   if (s->send_buffer == NULL) {
-    unsigned char *buf = rexmpp_xml_serialize(node, 0);
+    char *buf = rexmpp_xml_serialize(node, 0);
     ret = rexmpp_send_raw(s, buf, strlen(buf));
     free(buf);
     rexmpp_xml_free(node);
@@ -1207,7 +1197,8 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem);
 
 rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
   char chunk_raw[4096], *chunk;
-  ssize_t chunk_raw_len, chunk_len;
+  size_t chunk_len;
+  ssize_t chunk_raw_len;
   int sasl_err;
   rexmpp_tls_err_t recv_err;
   rexmpp_err_t err = REXMPP_SUCCESS;
@@ -1234,7 +1225,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
         chunk = chunk_raw;
         chunk_len = chunk_raw_len;
       }
-      xmlParseChunk(s->xml_parser, chunk, chunk_len, 0);
+      rexmpp_xml_parser_feed(s->xml_parser, chunk, chunk_len);
       if (chunk != chunk_raw && chunk != NULL) {
         free(chunk);
       }
@@ -1399,7 +1390,7 @@ rexmpp_process_tls_conn_err (rexmpp_t *s,
       return rexmpp_stream_open(s);
     } else {
       /* A STARTTLS connection, restart the stream. */
-      xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
+      s->xml_parser = rexmpp_xml_parser_reset(s->xml_parser);
       return rexmpp_stream_open(s);
     }
   } else {
@@ -1414,7 +1405,7 @@ rexmpp_err_t rexmpp_connected_to_server (rexmpp_t *s) {
              "Connected to the server, the used address record was %s",
              s->server_socket_dns_secure ? "secure" : "not secure");
   s->reconnect_number = 0;
-  xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
+  s->xml_parser = rexmpp_xml_parser_reset(s->xml_parser);
   if (s->tls_state == REXMPP_TLS_AWAITING_DIRECT) {
     return rexmpp_process_tls_conn_err(s, rexmpp_tls_connect(s));
   } else {
@@ -2135,7 +2126,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
         return REXMPP_E_SASL;
       }
       s->sasl_state = REXMPP_SASL_ACTIVE;
-      xmlCtxtResetPush(s->xml_parser, "", 0, "", "utf-8");
+      s->xml_parser = rexmpp_xml_parser_reset(s->xml_parser);
       return rexmpp_stream_open(s);
     } else if (rexmpp_xml_match(elem, "urn:ietf:params:xml:ns:xmpp-sasl",
                                 "failure")) {
@@ -2221,37 +2212,37 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
 }
 
 
-void rexmpp_sax_characters (rexmpp_t *s, const char *ch, int len)
+/* These SAX handlers are similar to those in rexmpp_xml.c, might be
+   nice to reuse them. */
+void rexmpp_sax_characters (rexmpp_t *s, const char *ch, size_t len)
 {
   if (s->current_element != NULL) {
-    rexmpp_xml_t *text_node = rexmpp_xml_new_text_len(ch, len);
-    if (text_node != NULL) {
-      text_node->next = s->current_element->alt.elem.children;
-      s->current_element->alt.elem.children = text_node;
+    rexmpp_xml_t *last_node = s->current_element->alt.elem.children;
+    if (last_node != NULL && last_node->type == REXMPP_XML_TEXT) {
+      /* The last child is textual as well, just extend it */
+      size_t last_len = strlen(last_node->alt.text);
+      last_node->alt.text = realloc(last_node->alt.text, last_len + len + 1);
+      strncpy(last_node->alt.text + last_len, ch, len);
+      last_node->alt.text[last_len + len] = '\0';
+    } else {
+      rexmpp_xml_t *text_node = rexmpp_xml_new_text_len(ch, len);
+      if (text_node != NULL) {
+        text_node->next = s->current_element->alt.elem.children;
+        s->current_element->alt.elem.children = text_node;
+      }
     }
   }
 }
 
 void rexmpp_sax_start_elem_ns (rexmpp_t *s,
-                               const char *localname,
-                               const char *prefix,
-                               const char *URI,
-                               int nb_namespaces,
-                               const char **namespaces,
-                               int nb_attributes,
-                               int nb_defaulted,
-                               const char **attributes)
+                               const char *name,
+                               const char *namespace,
+                               rexmpp_xml_attr_t *attributes)
 {
-  /* Not checking namespaces beyond URI. */
-  (void)nb_namespaces;
-  (void)namespaces;
-  (void)nb_defaulted;
-  (void)prefix;
-
-  int i;
   if (s->stream_state == REXMPP_STREAM_OPENING &&
-      strcmp(localname, "stream") == 0 &&
-      strcmp(URI, "http://etherx.jabber.org/streams") == 0) {
+      s->current_element == NULL &&
+      strcmp(name, "stream") == 0 &&
+      strcmp(namespace, "http://etherx.jabber.org/streams") == 0) {
     rexmpp_log(s, LOG_DEBUG, "stream start");
     s->stream_state = REXMPP_STREAM_NEGOTIATION;
     return;
@@ -2259,37 +2250,23 @@ void rexmpp_sax_start_elem_ns (rexmpp_t *s,
 
   if (s->stream_state != REXMPP_STREAM_OPENING) {
     if (s->current_element == NULL) {
-      s->current_element = rexmpp_xml_new_elem(localname, URI);
+      s->current_element = rexmpp_xml_new_elem(name, namespace);
       s->current_element_root = s->current_element;
     } else {
-      rexmpp_xml_t *node = rexmpp_xml_new_elem(localname, URI);
+      rexmpp_xml_t *node = rexmpp_xml_new_elem(name, namespace);
       node->next = s->current_element->alt.elem.children;
       s->current_element->alt.elem.children = node;
       s->current_element = node;
     }
-    for (i = 0; i < nb_attributes; i++) {
-      size_t attr_len = attributes[i * 5 + 4] - attributes[i * 5 + 3];
-      char *attr_val = malloc(attr_len + 1);
-      attr_val[attr_len] = '\0';
-      strncpy(attr_val, attributes[i * 5 + 3], attr_len);
-      rexmpp_xml_add_attr_ns(s->current_element,
-                             attributes[i * 5],
-                             NULL, attr_val);
-      free(attr_val);
-    }
+    s->current_element->alt.elem.attributes = attributes;
   }
 }
 
-void rexmpp_sax_end_elem_ns (rexmpp_t *s,
-                             const char *localname,
-                             const char *prefix,
-                             const char *URI)
+void rexmpp_sax_end_elem_ns (rexmpp_t *s)
 {
-  (void)prefix;                 /* Not interested in prefix here. */
   if ((s->stream_state == REXMPP_STREAM_CLOSING ||
        s->stream_state == REXMPP_STREAM_ERROR) &&
-      strcmp(localname, "stream") == 0 &&
-      strcmp(URI, "http://etherx.jabber.org/streams") == 0) {
+      s->current_element == NULL) {
     rexmpp_log(s, LOG_DEBUG, "stream end");
     if (s->sasl_state == REXMPP_SASL_ACTIVE) {
       rexmpp_sasl_ctx_cleanup(s);
@@ -2318,7 +2295,7 @@ void rexmpp_sax_end_elem_ns (rexmpp_t *s,
   } else {
     /* Done parsing this element; reverse all the lists of children
        and queue it. */
-    s->current_element = rexmpp_xml_reverse_all(s->current_element);
+    rexmpp_xml_reverse_children(s->current_element);
     if (s->input_queue == NULL) {
       s->input_queue = s->current_element;
       s->input_queue_last = s->current_element;

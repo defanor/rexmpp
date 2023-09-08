@@ -186,8 +186,7 @@ its printing--which doesn't handle namespaces--can be used too."
     (with-temp-buffer
       (xml-print xml)
       (insert "\n")
-      (process-send-region cur-proc (point-min) (point-max))
-      (process-send-eof cur-proc))))
+      (process-send-region cur-proc (point-min) (point-max)))))
 
 (defun xmpp-with-message-body (proc message-xml func)
   (let* ((message-contents (xml-node-children message-xml))

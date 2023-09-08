@@ -177,20 +177,11 @@ int main (int argc, char **argv) {
         if (strlen(input) != 0) {
           if (input[0] == '<' && xml_console) {
             /* Raw XML input. */
-            xmlDocPtr doc = xmlReadMemory(input, input_len, "", "utf-8", 0);
-            if (doc != NULL) {
-              xmlNodePtr node_libxml2 = xmlDocGetRootElement(doc);
-              if (node_libxml2 != NULL) {
-                xmlUnlinkNode(node_libxml2);
-                rexmpp_xml_t *node = rexmpp_xml_from_libxml2(node_libxml2);
-                xmlFreeNode(node_libxml2);
-                rexmpp_send(&s, node);
-              } else {
-                puts("No root node");
-              }
-              xmlFreeDoc(doc);
+            rexmpp_xml_t *node = rexmpp_xml_parse(input, input_len);
+            if (node != NULL) {
+              rexmpp_send(&s, node);
             } else {
-              puts("Failed to read a document");
+              puts("Failed to parse XML");
             }
           } else if (txt_console) {
             rexmpp_console_feed(&s, input, input_len);

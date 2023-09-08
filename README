@@ -1,7 +1,5 @@
 rexmpp - a reusable XMPP IM client library
 
-This is currently at a draft/prototype stage.
-
 The goal is to produce a library reusable from different languages
 (via C FFI), without hijacking an event loop, requiring any specific
 one, or otherwise restricting a user, and fairly feature-rich. The
@@ -14,9 +12,11 @@ rely on any particular UI, should be flexible and not stay in the way
 of implementing additional XEPs on top of it, and should try to make
 it easy to implement a decent client application using it.
 
-Current dependencies: libxml2, libgcrypt. Optionally gsasl, libunbound
-or c-ares, gnutls with gnutls-dane or openssl, icu-i18n, gpgme, curl,
-libnice (with glib), libsrtp2, rustc.
+Current dependencies: libxml2 or libexpat, libgcrypt. Optionally
+gsasl, libunbound or c-ares, gnutls with gnutls-dane or openssl,
+icu-i18n, gpgme, curl, libnice (with glib), libsrtp2. For use of the
+alternative Rust implementations, rustc and cargo, with libc and errno
+Rust libraries.
 
 
 A rough roadmap:
@@ -53,8 +53,7 @@ A rough roadmap:
 [.] Texinfo manual.
 [.] Proper JID handling (RFC 7622).
 [+] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
-    optional usage of alternative ones. Though only supporting libxml2
-    for XML parsing and printing for now.
+    optional usage of alternative ones.
 [.] Automated testing.
 [.] Alternative module implementations in Rust.
 

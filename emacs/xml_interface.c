@@ -9,8 +9,8 @@ A basic and ad hoc XML interface. The parent process (e.g., Emacs) is
 supposed to respond to requests starting with the most recent one.
 
 This program's output is separated with NUL ('\0') characters, to
-simplify parsing in Emacs, while the input is separated with newline
-and EOF ones, to simplify reading with libxml2.
+simplify parsing in Emacs, while the input is separated with newlines,
+to simplify reading with rexmpp_xml_read_fd (getline).
 
 */
 
@@ -31,18 +31,6 @@ void print_xml (rexmpp_xml_t *node) {
   free(s);
 }
 
-rexmpp_xml_t *read_xml () {
-  rexmpp_xml_t *elem = NULL;
-  xmlDocPtr doc = xmlReadFd(STDIN_FILENO, "", "utf-8", 0);
-  if (doc != NULL) {
-    elem = rexmpp_xml_from_libxml2(xmlDocGetRootElement(doc));
-    xmlFreeDoc(doc);
-    return elem;
-  }
-  return NULL;
-}
-
-
 char *request (rexmpp_t *s, rexmpp_xml_t *payload)
 {
   rexmpp_xml_t *req = rexmpp_xml_new_elem("request", NULL);
@@ -58,7 +46,7 @@ void req_process (rexmpp_t *s,
                   rexmpp_xml_t *elem);
 
 rexmpp_xml_t *read_response (rexmpp_t *s, const char *id) {
-  rexmpp_xml_t *elem = read_xml();
+  rexmpp_xml_t *elem = rexmpp_xml_read_fd(stdin);
   if (elem != NULL) {
     if (rexmpp_xml_match(elem, NULL, "response")) {
       const char *resp_id = rexmpp_xml_find_attr_val(elem, "id");
@@ -339,7 +327,7 @@ int main (int argc, char **argv) {
   do {
     /* Check if we have some user input. */
     if (n > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
-      rexmpp_xml_t *elem = read_xml();
+      rexmpp_xml_t *elem = rexmpp_xml_read_fd(stdin);
       if (elem != NULL) {
         req_process(&s, elem);
         rexmpp_xml_free(elem);

@@ -139,7 +139,8 @@ rexmpp_tls_err_t
 rexmpp_tls_connect (rexmpp_t *s) {
 #if defined(USE_GNUTLS)
   if (s->tls_state != REXMPP_TLS_HANDSHAKE) {
-    gnutls_datum_t xmpp_client_protocol = {"xmpp-client", strlen("xmpp-client")};
+    gnutls_datum_t xmpp_client_protocol =
+      {(unsigned char*)"xmpp-client", strlen("xmpp-client")};
     rexmpp_log(s, LOG_DEBUG, "starting TLS");
     gnutls_init(&s->tls->gnutls_session, GNUTLS_CLIENT);
     gnutls_session_set_ptr(s->tls->gnutls_session, s);
@@ -172,7 +173,7 @@ rexmpp_tls_connect (rexmpp_t *s) {
     rexmpp_log(s, LOG_DEBUG, "Waiting for TLS handshake to complete");
     return REXMPP_TLS_E_AGAIN;
   } else if (ret == 0) {
-    int status;
+    unsigned int status;
 
     int srv_is_secure = 0;
     if (s->stream_state == REXMPP_STREAM_NONE &&
@@ -329,7 +330,8 @@ rexmpp_tls_send (rexmpp_t *s, void *data, size_t data_size, ssize_t *written)
   }
 #elif defined(USE_OPENSSL)
   *written = -1;
-  int ret = SSL_write_ex(s->tls->openssl_conn, data, data_size, written);
+  int ret = SSL_write_ex(s->tls->openssl_conn, data, data_size,
+                         (size_t*)written);
   if (ret > 0) {
     return REXMPP_TLS_SUCCESS;
   } else {
@@ -360,7 +362,8 @@ rexmpp_tls_recv (rexmpp_t *s, void *data, size_t data_size, ssize_t *received) {
   }
 #elif defined(USE_OPENSSL)
   *received = -1;
-  int ret = SSL_read_ex(s->tls->openssl_conn, data, data_size, received);
+  int ret = SSL_read_ex(s->tls->openssl_conn, data, data_size,
+                        (size_t*)received);
   if (ret > 0) {
     return REXMPP_TLS_SUCCESS;
   } else {
