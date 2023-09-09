@@ -10,6 +10,7 @@
 #include "rexmpp_xml.h"
 #include <syslog.h>
 #include <string.h>
+#include <stdlib.h>
 
 rexmpp_xml_t *
 rexmpp_roster_find_item (rexmpp_t *s,

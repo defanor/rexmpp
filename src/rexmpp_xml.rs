@@ -15,8 +15,8 @@ use super::{rexmpp};
 
 #[repr(C)]
 pub struct RexmppXMLQName {
-    name: *mut c_char,
-    namespace: *mut c_char
+    pub name: *mut c_char,
+    pub namespace: *mut c_char
 }
 
 impl Copy for RexmppXMLQName { }
@@ -36,9 +36,9 @@ impl Clone for RexmppXMLQName {
 
 #[repr(C)]
 pub struct RexmppXMLAttribute {
-    qname: RexmppXMLQName,
-    value: *mut c_char,
-    next: *mut RexmppXMLAttribute
+    pub qname: RexmppXMLQName,
+    pub value: *mut c_char,
+    pub next: *mut RexmppXMLAttribute
 }
 
 impl Copy for RexmppXMLAttribute { }
@@ -56,16 +56,16 @@ impl Clone for RexmppXMLAttribute {
 #[derive(Copy, Clone)]
 #[derive(PartialEq)]
 #[repr(C)]
-enum NodeType {
+pub enum NodeType {
     Element,
     Text
 }
 
 #[repr(C)]
-struct RexmppXMLAltElem {
-    qname: RexmppXMLQName,
-    attributes: *mut RexmppXMLAttribute,
-    children: *mut RexmppXML
+pub struct RexmppXMLAltElem {
+    pub qname: RexmppXMLQName,
+    pub attributes: *mut RexmppXMLAttribute,
+    pub children: *mut RexmppXML
 }
 
 impl Copy for RexmppXMLAltElem { }
@@ -99,16 +99,16 @@ impl Clone for RexmppXMLAltElem {
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-union RexmppXMLAlt {
-    elem: RexmppXMLAltElem,
-    text: *mut c_char
+pub union RexmppXMLAlt {
+    pub elem: RexmppXMLAltElem,
+    pub text: *mut c_char
 }
 
 #[repr(C)]
 pub struct RexmppXML {
-    node_type: NodeType,
-    alt: RexmppXMLAlt,
-    next: *mut RexmppXML
+    pub node_type: NodeType,
+    pub alt: RexmppXMLAlt,
+    pub next: *mut RexmppXML
 }
 
 impl Copy for RexmppXML { }
@@ -129,7 +129,7 @@ impl Clone for RexmppXML {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_qname_free (qname_ptr: *mut RexmppXMLQName) {
     match unsafe { qname_ptr.as_mut() } {
         None => return,
@@ -147,7 +147,7 @@ fn rexmpp_xml_qname_free (qname_ptr: *mut RexmppXMLQName) {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_attribute_free (attr_ptr: *mut RexmppXMLAttribute) {
     if attr_ptr == ptr::null_mut() {
         return;
@@ -161,7 +161,7 @@ fn rexmpp_xml_attribute_free (attr_ptr: *mut RexmppXMLAttribute) {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_attribute_free_list (mut attr_ptr: *mut RexmppXMLAttribute) {
     let mut next;
     while attr_ptr != ptr::null_mut() {
@@ -172,7 +172,7 @@ fn rexmpp_xml_attribute_free_list (mut attr_ptr: *mut RexmppXMLAttribute) {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_free (node_ptr: *mut RexmppXML) {
     if node_ptr == ptr::null_mut() {
         return;
@@ -198,7 +198,7 @@ fn rexmpp_xml_free (node_ptr: *mut RexmppXML) {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_free_list (mut node_ptr: *mut RexmppXML) {
     let mut next;
     while node_ptr != ptr::null_mut() {
@@ -209,7 +209,7 @@ fn rexmpp_xml_free_list (mut node_ptr: *mut RexmppXML) {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_clone (node_ptr: *mut RexmppXML) -> *mut RexmppXML {
     if node_ptr == ptr::null_mut() {
         return ptr::null_mut();
@@ -218,7 +218,7 @@ fn rexmpp_xml_clone (node_ptr: *mut RexmppXML) -> *mut RexmppXML {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_clone_list (mut node_ptr: *mut RexmppXML) -> *mut RexmppXML {
     if node_ptr == ptr::null_mut() {
         return ptr::null_mut();
@@ -236,7 +236,7 @@ fn rexmpp_xml_clone_list (mut node_ptr: *mut RexmppXML) -> *mut RexmppXML {
 
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_new_text (str: *const c_char) -> *mut RexmppXML {
     let node = RexmppXML {
         node_type: NodeType::Text,
@@ -248,7 +248,7 @@ fn rexmpp_xml_new_text (str: *const c_char) -> *mut RexmppXML {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_new_text_len (str: *const c_char, len: usize) -> *mut RexmppXML {
     let node = RexmppXML {
         node_type: NodeType::Text,
@@ -260,7 +260,7 @@ fn rexmpp_xml_new_text_len (str: *const c_char, len: usize) -> *mut RexmppXML {
 }
 
 #[no_mangle]
-extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
+pub extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
                                     child: *mut RexmppXML) -> () {
     let mut last_ptr : &mut *mut RexmppXML =
         unsafe { &mut ((*node).alt.elem.children) };
@@ -271,7 +271,7 @@ extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C" fn rexmpp_xml_add_text (node: *mut RexmppXML,
+pub extern "C" fn rexmpp_xml_add_text (node: *mut RexmppXML,
                                    str: *const c_char) -> c_int {
     let text_node : *mut RexmppXML = rexmpp_xml_new_text(str);
     if text_node != ptr::null_mut() {
@@ -282,7 +282,7 @@ extern "C" fn rexmpp_xml_add_text (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C" fn rexmpp_xml_add_text_len (node: *mut RexmppXML,
+pub extern "C" fn rexmpp_xml_add_text_len (node: *mut RexmppXML,
                                        str: *const c_char,
                                        len: usize) -> c_int {
     let text_node : *mut RexmppXML = rexmpp_xml_new_text_len(str, len);
@@ -294,7 +294,7 @@ extern "C" fn rexmpp_xml_add_text_len (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_new_elem (name: *const c_char,
                         namespace: *const c_char) -> *mut RexmppXML {
     let node = RexmppXML {
@@ -320,7 +320,7 @@ fn rexmpp_xml_new_elem (name: *const c_char,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_attr_new (name: *const c_char,
                         namespace: *const c_char,
                         value: *const c_char) -> *mut RexmppXMLAttribute {
@@ -340,7 +340,7 @@ fn rexmpp_xml_attr_new (name: *const c_char,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_add_attr_ns (node: *mut RexmppXML,
                            name: *const c_char,
                            namespace: *const c_char,
@@ -358,7 +358,7 @@ fn rexmpp_xml_add_attr_ns (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_remove_attr_ns (node: *mut RexmppXML,
                               name: *const c_char,
                               namespace: *const c_char) -> c_int {
@@ -382,7 +382,7 @@ fn rexmpp_xml_remove_attr_ns (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_add_attr (node: *mut RexmppXML,
                         name: *const c_char,
                         value: *const c_char) -> c_int {
@@ -390,7 +390,7 @@ fn rexmpp_xml_add_attr (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_remove_attr (node: *mut RexmppXML,
                            name: *const c_char) -> c_int {
     rexmpp_xml_remove_attr_ns(node, name, ptr::null_mut())
@@ -571,7 +571,7 @@ fn rexmpp_xml_serialize_str (node_ptr: *const RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_serialize (node_ptr: *const RexmppXML,
                          pretty: bool)
                          -> *mut c_char
@@ -584,7 +584,7 @@ fn rexmpp_xml_serialize (node_ptr: *const RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_add_id (s: *mut rexmpp::Rexmpp, node: *mut RexmppXML)
                       -> *mut RexmppXML
 {
@@ -603,7 +603,7 @@ fn rexmpp_xml_add_id (s: *mut rexmpp::Rexmpp, node: *mut RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_write_file (path: *const c_char,
                           node: *const RexmppXML)
                           -> c_int
@@ -623,7 +623,7 @@ fn rexmpp_xml_write_file (path: *const c_char,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_siblings_count (mut node: *const RexmppXML) -> c_uint {
     let mut i : c_uint = 0;
     while node != ptr::null() {
@@ -634,7 +634,7 @@ fn rexmpp_xml_siblings_count (mut node: *const RexmppXML) -> c_uint {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_match (node_ptr: *const RexmppXML,
                      namespace: *const c_char,
                      name: *const c_char) -> c_int {
@@ -673,7 +673,7 @@ fn rexmpp_xml_match (node_ptr: *const RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_attr_match (attr: *const RexmppXMLAttribute,
                           namespace: *const c_char,
                           name: *const c_char) -> c_int {
@@ -708,7 +708,7 @@ fn rexmpp_xml_attr_match (attr: *const RexmppXMLAttribute,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_is_stanza (node: *const RexmppXML) -> c_int {
     if rexmpp_xml_match(node,
                         CString::new("jabber:client").expect("CString::new failed").as_ptr(),
@@ -726,7 +726,7 @@ fn rexmpp_xml_is_stanza (node: *const RexmppXML) -> c_int {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_error (error_type: *const c_char, condition: *const c_char)
                      -> *mut RexmppXML {
     let error : *mut RexmppXML =
@@ -749,7 +749,7 @@ fn rexmpp_xml_error (error_type: *const c_char, condition: *const c_char)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_find_attr (node_ptr: *mut RexmppXML,
                          name: *const c_char,
                          namespace: *const c_char)
@@ -773,7 +773,7 @@ fn rexmpp_xml_find_attr (node_ptr: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_find_attr_val_ns (node: *mut RexmppXML,
                                 name: *const c_char,
                                 namespace: *const c_char)
@@ -787,7 +787,7 @@ fn rexmpp_xml_find_attr_val_ns (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_find_attr_val (node: *mut RexmppXML,
                              name: *const c_char)
                              -> *const c_char {
@@ -795,7 +795,7 @@ fn rexmpp_xml_find_attr_val (node: *mut RexmppXML,
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_find_child (node_ptr: *mut RexmppXML,
                           namespace: *const c_char,
                           name: *const c_char)
@@ -819,7 +819,7 @@ fn rexmpp_xml_find_child (node_ptr: *mut RexmppXML,
 
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
     if n1 == n2 {
         return true;
@@ -865,10 +865,10 @@ fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
                 if strcmp(name1, name2) != 0
                 { return false; }
                 // Compare namespaces
-                if (namespace1 != namespace2 &&
+                if namespace1 != namespace2 &&
                     (namespace1 == ptr::null_mut() ||
                      namespace2 == ptr::null_mut() ||
-                     strcmp(namespace1, namespace2) != 0))
+                     strcmp(namespace1, namespace2) != 0)
                 { return false; }
                 // Compare attributes
                 let mut attr1 = attributes1;
@@ -914,7 +914,7 @@ fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_children (node: *const RexmppXML)
                         -> *mut RexmppXML {
     if node != ptr::null_mut()
@@ -925,7 +925,7 @@ fn rexmpp_xml_children (node: *const RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_first_elem_child (node: *mut RexmppXML)
                                 -> *mut RexmppXML {
     let mut child: *mut RexmppXML = rexmpp_xml_children(node);
@@ -939,7 +939,7 @@ fn rexmpp_xml_first_elem_child (node: *mut RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_next_elem_sibling (node: *mut RexmppXML)
                                  -> *mut RexmppXML {
     if node == ptr::null_mut() {
@@ -956,7 +956,7 @@ fn rexmpp_xml_next_elem_sibling (node: *mut RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_text (node: *mut RexmppXML)
                     -> *mut c_char {
     if node != ptr::null_mut()
@@ -967,14 +967,14 @@ fn rexmpp_xml_text (node: *mut RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_text_child (node: *mut RexmppXML)
                     -> *mut c_char {
     rexmpp_xml_text(rexmpp_xml_children(node))
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_reverse_list (mut node: *mut RexmppXML)
                             -> *mut RexmppXML {
     let mut next;
@@ -991,7 +991,7 @@ fn rexmpp_xml_reverse_list (mut node: *mut RexmppXML)
 }
 
 #[no_mangle]
-extern "C"
+pub extern "C"
 fn rexmpp_xml_reverse_children (node: *mut RexmppXML)
                                 -> *mut RexmppXML {
     unsafe {
@@ -999,7 +999,7 @@ fn rexmpp_xml_reverse_children (node: *mut RexmppXML)
             return node;
         }
         (*node).alt.elem.children =
-            rexmpp_xml_reverse_list((*node).alt.elem.children);;
+            rexmpp_xml_reverse_list((*node).alt.elem.children);
 
         let mut cur = node;
         while cur != ptr::null_mut() {

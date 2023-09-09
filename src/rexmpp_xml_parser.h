@@ -42,6 +42,8 @@ struct rexmpp_xml_parser_ctx {
   xmlParserCtxtPtr xml_parser;
 #elif defined(USE_EXPAT)
   XML_Parser xml_parser;
+#else
+  void *xml_parser;
 #endif
   rexmpp_xml_parser_handlers_t handlers;
   void *user_data;
@@ -72,7 +74,8 @@ void rexmpp_xml_parser_free (rexmpp_xml_parser_ctx_t ctx);
 void
 rexmpp_xml_parser_feed (rexmpp_xml_parser_ctx_t ctx,
                         const char *chunk,
-                        size_t len);
+                        size_t len,
+                        int final);
 
 /**
    @brief Resets a parser context

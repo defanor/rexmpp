@@ -11,6 +11,7 @@
 */
 
 #include <string.h>
+#include <stdlib.h>
 
 #include "rexmpp.h"
 #include "rexmpp_xml.h"

@@ -1225,7 +1225,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
         chunk = chunk_raw;
         chunk_len = chunk_raw_len;
       }
-      rexmpp_xml_parser_feed(s->xml_parser, chunk, chunk_len);
+      rexmpp_xml_parser_feed(s->xml_parser, chunk, chunk_len, 0);
       if (chunk != chunk_raw && chunk != NULL) {
         free(chunk);
       }

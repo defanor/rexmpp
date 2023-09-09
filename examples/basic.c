@@ -12,6 +12,7 @@
 #include <syslog.h>
 #include <gsasl.h>
 #include <time.h>
+#include <stdlib.h>
 #include <rexmpp.h>
 #include <rexmpp_xml.h>
 #include <rexmpp_sasl.h>

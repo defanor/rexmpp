@@ -308,11 +308,12 @@ rexmpp_xml_parser_ctx_t rexmpp_xml_parser_reset (rexmpp_xml_parser_ctx_t ctx) {
 void
 rexmpp_xml_parser_feed (rexmpp_xml_parser_ctx_t ctx,
                         const char *chunk,
-                        size_t len)
+                        size_t len,
+                        int final)
 {
 #if defined(USE_LIBXML2)
-  xmlParseChunk(ctx->xml_parser, chunk, len, 0);
+  xmlParseChunk(ctx->xml_parser, chunk, len, final);
 #elif defined(USE_EXPAT)
-  XML_Parse(ctx->xml_parser, chunk, len, 0);
+  XML_Parse(ctx->xml_parser, chunk, len, final);
 #endif
 }

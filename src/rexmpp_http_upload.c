@@ -10,6 +10,7 @@
 #include <string.h>
 #include <libgen.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "config.h"
 

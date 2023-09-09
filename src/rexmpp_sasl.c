@@ -8,6 +8,7 @@
 */
 
 #include <syslog.h>
+#include <stdlib.h>
 
 #include "config.h"
 #include "rexmpp.h"

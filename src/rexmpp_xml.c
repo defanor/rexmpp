@@ -8,6 +8,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "rexmpp.h"
 #include "rexmpp_utf8.h"
 #include "rexmpp_xml.h"
@@ -533,7 +534,7 @@ rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len) {
   struct rexmpp_xml_builder builder = { NULL, NULL };
   rexmpp_xml_parser_ctx_t parser =
     rexmpp_xml_parser_new(&builder_sax, &builder);
-  rexmpp_xml_parser_feed(parser, str, str_len);
+  rexmpp_xml_parser_feed(parser, str, str_len, 1);
   rexmpp_xml_parser_free(parser);
   if (builder.current != NULL) {
     /* The parsing is not complete. */
@@ -552,13 +553,14 @@ rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
   }
 
   char *buf;
-  size_t len = 0;
+  size_t init_len = 0;
+  ssize_t buf_len = 0;
   do {
-    len = getline(&buf, &len, fd);
-    if (len > 0) {
-      rexmpp_xml_parser_feed(parser, buf, len);
+    buf_len = getline(&buf, &init_len, fd);
+    if (buf_len > 0) {
+      rexmpp_xml_parser_feed(parser, buf, buf_len, 0);
     }
-  } while (len > 0 &&
+  } while (buf_len > 0 &&
            ! (builder.root != NULL && builder.current == NULL) );
 
   rexmpp_xml_parser_free(parser);

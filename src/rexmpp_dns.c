@@ -7,6 +7,7 @@
 */
 
 #include <memory.h>
+#include <stdlib.h>
 #include <syslog.h>
 
 #include "config.h"

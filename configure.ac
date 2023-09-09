@@ -13,30 +13,29 @@ AC_CONFIG_FILES([Makefile src/Makefile tests/Makefile rexmpp.pc Doxyfile])
 AC_PROG_CC
 AM_PROG_AR
 
+
+# Checks for libraries and related parameters.
+
 AC_ARG_WITH([rust],
         AS_HELP_STRING([--with-rust],
                 [use available Rust implementations of modules]))
+AC_ARG_WITH([expat],
+        AS_HELP_STRING([--with-expat], [use libexpat instead of libxml2]))
 
 AS_IF([test "x$with_rust" == "xyes"],
       [AC_PATH_PROG([RUSTC], [rustc], [notfound])
        AS_IF([test "x$RUSTC" == "xnotfound"], [AC_MSG_ERROR([rustc is required])])
        AC_PATH_PROG([CARGO], [cargo], [notfound])
        AS_IF([test "x$CARGO" == "xnotfound"], [AC_MSG_ERROR([cargo is required])])
-       AC_DEFINE([USE_RUST], [1], [Use Rust sources over C ones])])
+       AC_DEFINE([USE_RUST], [1], [Use Rust sources over C ones])],
+      [AS_IF([test "x$with_expat" == "xyes"],
+         [PKG_CHECK_MODULES([EXPAT], [expat],
+           [AC_DEFINE([USE_EXPAT], [1], [Use libexpat])])],
+         [PKG_CHECK_MODULES([LIBXML2], [libxml-2.0],
+           [AC_DEFINE([USE_LIBXML2], [1], [Use libxml2])])])])
 AM_CONDITIONAL([USE_RUST], [test "x$with_rust" == "xyes"])
 
 LT_INIT
-
-# Checks for libraries and related parameters.
-
-AC_ARG_WITH([expat],
-        AS_HELP_STRING([--with-expat], [use libexpat instead of libxml2]))
-
-AS_IF([test "x$with_expat" == "xyes"],
-      [PKG_CHECK_MODULES([EXPAT], [expat],
-        [AC_DEFINE([USE_EXPAT], [1], [Use libexpat])])],
-      [PKG_CHECK_MODULES([LIBXML2], [libxml-2.0],
-        [AC_DEFINE([USE_LIBXML2], [1], [Use libxml2])])])
 
 
 AM_PATH_LIBGCRYPT
