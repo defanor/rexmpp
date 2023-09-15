@@ -1,5 +1,4 @@
-AM_CFLAGS = -Werror -Wall -Wextra -pedantic -std=gnu99 \
-	-Wno-pointer-sign
+AM_CFLAGS = -Werror -Wall -Wextra -pedantic -std=gnu99
 
 COMMON_FLAGS = $(AM_CFLAGS) $(LIBXML_CFLAGS) \
 	$(GNUTLS_CFLAGS) $(LIBDANE_CFLAGS) $(OPENSSL_CFLAGS) \

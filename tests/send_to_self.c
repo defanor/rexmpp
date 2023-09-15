@@ -62,29 +62,28 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
   return -1;
 }
 
-int my_xml_in_cb (rexmpp_t *s, xmlNodePtr node) {
+int my_xml_in_cb (rexmpp_t *s, rexmpp_xml_t *node) {
   (void)s;
-  char *xml_buf = rexmpp_xml_serialize(node);
+  char *xml_buf = rexmpp_xml_serialize(node, 0);
   printf("recv: %s\n", xml_buf);
   free(xml_buf);
   if (stage == TEST_MESSAGE_SENT && rexmpp_xml_match(node, "jabber:client", "message")) {
-    xmlNodePtr body = rexmpp_xml_find_child(node, "jabber:client", "body");
+    rexmpp_xml_t *body = rexmpp_xml_find_child(node, "jabber:client", "body");
     if (body != NULL) {
-      char *txt = xmlNodeGetContent(body);
+      char *txt = rexmpp_xml_text_child(body);
       if (txt != NULL) {
         if (strcmp(txt, msg_text) == 0) {
           stage = TEST_MESSAGE_RECEIVED;
         }
-        free(txt);
       }
     }
   }
   return 0;
 }
 
-int my_xml_out_cb (rexmpp_t *s, xmlNodePtr node) {
+int my_xml_out_cb (rexmpp_t *s, rexmpp_xml_t *node) {
   (void)s;
-  char *xml_buf = rexmpp_xml_serialize(node);
+  char *xml_buf = rexmpp_xml_serialize(node, 0);
   printf("send: %s\n", xml_buf);
   free(xml_buf);
   return 0;
@@ -125,8 +124,10 @@ int main (int argc, char **argv) {
 
   fd_set read_fds, write_fds;
   int nfds;
-  struct timeval tv;
-  struct timeval *mtv;
+  struct timespec tv;
+  struct timespec *mtv;
+  struct timeval tv_ms;
+  struct timeval *mtv_ms;
   int n = 0;
 
   do {
@@ -141,11 +142,14 @@ int main (int argc, char **argv) {
     }
 
     if (stage == TEST_CONNECTING && s.stream_state == REXMPP_STREAM_READY) {
-      xmlNodePtr msg = rexmpp_xml_add_id(&s, xmlNewNode(NULL, "message"));
-      xmlNewNs(msg, "jabber:client", NULL);
-      xmlNewProp(msg, "to", jid);
-      xmlNewProp(msg, "type", "chat");
-      xmlNewTextChild(msg, NULL, "body", msg_text);
+      rexmpp_xml_t *msg =
+        rexmpp_xml_add_id(&s,
+                          rexmpp_xml_new_elem("message", "jabber:client"));
+      rexmpp_xml_add_attr(msg, "to", jid);
+      rexmpp_xml_add_attr(msg, "type", "chat");
+      rexmpp_xml_t *body = rexmpp_xml_new_elem("body", NULL);
+      rexmpp_xml_add_text(body, msg_text);
+      rexmpp_xml_add_child(msg, body);
       rexmpp_send(&s, msg);
       stage = TEST_MESSAGE_SENT;
     } else if (stage == TEST_MESSAGE_RECEIVED) {
@@ -170,10 +174,16 @@ int main (int argc, char **argv) {
     FD_ZERO(&write_fds);
     nfds = rexmpp_fds(&s, &read_fds, &write_fds);
     tv.tv_sec = TIMEOUT;
-    tv.tv_usec = 0;
-    mtv = rexmpp_timeout(&s, (struct timeval*)&tv, (struct timeval*)&tv);
+    tv.tv_nsec = 0;
+    mtv = rexmpp_timeout(&s, &tv, &tv);
+    mtv_ms = NULL;
+    if (mtv != NULL) {
+      tv_ms.tv_sec = mtv->tv_sec;
+      tv_ms.tv_usec = mtv->tv_nsec / 1000;
+      mtv_ms = &tv_ms;
+    }
 
-    n = select(nfds, &read_fds, &write_fds, NULL, mtv);
+    n = select(nfds, &read_fds, &write_fds, NULL, mtv_ms);
     if (n == -1) {
       printf("select error: %s\n", strerror(errno));
       break;
