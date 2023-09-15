@@ -265,7 +265,8 @@ inline char *rexmpp_str_putc (char *str, size_t *len, char c) {
   return ret;
 }
 
-inline char *rexmpp_str_putc_escaped (char *str, size_t *len, char c) {
+static inline
+char *rexmpp_str_putc_escaped (char *str, size_t *len, char c) {
   char *ret = str;
   char buf[7];
   char *esc = buf;
