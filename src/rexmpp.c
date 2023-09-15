@@ -17,8 +17,12 @@
 
 #include "config.h"
 
+#ifdef HAVE_GCRYPT
 #include <gcrypt.h>
+#endif
+#ifdef USE_UNBOUND
 #include <unbound.h>
+#endif
 #ifdef HAVE_GPGME
 #include <gpgme.h>
 #endif
@@ -39,6 +43,7 @@
 #include "rexmpp_jingle.h"
 #include "rexmpp_base64.h"
 #include "rexmpp_sasl.h"
+#include "rexmpp_random.h"
 
 struct rexmpp_iq_cacher {
   rexmpp_iq_callback_t cb;
@@ -817,7 +822,7 @@ void rexmpp_schedule_reconnect (rexmpp_t *s) {
     return;
   }
   if (s->reconnect_number == 0) {
-    gcry_create_nonce((char*)&s->reconnect_seconds, sizeof(time_t));
+    rexmpp_random_buf((char*)&s->reconnect_seconds, sizeof(time_t));
     if (s->reconnect_seconds < 0) {
       s->reconnect_seconds = - s->reconnect_seconds;
     }
@@ -852,7 +857,7 @@ char *rexmpp_gen_id (rexmpp_t *s) {
   (void)s;
   char buf_raw[18], *buf_base64 = NULL;
   size_t buf_base64_len = 0;
-  gcry_create_nonce(buf_raw, 18);
+  rexmpp_random_buf(buf_raw, 18);
   rexmpp_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
   return buf_base64;
 }

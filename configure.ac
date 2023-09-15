@@ -38,7 +38,10 @@ AM_CONDITIONAL([USE_RUST], [test "x$with_rust" == "xyes"])
 LT_INIT
 
 
-AM_PATH_LIBGCRYPT
+# Libgcrypt
+
+AM_PATH_LIBGCRYPT([],
+        [AC_DEFINE([HAVE_GCRYPT], [1], [Libgcrypt is available])])
 
 # libnice (+ glib) and libsrtp for media calls, optional
 

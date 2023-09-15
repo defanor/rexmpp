@@ -55,6 +55,7 @@ Possible future improvements:
 #include "rexmpp_jid.h"
 #include "rexmpp_pubsub.h"
 #include "rexmpp_base64.h"
+#include "rexmpp_random.h"
 
 
 #ifdef HAVE_GPGME
@@ -739,9 +740,9 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
 
     /* A random-length random-content padding. */
     char *rand_str, rand[256];
-    gcry_create_nonce(rand, 1);
+    rexmpp_random_buf(rand, 1);
     size_t rand_str_len = 0, rand_len = (unsigned char)rand[0] % (255 - 16) + 16;
-    gcry_create_nonce(rand, rand_len);
+    rexmpp_random_buf(rand, rand_len);
     rexmpp_base64_to(rand, rand_len, &rand_str, &rand_str_len);
 
     rexmpp_xml_t *rpad =

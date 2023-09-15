@@ -6,6 +6,8 @@
    @copyright MIT license.
 */
 
+#include <string.h>
+
 #include "rexmpp.h"
 #include "rexmpp_xml.h"
 #include "rexmpp_xml_parser.h"
