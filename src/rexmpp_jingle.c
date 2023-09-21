@@ -32,6 +32,7 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include "config.h"
 
 #ifdef ENABLE_CALLS
+#include <inttypes.h>
 #include <glib.h>
 #include <gio/gnetworking.h>
 #include <nice.h>
@@ -40,12 +41,237 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 #include <srtp2/srtp.h>
+#include <math.h>
+#include "portaudio.h"
+#ifdef HAVE_OPUS
+#include <opus.h>
+#endif
 #endif
 
 #include "rexmpp.h"
 #include "rexmpp_xml.h"
 #include "rexmpp_jingle.h"
 #include "rexmpp_base64.h"
+#include "rexmpp_random.h"
+
+
+/* https://en.wikipedia.org/wiki/G.711 */
+uint8_t rexmpp_pcma_encode (int16_t x) {
+  uint8_t sign = 0x80;
+  uint8_t pos;
+  uint8_t val = 0;
+  if (x < 0) {
+    x = -x;
+    sign = 0;
+  }
+  x >>= 3;
+  for (pos = 11; pos > 5 && ! (x & (1 << pos)); pos--);
+  val = (x >> (pos - 4)) & 0xf;
+  return (sign | ((pos - 4) << 4) | val) ^ 0x55;
+}
+
+int16_t rexmpp_pcma_decode (uint8_t x) {
+  x ^= 0x55;
+  int16_t sign = -1;
+  uint8_t shift = (x >> 4) & 7;
+  int16_t val = x & 0xf;
+  if (x & 0x80) {
+    x ^= 0x80;
+    sign = 1;
+  }
+  val = (val << 1) | 1;
+  if (shift > 0) {
+    val = (val | 0x20) << (shift - 1);
+  }
+  val <<= 3;
+  return sign * val;
+}
+
+uint8_t rexmpp_pcmu_encode (int16_t x) {
+  uint8_t sign = 0;
+  uint8_t pos;
+  uint8_t val = 0;
+  if (x < 0) {
+    x = -x;
+    sign = 0x80;
+  }
+  x >>= 2;
+  for (pos = 12; pos > 5 && ! (x & (1 << pos)); pos--);
+  val = (x >> (pos - 4)) & 0xf;
+  return (sign | ((pos - 4) << 4) | val) ^ 0xff;
+}
+
+int16_t rexmpp_pcmu_decode (uint8_t x) {
+  x ^= 0xff;
+  int16_t sign = 1;
+  uint8_t shift = (x >> 4) & 7;
+  int16_t val = x & 0xf;
+  if (x & 0x80) {
+    x ^= 0x80;
+    sign = -1;
+  }
+  val = (val << 1) | 1;
+  if (shift > 0) {
+    val = (val | 0x20) << (shift - 1);
+  }
+  val <<= 2;
+  return sign * val;
+}
+
+rexmpp_xml_t *
+rexmpp_jingle_session_payload_by_id (rexmpp_jingle_session_t *sess,
+                                     int payload_type_id)
+{
+  if (sess->accept == NULL) {
+    return NULL;
+  }
+  rexmpp_xml_t *descr_child =
+    rexmpp_xml_first_elem_child
+    (rexmpp_xml_find_child
+     (rexmpp_xml_find_child
+      (sess->accept, "urn:xmpp:jingle:1", "content"),
+      "urn:xmpp:jingle:apps:rtp:1", "description"));
+  while (descr_child != NULL) {
+    if (rexmpp_xml_match(descr_child, "urn:xmpp:jingle:apps:rtp:1",
+                         "payload-type"))
+      {
+        const char *pl_id = rexmpp_xml_find_attr_val(descr_child, "id");
+        if (pl_id != NULL && atoi(pl_id) == payload_type_id) {
+          return descr_child;
+        }
+      }
+    descr_child = rexmpp_xml_next_elem_sibling(descr_child);
+  }
+  return NULL;
+}
+
+int rexmpp_jingle_session_configure_audio (rexmpp_jingle_session_t *sess) {
+  if (sess->accept == NULL) {
+    return 0;
+  }
+  rexmpp_xml_t *descr_child =
+    rexmpp_xml_first_elem_child
+    (rexmpp_xml_find_child
+     (rexmpp_xml_find_child(sess->accept, "urn:xmpp:jingle:1", "content"),
+      "urn:xmpp:jingle:apps:rtp:1", "description"));
+  while (descr_child != NULL) {
+    if (rexmpp_xml_match(descr_child, "urn:xmpp:jingle:apps:rtp:1",
+                         "payload-type"))
+      {
+        const char *pl_id = rexmpp_xml_find_attr_val(descr_child, "id");
+        if (pl_id != NULL) {
+          if (atoi(pl_id) == 0) {
+            rexmpp_log(sess->s, LOG_INFO,
+                       "Setting the codec to PCMU (0) for Jingle session %s",
+                       sess->sid);
+            sess->codec = REXMPP_CODEC_PCMU;
+            sess->payload_type = 0;
+            return sess->payload_type;
+          }
+          if (atoi(pl_id) == 8) {
+            rexmpp_log(sess->s, LOG_INFO,
+                       "Setting the codec to PCMA (8) for Jingle session %s",
+                       sess->sid);
+            sess->codec = REXMPP_CODEC_PCMA;
+            sess->payload_type = 8;
+            return sess->payload_type;
+          }
+#ifdef HAVE_OPUS
+          const char *pl_name = rexmpp_xml_find_attr_val(descr_child, "name");
+          if ((pl_name != NULL) && (strcmp(pl_name, "opus") == 0)) {
+            sess->codec = REXMPP_CODEC_OPUS;
+            sess->payload_type = atoi(pl_id);
+            rexmpp_log(sess->s, LOG_INFO,
+                       "Setting the codec to Opus (%u) for Jingle session %s",
+                       sess->payload_type, sess->sid);
+            return sess->payload_type;
+          }
+#endif
+        }
+      }
+    descr_child = rexmpp_xml_next_elem_sibling(descr_child);
+  }
+  return 0;
+}
+
+
+static int rexmpp_pa_callback (const void *input,
+                               void *output,
+                               unsigned long frameCount,
+                               const PaStreamCallbackTimeInfo* timeInfo,
+                               PaStreamCallbackFlags statusFlags,
+                               void *userData)
+{
+  (void)timeInfo;
+  (void)statusFlags;
+  struct pa_buffers *data = (struct pa_buffers*)userData;
+  int16_t *out = (int16_t*)output;
+  int16_t *in = (int16_t*)input;
+  unsigned int i;
+  for (i = 0; i < frameCount; i++) {
+    if (in != NULL) {
+      data->capture.buf[data->capture.write_pos] = in[i];
+      data->capture.write_pos++;
+      data->capture.write_pos %= PA_BUF_SIZE;
+    }
+
+    if (data->playback.read_pos != data->playback.write_pos) {
+      out[i] = data->playback.buf[data->playback.read_pos];
+      data->playback.read_pos++;
+      data->playback.read_pos %= PA_BUF_SIZE;
+    } else {
+      out[i] = 0;
+    }
+  }
+  return 0;
+}
+
+void
+rexmpp_jingle_run_audio (rexmpp_jingle_session_t *sess) {
+  rexmpp_random_buf(&(sess->rtp_seq_num), sizeof(uint16_t));
+  sess->rtp_last_seq_num = 0xffff;
+  rexmpp_random_buf(&(sess->rtp_timestamp), sizeof(uint32_t));
+  rexmpp_random_buf(&(sess->rtp_ssrc), sizeof(uint32_t));
+
+  int rate = 8000;
+  int channels = 1;
+#ifdef HAVE_OPUS
+  if (sess->codec == REXMPP_CODEC_OPUS) {
+    rate = 48000;
+    channels = 2;
+    int opus_error;
+    sess->opus_enc =
+      opus_encoder_create(rate, channels, OPUS_APPLICATION_VOIP, &opus_error);
+    sess->opus_dec =
+      opus_decoder_create(rate, channels, &opus_error);
+  }
+#endif
+
+  rexmpp_log(sess->s, LOG_DEBUG,
+             "Setting up an audio stream: SSRC %" PRIx32
+             ", %d Hz, %d channels",
+             sess->rtp_ssrc, rate, channels);
+
+  PaError err = Pa_OpenDefaultStream (&(sess->pa_stream),
+                                      channels,
+                                      channels,
+                                      paInt16,
+                                      /* paFloat32, */
+                                      rate,
+                                      /* 480, */
+                                      paFramesPerBufferUnspecified,
+                                      rexmpp_pa_callback,
+                                      &(sess->ring_buffers));
+  if (err != paNoError) {
+    rexmpp_log(sess->s, LOG_ERR, "Failed to open a PA stream: %s",
+               Pa_GetErrorText(err));
+  }
+  err = Pa_StartStream(sess->pa_stream);
+  if (err != paNoError) {
+    rexmpp_log(sess->s, LOG_ERR, "Failed to start a PA stream: %s",
+               Pa_GetErrorText(err));
+  }
+}
 
 
 rexmpp_jingle_session_t *
@@ -83,6 +309,25 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
 #ifdef ENABLE_CALLS
   if (session->type == REXMPP_JINGLE_SESSION_MEDIA) {
     int i;
+    if (session->pa_stream != NULL) {
+      PaError err = Pa_StopStream(session->pa_stream);
+      if (err != paNoError) {
+        rexmpp_log(session->s, LOG_ERR,
+                   "Failed to close a PortAudio stream: %s",
+                   Pa_GetErrorText(err));
+      }
+      session->pa_stream = NULL;
+    }
+#ifdef HAVE_OPUS
+    if (session->opus_enc != NULL) {
+      opus_encoder_destroy(session->opus_enc);
+      session->opus_enc = NULL;
+    }
+    if (session->opus_dec != NULL) {
+      opus_decoder_destroy(session->opus_dec);
+      session->opus_dec = NULL;
+    }
+#endif
     for (i = 0; i < 2; i++) {
       rexmpp_jingle_component_t *comp = &session->component[i];
       if (comp->dtls_state == REXMPP_TLS_ACTIVE ||
@@ -101,12 +346,9 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
         gnutls_deinit(comp->dtls_session);
         comp->dtls_state = REXMPP_TLS_INACTIVE;
       }
-      if (comp->udp_socket != -1) {
-        close(comp->udp_socket);
-        comp->udp_socket = -1;
-      }
     }
     if (session->ice_agent != NULL) {
+      nice_agent_close_async(session->ice_agent, NULL, NULL);
       g_object_unref(session->ice_agent);
       session->ice_agent = NULL;
     }
@@ -203,7 +445,6 @@ rexmpp_jingle_session_create (rexmpp_t *s,
       sess->component[i].s = s;
       sess->component[i].dtls_state = REXMPP_TLS_INACTIVE;
       sess->component[i].dtls_buf_len = 0;
-      sess->component[i].udp_socket = -1;
     }
     sess->ice_agent = NULL;
     sess->rtcp_mux = s->jingle_prefer_rtcp_mux;
@@ -214,6 +455,17 @@ rexmpp_jingle_session_create (rexmpp_t *s,
     sess->turn_port = 0;
     sess->turn_username = NULL;
     sess->turn_password = NULL;
+
+    sess->ring_buffers.capture.read_pos = 0;
+    sess->ring_buffers.capture.write_pos = 0;
+    sess->ring_buffers.playback.read_pos = 0;
+    sess->ring_buffers.playback.write_pos = 0;
+    sess->codec = REXMPP_CODEC_UNDEFINED;
+    sess->payload_type = 0;
+#ifdef HAVE_OPUS
+    sess->opus_enc = NULL;
+    sess->opus_dec = NULL;
+#endif
     /* rexmpp_jingle_ice_agent_init(sess); */
 #endif
     if (! rexmpp_jingle_session_add(s, sess)) {
@@ -251,6 +503,8 @@ int rexmpp_jingle_init (rexmpp_t *s) {
   g_networking_init();
   srtp_init();
   s->jingle->gloop = g_main_loop_new(NULL, FALSE);
+  Pa_Initialize();
+  nice_debug_enable(1);
 #endif
   return 0;
 }
@@ -263,6 +517,7 @@ void rexmpp_jingle_stop (rexmpp_t *s) {
   g_main_loop_quit(s->jingle->gloop);
   s->jingle->gloop = NULL;
   srtp_shutdown();
+  Pa_Terminate();
 #endif
   free(s->jingle);
   s->jingle = NULL;
@@ -626,52 +881,62 @@ rexmpp_jingle_ice_udp_add_remote (rexmpp_jingle_session_t *sess,
                                        sess->ice_stream_id,
                                        component_id);
     rexmpp_xml_t *candidate = rexmpp_xml_first_elem_child(transport);
-    while (rexmpp_xml_match(candidate, "urn:xmpp:jingle:transports:ice-udp:1",
-                            "candidate")) {
-      const char *component = rexmpp_xml_find_attr_val(candidate, "component");
-      if (component[0] == component_id + '0') {
-        const char *type_str = rexmpp_xml_find_attr_val(candidate, "type");
-        int type_n = NICE_CANDIDATE_TYPE_HOST;
-        if (strcmp(type_str, "host") == 0) {
-          type_n = NICE_CANDIDATE_TYPE_HOST;
-        } else if (strcmp(type_str, "srflx") == 0) {
-          type_n = NICE_CANDIDATE_TYPE_SERVER_REFLEXIVE;
-        } else if (strcmp(type_str, "prflx") == 0) {
-          type_n = NICE_CANDIDATE_TYPE_PEER_REFLEXIVE;
-        } else if (strcmp(type_str, "relay") == 0) {
-          type_n = NICE_CANDIDATE_TYPE_RELAYED;
+    while (candidate != NULL) {
+      if (rexmpp_xml_match(candidate, "urn:xmpp:jingle:transports:ice-udp:1",
+                              "candidate")) {
+        const char *component = rexmpp_xml_find_attr_val(candidate, "component");
+        if (component[0] == component_id + '0') {
+          const char *type_str = rexmpp_xml_find_attr_val(candidate, "type");
+          int type_n = NICE_CANDIDATE_TYPE_HOST;
+          if (strcmp(type_str, "host") == 0) {
+            type_n = NICE_CANDIDATE_TYPE_HOST;
+          } else if (strcmp(type_str, "srflx") == 0) {
+            type_n = NICE_CANDIDATE_TYPE_SERVER_REFLEXIVE;
+          } else if (strcmp(type_str, "prflx") == 0) {
+            type_n = NICE_CANDIDATE_TYPE_PEER_REFLEXIVE;
+          } else if (strcmp(type_str, "relay") == 0) {
+            type_n = NICE_CANDIDATE_TYPE_RELAYED;
+          }
+          NiceCandidate *c = nice_candidate_new(type_n);
+          c->component_id = component_id;
+          c->stream_id = sess->ice_stream_id;
+
+          const char *foundation = rexmpp_xml_find_attr_val(candidate, "foundation");
+          strncpy(c->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION - 1);
+          c->foundation[NICE_CANDIDATE_MAX_FOUNDATION - 1] = 0;
+
+          c->transport = NICE_CANDIDATE_TRANSPORT_UDP;
+
+          const char *priority = rexmpp_xml_find_attr_val(candidate, "priority");
+          c->priority = atoi(priority);
+
+          const char *ip = rexmpp_xml_find_attr_val(candidate, "ip");
+          if (! nice_address_set_from_string(&c->addr, ip)) {
+            rexmpp_log(sess->s, LOG_ERR,
+                       "Failed to parse an ICE-UDP candidate's address: %s",
+                       ip);
+          }
+
+          const char *port = rexmpp_xml_find_attr_val(candidate, "port");
+          nice_address_set_port(&c->addr, atoi(port));
+
+          remote_candidates = g_slist_prepend(remote_candidates, c);
         }
-        NiceCandidate *c = nice_candidate_new(type_n);
-        c->component_id = component_id;
-        c->stream_id = sess->ice_stream_id;
-
-        const char *foundation = rexmpp_xml_find_attr_val(candidate, "foundation");
-        strncpy(c->foundation, foundation, NICE_CANDIDATE_MAX_FOUNDATION - 1);
-        c->foundation[NICE_CANDIDATE_MAX_FOUNDATION - 1] = 0;
-
-        c->transport = NICE_CANDIDATE_TRANSPORT_UDP;
-
-        const char *priority = rexmpp_xml_find_attr_val(candidate, "priority");
-        c->priority = atoi(priority);
-
-        const char *ip = rexmpp_xml_find_attr_val(candidate, "ip");
-        if (! nice_address_set_from_string(&c->addr, ip)) {
-          rexmpp_log(sess->s, LOG_ERR,
-                     "Failed to parse an ICE-UDP candidate's address: %s",
-                     ip);
-        }
-
-        const char *port = rexmpp_xml_find_attr_val(candidate, "port");
-        nice_address_set_port(&c->addr, atoi(port));
-
-        remote_candidates = g_slist_prepend(remote_candidates, c);
       }
       candidate = rexmpp_xml_next_elem_sibling(candidate);
     }
     if (remote_candidates != NULL) {
+      rexmpp_log(sess->s, LOG_DEBUG,
+                 "Setting %d remote candidates for component %d",
+                 g_slist_length(remote_candidates),
+                 component_id);
       nice_agent_set_remote_candidates(sess->ice_agent, sess->ice_stream_id,
                                        component_id, remote_candidates);
       g_slist_free_full(remote_candidates, (GDestroyNotify)&nice_candidate_free);
+    } else {
+      rexmpp_log(sess->s, LOG_WARNING,
+                 "No remote candidates for component %d",
+                 component_id);
     }
   }
 }
@@ -739,6 +1004,8 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
 {
   rexmpp_jingle_session_t *sess = data;
 
+  rexmpp_log(sess->s, LOG_DEBUG, "ICE agent candidate gathering is done");
+
   gnutls_x509_crt_t *cert_list;
   unsigned int cert_list_size = 0;
   /* We'll need a certificate a bit later, but checking it before
@@ -774,6 +1041,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
   rexmpp_xml_add_attr(content, "senders", "both");
   rexmpp_xml_t *description;
   if (sess->initiator) {
+    /* We are the intiator: send the predefined options. */
     rexmpp_xml_add_attr(jingle, "action", "session-initiate");
     rexmpp_xml_add_attr(jingle, "initiator", sess->s->assigned_jid.full);
     rexmpp_xml_add_attr(content, "name", "call");
@@ -791,6 +1059,8 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
 
     description = rexmpp_xml_clone(sess->s->jingle_rtp_description);
   } else {
+    /* Accepting the call, will have to compare payload type options
+       to supported and preferred ones, and pick some from those. */
     rexmpp_xml_t *init_jingle = sess->initiate;
     rexmpp_xml_t *init_content =
       rexmpp_xml_find_child(init_jingle, "urn:xmpp:jingle:1", "content");
@@ -811,7 +1081,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
     rexmpp_xml_t *pl_type =
       rexmpp_xml_first_elem_child(sess->s->jingle_rtp_description);
     rexmpp_xml_t *selected_pl = NULL;
-    while (pl_type != NULL && selected_pl == NULL) {
+    while (pl_type != NULL) {
       if (rexmpp_xml_match(pl_type, "urn:xmpp:jingle:apps:rtp:1", "payload-type")) {
         const char *pl_id = rexmpp_xml_find_attr_val(pl_type, "id");
         if (pl_id != NULL) {
@@ -830,7 +1100,8 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
                 if (pl_id_num < 96 && pl_id_num == proposed_pl_id_num) {
                   selected_pl = pl_type;
                 } else {
-                  const char *pl_name = rexmpp_xml_find_attr_val(pl_type, "name");
+                  const char *pl_name =
+                    rexmpp_xml_find_attr_val(pl_type, "name");
                   if (pl_name != NULL) {
                     const char *proposed_pl_name =
                       rexmpp_xml_find_attr_val(proposed_pl_type, "name");
@@ -849,7 +1120,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
           }
         } else {
           rexmpp_log(sess->s, LOG_ERR,
-                     "No 'id' specified for a pyaload-type element.");
+                     "No 'id' specified for a payload-type element.");
         }
       }
       pl_type = pl_type->next;
@@ -956,6 +1227,8 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
     sess->initiate = rexmpp_xml_clone(jingle);
   } else {
     sess->accept = rexmpp_xml_clone(jingle);
+    rexmpp_jingle_session_configure_audio(sess);
+    rexmpp_jingle_run_audio(sess);
   }
 
   rexmpp_iq_new(sess->s, "set", sess->jid, jingle,
@@ -1028,11 +1301,18 @@ rexmpp_jingle_dtls_pull_func (gnutls_transport_ptr_t p,
                                          size);
 }
 
+
+/* Apparently this should not be called with non-blocking sockets, but
+   it is. */
 int
 rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
                                               unsigned int ms,
                                               guint component_id)
 {
+  if (sess->component[component_id].dtls_buf_len > 0) {
+    return 1;
+  }
+
   fd_set rfds;
   struct timeval tv;
 
@@ -1042,25 +1322,56 @@ rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
   char c;
 
   FD_ZERO(&rfds);
+  int fd, nfds = -1;
 
-  GSocket *sock =
-    nice_agent_get_selected_socket(sess->ice_agent,
-                                   sess->ice_stream_id, component_id);
-  int fd = g_socket_get_fd(sock);
-  FD_SET(fd, &rfds);
+  GPtrArray *sockets =
+    nice_agent_get_sockets(sess->ice_agent,
+                           sess->ice_stream_id, component_id);
+  guint i;
+  for (i = 0; i < sockets->len; i++) {
+    fd = g_socket_get_fd(sockets->pdata[i]);
+    FD_SET(fd, &rfds);
+    if (fd > nfds) {
+      nfds = fd;
+    }
+  }
+  g_ptr_array_unref(sockets);
+
 
   tv.tv_sec = ms / 1000;
   tv.tv_usec = (ms % 1000) * 1000;
 
-  ret = select(fd + 1, &rfds, NULL, NULL, &tv);
-  if (ret <= 0) {
+  ret = select(nfds + 1, &rfds, NULL, NULL, &tv);
+  if (ret < 0) {
+    rexmpp_log(sess->s, LOG_WARNING,
+               "DTLS pull function: select failed: %s",
+               strerror(errno));
     return ret;
   }
 
   cli_addr_size = sizeof(cli_addr);
-  ret =
-    recvfrom(fd, &c, 1, MSG_PEEK,
-             (struct sockaddr *) &cli_addr, &cli_addr_size);
+  ret = 0;
+  sockets =
+    nice_agent_get_sockets(sess->ice_agent,
+                           sess->ice_stream_id, component_id);
+  for (i = 0; i < sockets->len; i++) {
+    int err =
+      recvfrom(g_socket_get_fd(sockets->pdata[i]), &c, 1, MSG_PEEK,
+               (struct sockaddr *) &cli_addr, &cli_addr_size);
+    if (err == -1) {
+      /* ENOTCONN and EAGAIN are common here, but report other
+         errors. */
+      if (errno != ENOTCONN && errno != EAGAIN) {
+        rexmpp_log(sess->s, LOG_WARNING,
+                   "DTLS pull function: failed to peek a socket: %s",
+                   strerror(errno));
+      }
+    } else {
+      ret += err;
+    }
+  }
+  g_ptr_array_unref(sockets);
+
   if (ret > 0) {
     return 1;
   }
@@ -1076,6 +1387,19 @@ int rexmpp_jingle_dtls_pull_timeout_func (gnutls_transport_ptr_t p,
                                                       comp->component_id);
 }
 
+const char *rexmpp_ice_component_state_text(int state) {
+  switch (state) {
+  case NICE_COMPONENT_STATE_DISCONNECTED: return "disconnected";
+  case NICE_COMPONENT_STATE_GATHERING: return "gathering";
+  case NICE_COMPONENT_STATE_CONNECTING: return "connecting";
+  case NICE_COMPONENT_STATE_CONNECTED: return "connected";
+  case NICE_COMPONENT_STATE_READY: return "ready";
+  case NICE_COMPONENT_STATE_FAILED: return "failed";
+  case NICE_COMPONENT_STATE_LAST: return "last";
+  default: return "unknown";
+  }
+}
+
 void
 rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
                                           guint stream_id,
@@ -1085,6 +1409,9 @@ rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
 {
   rexmpp_jingle_session_t *sess = data;
   (void)agent;
+  rexmpp_log(sess->s, LOG_DEBUG,
+             "ICE agent component %d state for stream %d changed to %s",
+             component_id, stream_id, rexmpp_ice_component_state_text(state));
   if (component_id < 1 || component_id > 2) {
     rexmpp_log(sess->s, LOG_CRIT, "Unexpected ICE component_id: %d",
                component_id);
@@ -1117,7 +1444,7 @@ rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
     gnutls_credentials_set(*tls_session, GNUTLS_CRD_CERTIFICATE,
                            sess->s->tls->dtls_cred);
 
-    gnutls_transport_set_ptr(*tls_session, &sess->component[component_id - 1]);
+    gnutls_transport_set_ptr(*tls_session, &(sess->component[component_id - 1]));
     gnutls_transport_set_push_function(*tls_session, rexmpp_jingle_dtls_push_func);
     gnutls_transport_set_pull_function(*tls_session, rexmpp_jingle_dtls_pull_func);
     gnutls_transport_set_pull_timeout_function(*tls_session,
@@ -1138,19 +1465,20 @@ rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
 
 void
 rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id,
-                           guint len, gchar *buf, gpointer data)
+                           guint len, gchar *gbuf, gpointer data)
 {
   /* Demultiplexing here for DTLS and SRTP:
      https://datatracker.ietf.org/doc/html/rfc5764#section-5.1.2 */
   (void)agent;
   (void)stream_id;
   (void)component_id;
+  uint8_t *buf = (uint8_t *)gbuf;
   rexmpp_jingle_component_t *comp = data;
   if (len == 0) {
     rexmpp_log(comp->s, LOG_WARNING, "Received an empty ICE message");
     return;
   }
-  if (127 < (uint8_t)buf[0] && (uint8_t)buf[0] < 192) {
+  if (127 < buf[0] && buf[0] < 192) {
     int err;
     srtp_ctx_t *srtp_in;
     if (comp->dtls_state == REXMPP_TLS_ACTIVE) {
@@ -1164,14 +1492,12 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
                  "Received an SRTP packet while DTLS is inactive");
       return;
     }
-    uint16_t port_out = comp->udp_port_out;
     if (component_id == 1) {
       err = srtp_unprotect(srtp_in, buf, (int*)&len);
       if (err == srtp_err_status_auth_fail && comp->session->rtcp_mux) {
         /* Try to demultiplex. Maybe there's a better way to do it,
            but this will do for now. */
         err = srtp_unprotect_rtcp(srtp_in, buf, (int*)&len);
-        port_out = comp->session->component[0].udp_port_out;
       }
     } else {
       err = srtp_unprotect_rtcp(srtp_in, buf, (int*)&len);
@@ -1180,12 +1506,149 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
       rexmpp_log(comp->s, LOG_ERR, "SRT(C)P unprotect error %d on component %d",
                  err, component_id);
     } else {
-      struct sockaddr_in addr;
-      addr.sin_family = AF_INET;
-      addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-      addr.sin_port = htons(port_out);
-      sendto(comp->udp_socket, buf, len, 0,
-             (struct sockaddr*)&addr, sizeof(struct sockaddr_in));
+      /* TODO: apparently sometimes there is more than one RTCP packet
+         in the decrypted data; parse them all. */
+      uint8_t version = (buf[0] & 0xc0) >> 6;
+      if (version == 2 && len >= 12) {
+        size_t i;
+        uint8_t payload_type = buf[1] & 0x7f;
+        uint8_t csrc_count = buf[0] & 0xF;
+        uint16_t seq_num = ((uint16_t)buf[2] << 8) | buf[3];
+        int data_start_pos = 12 + csrc_count * 4;
+
+        /* Exclude possible RTCP packets here, RFC 5761 */
+        if (component_id == 1
+            && (payload_type < 64 || payload_type > 80)) {
+          if ((seq_num > comp->session->rtp_last_seq_num)
+              || (comp->session->rtp_last_seq_num > 65500)) {
+            if ((comp->session->rtp_last_seq_num <= 65500)
+                && (seq_num - comp->session->rtp_last_seq_num > 1)) {
+              rexmpp_log(comp->s, LOG_NOTICE,
+                         "%d RTP packets lost",
+                         seq_num - comp->session->rtp_last_seq_num - 1);
+            }
+            struct ring_buf *playback = &(comp->session->ring_buffers.playback);
+
+            /* Skip the RTP header. */
+            if (payload_type == 0) {
+              /* PCMU */
+              for (i = data_start_pos; i < len; i++) {
+                playback->buf[playback->write_pos] = rexmpp_pcmu_decode(buf[i]);
+                playback->write_pos++;
+                playback->write_pos %= PA_BUF_SIZE;
+              }
+            } else if (payload_type == 8) {
+              /* PCMA */
+              for (i = data_start_pos; i < len; i++) {
+                playback->buf[playback->write_pos] = rexmpp_pcma_decode(buf[i]);
+                playback->write_pos++;
+                playback->write_pos %= PA_BUF_SIZE;
+              }
+            }
+#ifdef HAVE_OPUS
+            else if (payload_type == comp->session->payload_type
+                     && comp->session->codec == REXMPP_CODEC_OPUS) {
+              /* The same payload type as for output, which is Opus */
+              opus_int16 decoded[5760 * 2];
+              int decoded_len;
+              decoded_len =
+                opus_decode(comp->session->opus_dec,
+                            (const unsigned char *)buf + data_start_pos,
+                            len - data_start_pos,
+                            decoded,
+                            5760,
+                            0);
+              int j;
+              for (j = 0; j < decoded_len; j++) {
+                playback->buf[playback->write_pos] = decoded[j];
+                playback->write_pos++;
+                playback->write_pos %= PA_BUF_SIZE;
+              }
+            }
+#endif
+            else {
+              /* Some other payload type, possibly with a dynamic ID */
+              rexmpp_xml_t *payload =
+                rexmpp_jingle_session_payload_by_id(comp->session,
+                                                    payload_type);
+              const char *pl_name = rexmpp_xml_find_attr_val(payload, "name");
+              rexmpp_log(comp->s, LOG_WARNING,
+                         "Unhandled payload type %d, '%s'",
+                         payload_type, pl_name);
+            }
+            comp->session->rtp_last_seq_num = seq_num;
+          } else {
+            rexmpp_log(comp->s, LOG_NOTICE,
+                       "Out of order RTP packets received: %d after %d",
+                       seq_num, comp->session->rtp_last_seq_num);
+          }
+        } else {
+          uint8_t packet_type = buf[1];
+          unsigned int pos = 0;
+          unsigned int rtcp_len = (buf[2] << 8) | buf[3];
+          if (packet_type == 200 && len >= 28) {
+            uint32_t rtcp_ssrc =
+              (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
+            uint64_t rtcp_ntp_timestamp = 0;
+            for (i = 8; i < 16; i++) {
+              rtcp_ntp_timestamp <<= 8;
+              rtcp_ntp_timestamp |= buf[i];
+            }
+            uint32_t rtcp_rtp_timestamp =
+              (buf[16] << 24) | (buf[17] << 16) | (buf[18] << 8) | buf[19];
+            uint32_t rtcp_packet_count =
+              (buf[20] << 24) | (buf[21] << 16) | (buf[22] << 8) | buf[23];
+            uint32_t rtcp_octet_count =
+              (buf[24] << 24) | (buf[25] << 16) | (buf[26] << 8) | buf[27];
+            rexmpp_log(comp->s, LOG_DEBUG,
+                       "RTCP SR received: SSRC % " PRIx32 ", NTP TS %" PRIu64
+                       ", RTP TS %" PRIu32 ", PC %" PRIu32 ", OC %" PRIu32,
+                       rtcp_ssrc, rtcp_ntp_timestamp, rtcp_rtp_timestamp,
+                       rtcp_packet_count, rtcp_octet_count);
+            pos = 28;
+          } else if (packet_type == 201 && len >= 8) {
+            uint32_t rtcp_ssrc =
+              (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
+            rexmpp_log(comp->s, LOG_DEBUG,
+                       "RTCP RR received: SSRC %x",
+                       rtcp_ssrc);
+            pos = 8;
+          } else {
+            rexmpp_log(comp->s, LOG_DEBUG, "RTCP packet received, PT %d",
+                       packet_type);
+          }
+
+          while ((pos > 0)
+                 && ((pos + 24) <= len)
+                 && ((pos + 24) <= (rtcp_len + 1) * 4)) {
+            uint32_t rtcp_ssrc = (buf[pos] << 24) | (buf[pos + 1] << 16)
+              | (buf[pos + 2] << 8) | buf[pos + 3];
+            uint8_t fraction_lost = buf[pos + 4];
+            uint32_t packets_lost =
+              (buf[pos + 5] << 24) | (buf[pos + 6] << 16) | buf[pos + 7];
+            uint32_t rtcp_ehsn = (buf[pos + 8] << 24) | (buf[pos + 9] << 16)
+              | (buf[pos + 10] << 8) | buf[pos + 11];
+            uint32_t rtcp_jitter = (buf[pos + 12] << 24) | (buf[pos + 13] << 16)
+              | (buf[pos + 14] << 8) | buf[pos + 15];
+            uint32_t rtcp_lsr = (buf[pos + 16] << 24) | (buf[pos + 17] << 16)
+              | (buf[pos + 18] << 8) | buf[pos + 19];
+            uint32_t rtcp_dlsr = (buf[pos + 20] << 24) | (buf[pos + 21] << 16)
+              | (buf[pos + 22] << 8) | buf[pos + 23];
+            rexmpp_log(comp->s, LOG_DEBUG,
+                       "RTCP report block: SSRC % " PRIx32 ", lost %" PRIu32
+                       "%, %" PRIu8 " packets, "
+                       "highest seq num %" PRIu32
+                       ", jitter %" PRIu32 ", LSR %" PRIu32 ", DLSR %" PRIu32,
+                       rtcp_ssrc, fraction_lost, packets_lost,
+                       rtcp_ehsn, rtcp_jitter, rtcp_lsr, rtcp_dlsr);
+            pos += 24;
+          }
+        }
+      } else {
+        rexmpp_log(comp->s, LOG_WARNING,
+                   "Unhandled RT(C)P packet: version %d, length %d",
+                   version, len);
+      }
     }
   } else {
     if (comp->dtls_buf_len + len < DTLS_SRTP_BUF_SIZE) {
@@ -1231,29 +1694,6 @@ rexmpp_jingle_ice_agent_init (rexmpp_jingle_session_t *sess)
   }
 
   return 1;
-}
-
-void
-rexmpp_jingle_bind_sockets (rexmpp_jingle_session_t *sess,
-                            uint16_t rtp_port_in, uint16_t rtp_port_out)
-{
-  sess->component[0].udp_port_in = rtp_port_in;
-  sess->component[0].udp_port_out = rtp_port_out;
-  sess->component[1].udp_port_in = rtp_port_in + 1;
-  sess->component[1].udp_port_out = rtp_port_out + 1;
-  int i;
-  for (i = 0; i < 2; i++) {
-    sess->component[i].udp_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    addr.sin_port = htons(sess->component[i].udp_port_in);
-    if (bind (sess->component[i].udp_socket,
-              (struct sockaddr*)&addr, sizeof(struct sockaddr_in))) {
-      rexmpp_log(sess->s, LOG_ERR, "Failed to bind a UDP socket on port %u",
-                 sess->component[i].udp_port_in);
-    }
-  }
 }
 
 void rexmpp_jingle_turn_dns_cb (rexmpp_t *s, void *ptr, rexmpp_dns_result_t *result) {
@@ -1402,31 +1842,25 @@ void rexmpp_jingle_discover_turn (rexmpp_t *s, rexmpp_jingle_session_t *sess) {
 
 rexmpp_err_t
 rexmpp_jingle_call (rexmpp_t *s,
-                    const char *jid,
-                    uint16_t rtp_port_in,
-                    uint16_t rtp_port_out)
+                    const char *jid)
 {
   rexmpp_jingle_session_t *sess =
     rexmpp_jingle_session_create(s, strdup(jid), rexmpp_gen_id(s),
                                  REXMPP_JINGLE_SESSION_MEDIA, 1);
   rexmpp_jingle_ice_agent_init(sess);
-  rexmpp_jingle_bind_sockets(sess, rtp_port_in, rtp_port_out);
   rexmpp_jingle_discover_turn(s, sess);
   return REXMPP_SUCCESS;
 }
 
 rexmpp_err_t
 rexmpp_jingle_call_accept (rexmpp_t *s,
-                           const char *sid,
-                           uint16_t rtp_port_in,
-                           uint16_t rtp_port_out)
+                           const char *sid)
 {
   rexmpp_jingle_session_t *sess = rexmpp_jingle_session_by_id(s, sid);
   if (sess == NULL) {
     return REXMPP_E_OTHER;
   }
   rexmpp_jingle_ice_agent_init(sess);
-  rexmpp_jingle_bind_sockets(sess, rtp_port_in, rtp_port_out);
 
   rexmpp_xml_t *content =
     rexmpp_xml_find_child(sess->initiate,
@@ -1578,6 +2012,8 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
         rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_id(s, sid);
         if (session != NULL) {
           session->accept = rexmpp_xml_clone(jingle);
+          rexmpp_jingle_session_configure_audio(session);
+          rexmpp_jingle_run_audio(session);
           rexmpp_xml_t *content =
             rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
           rexmpp_xml_t *file_description =
@@ -1601,9 +2037,14 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                                     "transport");
             if (ice_udp_transport != NULL) {
               rexmpp_jingle_ice_udp_add_remote(session, ice_udp_transport);
+            } else {
+              rexmpp_log(s, LOG_WARNING,
+                         "ICE-UDP transport is unset in session-accept");
             }
 #endif
           }
+        } else {
+          rexmpp_log(s, LOG_WARNING, "Jingle session %s is not found", sid);
         }
       } else if (strcmp(action, "transport-info") == 0) {
         rexmpp_iq_reply(s, elem, "result", NULL);
@@ -1721,24 +2162,18 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
         if (sess->component[i].dtls_state != REXMPP_TLS_INACTIVE &&
             sess->component[i].dtls_state != REXMPP_TLS_CLOSED &&
             sess->component[i].dtls_state != REXMPP_TLS_ERROR) {
-          GSocket *sock =
-            nice_agent_get_selected_socket(sess->ice_agent,
-                                           sess->ice_stream_id,
-                                           i + 1);
-          if (sock != NULL) {
-            int fd = g_socket_get_fd(sock);
-            g_object_unref(sock);
+          GPtrArray *sockets =
+            nice_agent_get_sockets(sess->ice_agent,
+                                   sess->ice_stream_id, i + 1);
+          guint i;
+          for (i = 0; i < sockets->len; i++) {
+            int fd = g_socket_get_fd(sockets->pdata[i]);
             FD_SET(fd, read_fds);
             if (fd > nfds) {
               nfds = fd;
             }
           }
-          if (sess->component[i].udp_socket != -1) {
-            FD_SET(sess->component[i].udp_socket, read_fds);
-            if (sess->component[i].udp_socket > nfds) {
-              nfds = sess->component[i].udp_socket;
-            }
-          }
+          g_ptr_array_unref(sockets);
         }
       }
     }
@@ -1780,6 +2215,11 @@ struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
           if (tms > 0 && (poll_timeout < 0 || tms < poll_timeout)) {
             poll_timeout = tms;
           }
+          /* Set poll timeout to at most 5 ms if there are connected
+             components, for timely transmission of Jingle data. */
+          if (poll_timeout < 0 || poll_timeout > 5) {
+            poll_timeout = 5;
+          }
         }
       }
     }
@@ -1812,6 +2252,7 @@ rexmpp_jingle_run (rexmpp_t *s,
                    fd_set *write_fds)
 {
   (void)write_fds;
+  (void)read_fds;
 #ifdef ENABLE_CALLS
   rexmpp_jingle_session_t *sess;
   int key_mat_size;
@@ -1824,6 +2265,7 @@ rexmpp_jingle_run (rexmpp_t *s,
     char input[4096 + SRTP_MAX_TRAILER_LEN];
     int input_len;
     int comp_id;
+
     for (comp_id = 0; comp_id < 2; comp_id++) {
       rexmpp_jingle_component_t *comp = &sess->component[comp_id];
 
@@ -2000,36 +2442,111 @@ rexmpp_jingle_run (rexmpp_t *s,
         }
       }
 
-      /* Handle outbound packets */
-      srtp_ctx_t *srtp_out;
-      if (comp->dtls_state == REXMPP_TLS_ACTIVE) {
-        srtp_out = comp->srtp_out;
-      } else if ((comp->dtls_state == REXMPP_TLS_ERROR || comp->session->rtcp_mux) &&
-                 comp->session->component[0].dtls_state == REXMPP_TLS_ACTIVE) {
-        /* Try to reuse the first component's session. */
-        srtp_out = comp->session->component[0].srtp_out;
-      } else {
-        break;
-      }
-
-      if (FD_ISSET(comp->udp_socket, read_fds)) {
-        input_len = recv(comp->udp_socket, input, 4096, 0);
-        if (comp->component_id == 1) {
-          err = srtp_protect(srtp_out, input, &input_len);
-        } else {
-          err = srtp_protect_rtcp(srtp_out, input, &input_len);
-        }
-        if (err) {
-          rexmpp_log(s, LOG_ERR, "SRT(C)P protect error %d\n", err);
-        } else {
-          nice_agent_send(sess->ice_agent, sess->ice_stream_id,
-                          sess->rtcp_mux ? 1 : comp->component_id,
-                          input_len, input);
-        }
-      }
       /* Check on the DTLS session too. */
       if (comp->dtls_state == REXMPP_TLS_ACTIVE) {
         input_len = gnutls_record_recv(comp->dtls_session, input, 4096);
+      }
+    }
+
+    /* Send captured audio frames for established sessions. */
+    if ((sess->component[0].dtls_state == REXMPP_TLS_ACTIVE)
+        && (sess->codec != REXMPP_CODEC_UNDEFINED)) {
+      struct ring_buf *capture = &(sess->ring_buffers.capture);
+      while ((sess->component[0].srtp_out != NULL) &&
+             (capture->write_pos != capture->read_pos)) {
+        if (sess->codec == REXMPP_CODEC_PCMU) {
+          for (input_len = 12;
+               input_len < 4096 && capture->write_pos != capture->read_pos;
+               input_len++)
+            {
+              input[input_len] =
+                rexmpp_pcmu_encode(capture->buf[capture->read_pos]);
+              capture->read_pos++;
+              capture->read_pos %= PA_BUF_SIZE;
+              sess->rtp_timestamp++;
+            }
+        } else if (sess->codec == REXMPP_CODEC_PCMA) {
+          for (input_len = 12;
+               input_len < 4096 && capture->write_pos != capture->read_pos;
+               input_len++)
+            {
+              input[input_len] =
+                rexmpp_pcma_encode(capture->buf[capture->read_pos]);
+              capture->read_pos++;
+              capture->read_pos %= PA_BUF_SIZE;
+              sess->rtp_timestamp++;
+            }
+        }
+#ifdef HAVE_OPUS
+        else if (sess->codec == REXMPP_CODEC_OPUS) {
+          unsigned int samples_available;
+          if (capture->write_pos > capture->read_pos) {
+            samples_available = capture->write_pos - capture->read_pos;
+          } else {
+            samples_available =
+              (PA_BUF_SIZE - capture->read_pos) + capture->write_pos;
+          }
+          unsigned int frame_size = 480;
+          if (samples_available >= frame_size * 2) {
+            opus_int16 pcm[4096];
+            /* Prepare a regular buffer */
+            unsigned int i;
+            for (i = 0;
+                 (i < frame_size * 2) &&
+                   (capture->write_pos != capture->read_pos);
+                 i++)
+              {
+                pcm[i] = capture->buf[capture->read_pos];
+                capture->read_pos++;
+                capture->read_pos %= PA_BUF_SIZE;
+                sess->rtp_timestamp++;
+              }
+            /* Encode it */
+            int encoded_len;
+            encoded_len = opus_encode(sess->opus_enc,
+                                      pcm,
+                                      frame_size,
+                                      (unsigned char*)input + 12,
+                                      4096);
+            if (encoded_len < 0) {
+              rexmpp_log(s, LOG_ERR, "Failed to encode an Opus frame");
+              break;
+            }
+            input_len = 12 + encoded_len;
+          } else {
+            break;
+          }
+        }
+#endif
+
+        /* Setup an RTP header */
+        uint32_t hl, nl;
+        hl = (2 << 30)                /* version */
+          | (0 << 29)                 /* padding */
+          | (0 << 28)                 /* extension */
+          | (0 << 24)                 /* CSRC count */
+          | (0 << 23)                 /* marker */
+          | (sess->payload_type << 16)  /* paylaod type, RFC 3551 */
+          | sess->rtp_seq_num;
+        sess->rtp_seq_num++;
+        nl = htonl(hl);
+        memcpy(input, &nl, sizeof(uint32_t));
+        nl = htonl(sess->rtp_timestamp);
+        memcpy(input + 4, &nl, sizeof(uint32_t));
+        nl = htonl(sess->rtp_ssrc);
+        memcpy(input + 8, &nl, sizeof(uint32_t));
+        /* The RTP header is ready */
+
+        srtp_ctx_t *srtp_out = sess->component[0].srtp_out;
+        err = srtp_protect(srtp_out, input, &input_len);
+        if (err) {
+          rexmpp_log(s, LOG_ERR, "SRTP protect error %d", err);
+        } else {
+          nice_agent_send(sess->ice_agent, sess->ice_stream_id,
+                          /* sess->rtcp_mux ? 1 : comp->component_id, */
+                          1,
+                          input_len, input);
+        }
       }
     }
   }

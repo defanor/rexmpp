@@ -561,27 +561,19 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->last_network_activity.tv_nsec = 0;
   s->disco_info = NULL;
 
-  /* The default description. Since the players and streamers are
-     external for now, this may be adjusted by an application or a
-     user. */
   s->jingle_rtp_description =
     rexmpp_xml_new_elem("description", "urn:xmpp:jingle:apps:rtp:1");
   rexmpp_xml_add_attr(s->jingle_rtp_description, "media", "audio");
   rexmpp_xml_t *pl_type;
 
+#ifdef HAVE_OPUS
   pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
   rexmpp_xml_add_attr(pl_type, "id", "97");
   rexmpp_xml_add_attr(pl_type, "name", "opus");
   rexmpp_xml_add_attr(pl_type, "clockrate", "48000");
   rexmpp_xml_add_attr(pl_type, "channels", "2");
   rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
-
-  pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
-  rexmpp_xml_add_attr(pl_type, "id", "96");
-  rexmpp_xml_add_attr(pl_type, "name", "speex");
-  rexmpp_xml_add_attr(pl_type, "clockrate", "32000");
-  rexmpp_xml_add_attr(pl_type, "channels", "1");
-  rexmpp_xml_add_child(s->jingle_rtp_description, pl_type);
+#endif
 
   pl_type = rexmpp_xml_new_elem("payload-type", "urn:xmpp:jingle:apps:rtp:1");
   rexmpp_xml_add_attr(pl_type, "id", "0");

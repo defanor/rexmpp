@@ -450,8 +450,8 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "jingle decline <sid>\n"
     "jingle accept-file <sid> <file path>\n"
     "jingle send-file <jid> <file path>\n"
-    "jingle accept-call <sid> <in port> <out port>\n"
-    "jingle call <jid> <in port> <out port>\n"
+    "jingle accept-call <sid>\n"
+    "jingle call <jid>\n"
     "disco info <jid>\n"
     "disco items <jid>\n"
     "pubsub node delete <service_jid> <node>\n"
@@ -753,17 +753,13 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       }
     } else if (! strcmp(word, "accept-call")) {
       char *sid = strtok_r(NULL, " ", &words_save_ptr);
-      char *port_in = strtok_r(NULL, " ", &words_save_ptr);
-      char *port_out = strtok_r(NULL, " ", &words_save_ptr);
-      if (sid != NULL && port_in != NULL && port_out != NULL) {
-        rexmpp_jingle_call_accept(s, sid, atoi(port_in), atoi(port_out));
+      if (sid != NULL) {
+        rexmpp_jingle_call_accept(s, sid);
       }
     } else if (! strcmp(word, "call")) {
       char *jid = strtok_r(NULL, " ", &words_save_ptr);
-      char *port_in = strtok_r(NULL, " ", &words_save_ptr);
-      char *port_out = strtok_r(NULL, " ", &words_save_ptr);
-      if (jid != NULL && port_in != NULL && port_out != NULL) {
-        rexmpp_jingle_call(s, jid, atoi(port_in), atoi(port_out));
+      if (jid != NULL) {
+        rexmpp_jingle_call(s, jid);
       }
     }
   }

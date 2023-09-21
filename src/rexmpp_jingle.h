@@ -18,7 +18,12 @@
 #include <agent.h>
 #include <gnutls/gnutls.h>
 #include <srtp2/srtp.h>
+#include "portaudio.h"
+#ifdef HAVE_OPUS
+#include <opus/opus.h>
+#endif
 #define DTLS_SRTP_BUF_SIZE 0x4000
+#define PA_BUF_SIZE 0x4000
 #endif
 
 #include "rexmpp.h"
@@ -57,6 +62,13 @@ enum rexmpp_jingle_session_type {
   REXMPP_JINGLE_SESSION_MEDIA
 };
 
+enum rexmpp_codec {
+  REXMPP_CODEC_UNDEFINED,
+  REXMPP_CODEC_PCMU,
+  REXMPP_CODEC_PCMA,
+  REXMPP_CODEC_OPUS
+};
+
 #ifdef ENABLE_CALLS
 /* A structure used for callbacks, to pass rexmpp_t,
    rexmpp_jingle_session_t, and the component ID. */
@@ -70,9 +82,19 @@ struct rexmpp_jingle_component {
   size_t dtls_buf_len;
   srtp_t srtp_in;
   srtp_t srtp_out;
-  uint16_t udp_port_in;
-  uint16_t udp_port_out;
-  int udp_socket;
+};
+
+struct ring_buf
+{
+  int16_t buf[PA_BUF_SIZE];
+  unsigned int write_pos;
+  unsigned int read_pos;
+};
+
+struct pa_buffers
+{
+  struct ring_buf capture;
+  struct ring_buf playback;
 };
 #endif
 
@@ -107,7 +129,20 @@ struct rexmpp_jingle_session {
   int rtcp_mux;
   NiceAgent *ice_agent;
   int ice_stream_id;
-#endif
+  PaStream *pa_stream;
+  /* The default codec and payload type for this stream. */
+  enum rexmpp_codec codec;
+  uint8_t payload_type;
+  struct pa_buffers ring_buffers;
+  uint16_t rtp_seq_num;
+  uint16_t rtp_last_seq_num;
+  uint32_t rtp_timestamp;
+  uint32_t rtp_ssrc;
+#ifdef HAVE_OPUS
+  OpusEncoder *opus_enc;
+  OpusDecoder *opus_dec;
+#endif  /* HAVE_POUS */
+#endif  /* ENABLE_CALLS */
 };
 
 struct rexmpp_jingle_ctx {
@@ -127,13 +162,9 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
 rexmpp_err_t
 rexmpp_jingle_call (rexmpp_t *s,
-                    const char *jid,
-                    uint16_t rtp_port_in,
-                    uint16_t rtp_port_out);
+                    const char *jid);
 rexmpp_err_t
 rexmpp_jingle_call_accept (rexmpp_t *s,
-                           const char *sid,
-                           uint16_t rtp_port_in,
-                           uint16_t rtp_port_out);
+                           const char *sid);
 
 #endif

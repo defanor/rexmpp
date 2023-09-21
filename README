@@ -25,8 +25,14 @@ Optional dependencies:
 - icu-i18n
 - gpgme
 - curl
+
+For Jingle calls:
+
 - libnice (with glib)
+- gnutls
 - libsrtp2
+- portaudio
+- opus (optional)
 
 For use of the alternative Rust implementations, rustc and cargo
 should be available, and the following Rust libraries will be pulled:
@@ -88,9 +94,7 @@ A rough roadmap:
 [+] XEP-0234 v0.19: Jingle File Transfer (sending and accepting, but
     no requests and no ranged transfers)
 [+] XEP-0261 v1.0: Jingle In-Band Bytestreams Transport Method
-[+] XEP-0167 v1.2: Jingle RTP Sessions (relaying RTP packets over an
-    encrypted channel to/from local UDP ports, for use with external
-    players and streamers)
+[+] XEP-0167 v1.2: Jingle RTP Sessions (uses PortAudio and Opus)
 [+] XEP-0176 v1.1: Jingle ICE-UDP Transport Method (uses libnice,
     discovers TURN/STUN servers with XEP-0215: External Service
     Discovery)

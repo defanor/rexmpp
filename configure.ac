@@ -47,7 +47,8 @@ AM_PATH_LIBGCRYPT([],
 
 AC_ARG_ENABLE([calls], AS_HELP_STRING([--disable-calls],
                        [build without Jingle media call support]))
-
+AC_ARG_WITH([opus],
+        AS_HELP_STRING([--without-opus], [Do not use libopus]))
 AS_IF([test "x$enable_calls" != "xno"],
       [PKG_CHECK_MODULES([NICE], [nice],
          [AC_DEFINE([HAVE_NICE], [1], [libnice is available])])
@@ -55,6 +56,11 @@ AS_IF([test "x$enable_calls" != "xno"],
          [AC_DEFINE([HAVE_GLIB], [1], [glib is available])])
        PKG_CHECK_MODULES([SRTP], [libsrtp2],
          [AC_DEFINE([HAVE_SRTP], [1], [libsrtp2 is available])])
+       PKG_CHECK_MODULES([PORTAUDIO], [portaudio-2.0],
+         [AC_DEFINE([HAVE_PORTAUDIO], [1], [portaudio-2.0 is available])])
+       AS_IF([test "x$with_opus" != "xno"],
+         PKG_CHECK_MODULES([OPUS], [opus],
+           [AC_DEFINE([HAVE_OPUS], [1], [libopus is available])]))
        AC_DEFINE([ENABLE_CALLS], [1], [Jingle ICE-UDP DTLS-SRTP calls are enabled])])
 
 # GSASL, optional
