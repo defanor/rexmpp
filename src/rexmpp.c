@@ -549,6 +549,9 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->iq_queue_size = 1024;
   s->iq_cache_size = 1024;
   s->max_jingle_sessions = 1024;
+  s->x509_cert_file = NULL;
+  s->x509_key_file = NULL;
+  s->x509_trust_file = NULL;
   s->log_function = log_func;
   s->sasl_property_cb = NULL;
   s->xml_in_cb = NULL;
@@ -911,6 +914,7 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
     tls_was_active = (s->tls_state == REXMPP_TLS_ACTIVE);
     if (tls_was_active) {
       err = rexmpp_tls_send (s,
+                             s->tls,
                              s->send_buffer,
                              s->send_buffer_len,
                              &ret);
@@ -1205,7 +1209,7 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
   do {
     tls_was_active = (s->tls_state == REXMPP_TLS_ACTIVE);
     if (tls_was_active) {
-      recv_err = rexmpp_tls_recv(s, chunk_raw, 4096, &chunk_raw_len);
+      recv_err = rexmpp_tls_recv(s, s->tls, chunk_raw, 4096, &chunk_raw_len);
     } else {
       chunk_raw_len = recv(s->server_socket, chunk_raw, 4096, 0);
     }

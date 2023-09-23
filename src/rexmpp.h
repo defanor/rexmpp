@@ -289,6 +289,12 @@ struct rexmpp
   uint32_t iq_cache_size;
   uint32_t max_jingle_sessions;
 
+  /* X.509 settings: for TLS and DTLS, to use for SASL EXTERNAL
+     authentication and DTLS-SRTP on Jingle calls. */
+  const char *x509_key_file;
+  const char *x509_cert_file;
+  const char *x509_trust_file;
+
   /* Callbacks. */
   log_function_t log_function;
   sasl_property_cb_t sasl_property_cb;

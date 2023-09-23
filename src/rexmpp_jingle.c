@@ -37,9 +37,6 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include <gio/gnetworking.h>
 #include <nice.h>
 #include <agent.h>
-#include <gnutls/dtls.h>
-#include <gnutls/gnutls.h>
-#include <gnutls/x509.h>
 #include <srtp2/srtp.h>
 #include <math.h>
 #include "portaudio.h"
@@ -53,6 +50,7 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include "rexmpp_jingle.h"
 #include "rexmpp_base64.h"
 #include "rexmpp_random.h"
+#include "rexmpp_tls.h"
 
 
 /* https://en.wikipedia.org/wiki/G.711 */
@@ -145,6 +143,7 @@ rexmpp_jingle_session_payload_by_id (rexmpp_jingle_session_t *sess,
   return NULL;
 }
 
+#ifdef ENABLE_CALLS
 int rexmpp_jingle_session_configure_audio (rexmpp_jingle_session_t *sess) {
   if (sess->accept == NULL) {
     return 0;
@@ -186,7 +185,7 @@ int rexmpp_jingle_session_configure_audio (rexmpp_jingle_session_t *sess) {
                        sess->payload_type, sess->sid);
             return sess->payload_type;
           }
-#endif
+#endif  /* HAVE_OPUS */
         }
       }
     descr_child = rexmpp_xml_next_elem_sibling(descr_child);
@@ -245,7 +244,7 @@ rexmpp_jingle_run_audio (rexmpp_jingle_session_t *sess) {
     sess->opus_dec =
       opus_decoder_create(rate, channels, &opus_error);
   }
-#endif
+#endif  /* HAVE_OPUS */
 
   rexmpp_log(sess->s, LOG_DEBUG,
              "Setting up an audio stream: SSRC %" PRIx32
@@ -272,6 +271,7 @@ rexmpp_jingle_run_audio (rexmpp_jingle_session_t *sess) {
                Pa_GetErrorText(err));
   }
 }
+#endif  /* ENABLE_CALLS */
 
 
 rexmpp_jingle_session_t *
@@ -327,7 +327,7 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
       opus_decoder_destroy(session->opus_dec);
       session->opus_dec = NULL;
     }
-#endif
+#endif  /* HAVE_OPUS */
     for (i = 0; i < 2; i++) {
       rexmpp_jingle_component_t *comp = &session->component[i];
       if (comp->dtls_state == REXMPP_TLS_ACTIVE ||
@@ -336,14 +336,20 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
         /* SRTP structures are allocated upon a TLS connection, so
            using the TLS state to find when they should be
            deallocated. */
-        srtp_dealloc(comp->srtp_in);
-        srtp_dealloc(comp->srtp_out);
+        if (comp->srtp_in != NULL) {
+          srtp_dealloc(comp->srtp_in);
+        }
+        if (comp->srtp_out != NULL) {
+          srtp_dealloc(comp->srtp_out);
+        }
       }
       if (comp->dtls_state == REXMPP_TLS_HANDSHAKE ||
           comp->dtls_state == REXMPP_TLS_ACTIVE ||
           comp->dtls_state == REXMPP_TLS_CLOSING ||
           comp->dtls_state == REXMPP_TLS_CLOSED) {
-        gnutls_deinit(comp->dtls_session);
+        rexmpp_tls_session_free(comp->dtls);
+        rexmpp_tls_ctx_free(comp->dtls);
+        comp->dtls = NULL;
         comp->dtls_state = REXMPP_TLS_INACTIVE;
       }
     }
@@ -369,7 +375,7 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
       session->turn_password = NULL;
     }
   }
-#endif
+#endif  /* ENABLE_CALLS */
   free(session);
 }
 
@@ -444,7 +450,9 @@ rexmpp_jingle_session_create (rexmpp_t *s,
       sess->component[i].session = sess;
       sess->component[i].s = s;
       sess->component[i].dtls_state = REXMPP_TLS_INACTIVE;
-      sess->component[i].dtls_buf_len = 0;
+      sess->component[i].dtls = rexmpp_tls_ctx_new(s, 1);
+      sess->component[i].srtp_out = NULL;
+      sess->component[i].srtp_in = NULL;
     }
     sess->ice_agent = NULL;
     sess->rtcp_mux = s->jingle_prefer_rtcp_mux;
@@ -465,9 +473,8 @@ rexmpp_jingle_session_create (rexmpp_t *s,
 #ifdef HAVE_OPUS
     sess->opus_enc = NULL;
     sess->opus_dec = NULL;
-#endif
-    /* rexmpp_jingle_ice_agent_init(sess); */
-#endif
+#endif  /* HAVE_POUS */
+#endif  /* ENABLE_CALLS */
     if (! rexmpp_jingle_session_add(s, sess)) {
       rexmpp_jingle_session_destroy(sess);
       sess = NULL;
@@ -505,7 +512,7 @@ int rexmpp_jingle_init (rexmpp_t *s) {
   s->jingle->gloop = g_main_loop_new(NULL, FALSE);
   Pa_Initialize();
   nice_debug_enable(1);
-#endif
+#endif  /* ENABLE_CALLS */
   return 0;
 }
 
@@ -518,7 +525,7 @@ void rexmpp_jingle_stop (rexmpp_t *s) {
   s->jingle->gloop = NULL;
   srtp_shutdown();
   Pa_Terminate();
-#endif
+#endif  /* ENABLE_CALLS */
   free(s->jingle);
   s->jingle = NULL;
 }
@@ -1006,32 +1013,18 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
 
   rexmpp_log(sess->s, LOG_DEBUG, "ICE agent candidate gathering is done");
 
-  gnutls_x509_crt_t *cert_list;
-  unsigned int cert_list_size = 0;
-  /* We'll need a certificate a bit later, but checking it before
+  /* We'll need a fingerprint a bit later, but checking it before
      allocating other things. */
-  int err = gnutls_certificate_get_x509_crt(sess->s->tls->dtls_cred, 0,
-                                            &cert_list, &cert_list_size);
-  if (err) {
-    rexmpp_log(sess->s, LOG_ERR,
-               "Failed to read own certificate list: %s",
-               gnutls_strerror(err));
+
+  /* TODO: should use DTLS credentials, not regular TLS ones. Using
+     these for now because DTLS ones are not allocated yet, and they
+     are the same anyway. */
+  char fp[32], fp_str[32 * 3 + 1];
+  size_t fp_size = 32;
+
+  if (rexmpp_tls_session_fp(sess->s, sess->s->tls, "sha-256", fp, fp_str, &fp_size)) {
     return;
   }
-
-  char fp[32], fp_str[97];
-  size_t fp_size = 32;
-  gnutls_x509_crt_get_fingerprint(cert_list[0], GNUTLS_DIG_SHA256, fp, &fp_size);
-  unsigned int i;
-  for (i = 0; i < 32; i++) {
-    snprintf(fp_str + i * 3, 4, "%02X:", fp[i] & 0xFF);
-  }
-  fp_str[95] = 0;
-
-  for (i = 0; i < cert_list_size; i++) {
-    gnutls_x509_crt_deinit(cert_list[i]);
-  }
-  gnutls_free(cert_list);
 
   rexmpp_xml_t *jingle = rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
   rexmpp_xml_add_attr(jingle, "sid", sess->sid);
@@ -1246,7 +1239,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
 }
 
 ssize_t
-rexmpp_jingle_dtls_push_func (gnutls_transport_ptr_t p, const void *data, size_t size)
+rexmpp_jingle_dtls_push_func (void *p, const void *data, size_t size)
 {
   rexmpp_jingle_component_t *comp = p;
   rexmpp_jingle_session_t *sess = comp->session;
@@ -1254,19 +1247,21 @@ rexmpp_jingle_dtls_push_func (gnutls_transport_ptr_t p, const void *data, size_t
                          comp->component_id, size, data);
 }
 
-ssize_t rexmpp_jingle_dtls_generic_pull_func (rexmpp_jingle_session_t *sess,
-                                              char *tls_buf,
-                                              size_t *tls_buf_len,
-                                              gnutls_session_t tls_session,
-                                              void *data,
-                                              size_t size)
+rexmpp_tls_err_t
+rexmpp_jingle_dtls_pull_func (void *p,
+                              void *data,
+                              size_t size,
+                              ssize_t *received)
 {
-  (void)sess;
-  size_t ret = -1;
+  rexmpp_jingle_component_t *comp = p;
+  char *tls_buf = comp->dtls->dtls_buf;
+  size_t *tls_buf_len = &(comp->dtls->dtls_buf_len);
+
+  rexmpp_tls_err_t ret = REXMPP_TLS_SUCCESS;
   if (*tls_buf_len > 0) {
     if (size >= *tls_buf_len) {
       memcpy(data, tls_buf, *tls_buf_len);
-      ret = *tls_buf_len;
+      *received = *tls_buf_len;
       *tls_buf_len = 0;
     } else {
       if (size > DTLS_SRTP_BUF_SIZE) {
@@ -1274,43 +1269,23 @@ ssize_t rexmpp_jingle_dtls_generic_pull_func (rexmpp_jingle_session_t *sess,
       }
       memcpy(data, tls_buf, size);
       memmove(tls_buf, tls_buf + size, DTLS_SRTP_BUF_SIZE - size);
-      ret = size;
+      *received = size;
       *tls_buf_len = *tls_buf_len - size;
     }
   } else {
-    gnutls_transport_set_errno(tls_session, EAGAIN);
-    ret = -1;
+    ret = REXMPP_TLS_E_AGAIN;
   }
-
   return ret;
 }
 
-ssize_t
-rexmpp_jingle_dtls_pull_func (gnutls_transport_ptr_t p,
-                              void *data,
-                              size_t size)
+/* The timeout is always zero for DTLS. */
+int rexmpp_jingle_dtls_pull_timeout_func (void *p,
+                                          unsigned int ms)
 {
   rexmpp_jingle_component_t *comp = p;
   rexmpp_jingle_session_t *sess = comp->session;
-  return
-    rexmpp_jingle_dtls_generic_pull_func(sess,
-                                         comp->dtls_buf,
-                                         &comp->dtls_buf_len,
-                                         comp->dtls_session,
-                                         data,
-                                         size);
-}
-
-
-/* Apparently this should not be called with non-blocking sockets, but
-   it is. */
-int
-rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
-                                              unsigned int ms,
-                                              guint component_id)
-{
-  if (sess->component[component_id].dtls_buf_len > 0) {
-    return 1;
+  if (comp->dtls->dtls_buf_len > 0) {
+    return comp->dtls->dtls_buf_len;
   }
 
   fd_set rfds;
@@ -1326,7 +1301,7 @@ rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
 
   GPtrArray *sockets =
     nice_agent_get_sockets(sess->ice_agent,
-                           sess->ice_stream_id, component_id);
+                           sess->ice_stream_id, comp->component_id);
   guint i;
   for (i = 0; i < sockets->len; i++) {
     fd = g_socket_get_fd(sockets->pdata[i]);
@@ -1353,7 +1328,7 @@ rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
   ret = 0;
   sockets =
     nice_agent_get_sockets(sess->ice_agent,
-                           sess->ice_stream_id, component_id);
+                           sess->ice_stream_id, comp->component_id);
   for (i = 0; i < sockets->len; i++) {
     int err =
       recvfrom(g_socket_get_fd(sockets->pdata[i]), &c, 1, MSG_PEEK,
@@ -1373,18 +1348,9 @@ rexmpp_jingle_dtls_generic_pull_timeout_func (rexmpp_jingle_session_t *sess,
   g_ptr_array_unref(sockets);
 
   if (ret > 0) {
-    return 1;
+    return ret;
   }
-
   return 0;
-}
-
-int rexmpp_jingle_dtls_pull_timeout_func (gnutls_transport_ptr_t p,
-                                          unsigned int ms)
-{
-  rexmpp_jingle_component_t *comp = p;
-  return rexmpp_jingle_dtls_generic_pull_timeout_func(comp->session, ms,
-                                                      comp->component_id);
 }
 
 const char *rexmpp_ice_component_state_text(int state) {
@@ -1430,30 +1396,13 @@ rexmpp_jingle_component_state_changed_cb (NiceAgent *agent,
       return;
     }
 
-    int active_role = rexmpp_jingle_dtls_is_active(sess, 0);
-
-    gnutls_session_t *tls_session = &sess->component[component_id - 1].dtls_session;
-    gnutls_init(tls_session,
-                (active_role ? GNUTLS_CLIENT : GNUTLS_SERVER) |
-                GNUTLS_DATAGRAM |
-                GNUTLS_NONBLOCK);
-    if (! active_role) {
-      gnutls_certificate_server_set_request(*tls_session, GNUTLS_CERT_REQUEST);
-    }
-    gnutls_set_default_priority(*tls_session);
-    gnutls_credentials_set(*tls_session, GNUTLS_CRD_CERTIFICATE,
-                           sess->s->tls->dtls_cred);
-
-    gnutls_transport_set_ptr(*tls_session, &(sess->component[component_id - 1]));
-    gnutls_transport_set_push_function(*tls_session, rexmpp_jingle_dtls_push_func);
-    gnutls_transport_set_pull_function(*tls_session, rexmpp_jingle_dtls_pull_func);
-    gnutls_transport_set_pull_timeout_function(*tls_session,
-                                               rexmpp_jingle_dtls_pull_timeout_func);
+    rexmpp_jingle_component_t *comp = &(sess->component[component_id - 1]);
+    rexmpp_dtls_connect(sess->s,
+                        comp->dtls,
+                        comp,
+                        rexmpp_jingle_dtls_is_active(sess, 0));
     sess->component[component_id - 1].dtls_state = REXMPP_TLS_HANDSHAKE;
-    /* todo: use the profile/crypto-suite from <crypto/> element */
-    gnutls_srtp_set_profile(*tls_session, GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80);
-    gnutls_handshake(*tls_session);
-
+    rexmpp_tls_handshake(sess->s, comp->dtls);
   } else if (state == NICE_COMPONENT_STATE_FAILED) {
     rexmpp_log(sess->s, LOG_ERR,
                "ICE connection failed for Jingle session %s, ICE stream %d, component %d",
@@ -1490,6 +1439,11 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
     } else {
       rexmpp_log(comp->s, LOG_WARNING,
                  "Received an SRTP packet while DTLS is inactive");
+      return;
+    }
+    if (srtp_in == NULL) {
+      rexmpp_log(comp->s, LOG_WARNING,
+                 "Received an SRTP packet while SRTP is not set up");
       return;
     }
     if (component_id == 1) {
@@ -1565,7 +1519,7 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
                 playback->write_pos %= PA_BUF_SIZE;
               }
             }
-#endif
+#endif  /* HAVE_OPUS */
             else {
               /* Some other payload type, possibly with a dynamic ID */
               rexmpp_xml_t *payload =
@@ -1651,9 +1605,9 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
       }
     }
   } else {
-    if (comp->dtls_buf_len + len < DTLS_SRTP_BUF_SIZE) {
-      memcpy(comp->dtls_buf + comp->dtls_buf_len, buf, len);
-      comp->dtls_buf_len += len;
+    if (comp->dtls->dtls_buf_len + len < DTLS_SRTP_BUF_SIZE) {
+      memcpy(comp->dtls->dtls_buf + comp->dtls->dtls_buf_len, buf, len);
+      comp->dtls->dtls_buf_len += len;
     } else {
       rexmpp_log(comp->s, LOG_WARNING, "Dropping a DTLS packet");
     }
@@ -1882,34 +1836,26 @@ rexmpp_jingle_call_accept (rexmpp_t *s,
   rexmpp_jingle_discover_turn(s, sess);
   return REXMPP_SUCCESS;
 }
-#else
+#else  /* ENABLE_CALLS */
 
 rexmpp_err_t
 rexmpp_jingle_call (rexmpp_t *s,
-                    const char *jid,
-                    uint16_t rtp_port_in,
-                    uint16_t rtp_port_out)
+                    const char *jid)
 {
   (void)jid;
-  (void)rtp_port_in;
-  (void)rtp_port_out;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without support for media calls");
   return REXMPP_E_OTHER;
 }
 
 rexmpp_err_t
 rexmpp_jingle_call_accept (rexmpp_t *s,
-                           const char *sid,
-                           uint16_t rtp_port_in,
-                           uint16_t rtp_port_out)
+                           const char *sid)
 {
   (void)sid;
-  (void)rtp_port_in;
-  (void)rtp_port_out;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without support for media calls");
   return REXMPP_E_OTHER;
 }
-#endif
+#endif  /* ENABLE_CALLS */
 
 int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
   int handled = 0;
@@ -1960,13 +1906,15 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                 sess->initiate = rexmpp_xml_clone(jingle);
                 sess->ibb_sid = strdup(ibb_sid);
               } else {
-                rexmpp_jingle_session_terminate(s, sid,
-                                                rexmpp_xml_new_elem("failed-transport",
-                                                                    "urn:xmpp:jingle:1"),
-                                                NULL);
+                rexmpp_jingle_session_terminate
+                  (s, sid,
+                   rexmpp_xml_new_elem("failed-transport",
+                                       "urn:xmpp:jingle:1"),
+                   NULL);
               }
             } else {
-              rexmpp_log(s, LOG_ERR, "Jingle IBB transport doesn't have a sid attribute");
+              rexmpp_log(s, LOG_ERR,
+                         "Jingle IBB transport doesn't have a sid attribute");
               rexmpp_jingle_session_terminate
                 (s, sid,
                  rexmpp_xml_new_elem("unsupported-transports",
@@ -1985,7 +1933,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                                      "urn:xmpp:jingle:apps:rtp:1",
                                      "rtcp-mux") != NULL);
             sess->initiate = rexmpp_xml_clone(jingle);
-#endif
+#endif  /* ENABLE_CALLS */
           } else if (file_description == NULL &&
                      rtp_description == NULL) {
             rexmpp_jingle_session_terminate
@@ -1995,10 +1943,11 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                NULL);
           } else if (ibb_transport == NULL &&
                      ice_udp_transport == NULL) {
-            rexmpp_jingle_session_terminate(s, sid,
-                                            rexmpp_xml_new_elem("unsupported-transports",
-                                                                "urn:xmpp:jingle:1"),
-                                            NULL);
+            rexmpp_jingle_session_terminate
+              (s, sid,
+               rexmpp_xml_new_elem("unsupported-transports",
+                                   "urn:xmpp:jingle:1"),
+               NULL);
           } else {
             /* todo: some other error */
           }
@@ -2012,8 +1961,6 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
         rexmpp_jingle_session_t *session = rexmpp_jingle_session_by_id(s, sid);
         if (session != NULL) {
           session->accept = rexmpp_xml_clone(jingle);
-          rexmpp_jingle_session_configure_audio(session);
-          rexmpp_jingle_run_audio(session);
           rexmpp_xml_t *content =
             rexmpp_xml_find_child(jingle, "urn:xmpp:jingle:1", "content");
           rexmpp_xml_t *file_description =
@@ -2032,6 +1979,8 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
                           rexmpp_jingle_ibb_send_cb, strdup(sid));
           } else {
 #ifdef ENABLE_CALLS
+            rexmpp_jingle_session_configure_audio(session);
+            rexmpp_jingle_run_audio(session);
             rexmpp_xml_t *ice_udp_transport =
               rexmpp_xml_find_child(content, "urn:xmpp:jingle:transports:ice-udp:1",
                                     "transport");
@@ -2041,7 +1990,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
               rexmpp_log(s, LOG_WARNING,
                          "ICE-UDP transport is unset in session-accept");
             }
-#endif
+#endif  /* ENABLE_CALLS */
           }
         } else {
           rexmpp_log(s, LOG_WARNING, "Jingle session %s is not found", sid);
@@ -2059,7 +2008,7 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
           if (ice_udp_transport != NULL) {
             rexmpp_jingle_ice_udp_add_remote(session, ice_udp_transport);
           }
-#endif
+#endif  /* ENABLE_CALLS */
         }
       } else {
         rexmpp_log(s, LOG_WARNING, "Unknown Jingle action: %s", action);
@@ -2181,11 +2130,11 @@ int rexmpp_jingle_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     rexmpp_log(s, LOG_ERR,
                "Failed to acquire GMainContext in rexmpp_jingle_fds");
   }
-#else
+#else  /* ENABLE_CALLS */
   (void)s;
   (void)read_fds;
   (void)write_fds;
-#endif
+#endif  /* ENABLE_CALLS */
   return (nfds + 1);
 }
 
@@ -2211,13 +2160,14 @@ struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
         if (sess->component[i].dtls_state != REXMPP_TLS_INACTIVE &&
             sess->component[i].dtls_state != REXMPP_TLS_CLOSED &&
             sess->component[i].dtls_state != REXMPP_TLS_ERROR) {
-          int tms = gnutls_dtls_get_timeout(sess->component[i].dtls_session);
+          int tms = rexmpp_dtls_timeout(sess->s, sess->component[i].dtls);
           if (tms > 0 && (poll_timeout < 0 || tms < poll_timeout)) {
             poll_timeout = tms;
           }
           /* Set poll timeout to at most 5 ms if there are connected
              components, for timely transmission of Jingle data. */
-          if (poll_timeout < 0 || poll_timeout > 5) {
+          if (sess->component[i].dtls_state == REXMPP_TLS_ACTIVE &&
+              (poll_timeout < 0 || poll_timeout > 5)) {
             poll_timeout = 5;
           }
         }
@@ -2239,10 +2189,10 @@ struct timespec * rexmpp_jingle_timeout (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR,
                "Failed to acquire GMainContext in rexmpp_jingle_timeout");
   }
-#else
+#else  /* ENABLE_CALLS */
   (void)s;
   (void)tv;
-#endif
+#endif  /* ENABLE_CALLS */
   return max_tv;
 }
 
@@ -2255,10 +2205,7 @@ rexmpp_jingle_run (rexmpp_t *s,
   (void)read_fds;
 #ifdef ENABLE_CALLS
   rexmpp_jingle_session_t *sess;
-  int key_mat_size;
-  char key_mat[4096];
   int err;
-  gnutls_datum_t client_key, client_salt, server_key, server_salt;
   unsigned char client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2],
     server_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2];
   for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
@@ -2270,190 +2217,141 @@ rexmpp_jingle_run (rexmpp_t *s,
       rexmpp_jingle_component_t *comp = &sess->component[comp_id];
 
       if (comp->dtls_state == REXMPP_TLS_HANDSHAKE) {
-        int ret = gnutls_handshake(comp->dtls_session);
-        if (ret == 0) {
+        int ret = rexmpp_tls_handshake(s, comp->dtls);
+        if (ret == REXMPP_TLS_SUCCESS) {
           rexmpp_log(s, LOG_DEBUG,
                      "DTLS connected for Jingle session %s, component %d",
                      sess->sid, comp->component_id);
           comp->dtls_state = REXMPP_TLS_ACTIVE;
 
-          /* Verify the peer's fingerprint */
-
-          unsigned int cert_list_size = 0;
-          const gnutls_datum_t *cert_list;
-          cert_list =
-            gnutls_certificate_get_peers(comp->dtls_session, &cert_list_size);
-          if (cert_list_size != 1) {
+          rexmpp_xml_t *jingle = comp->session->initiator
+            ? comp->session->accept
+            : comp->session->initiate;
+          rexmpp_xml_t *fingerprint =
+            rexmpp_xml_find_child
+            (rexmpp_xml_find_child
+             (rexmpp_xml_find_child
+              (jingle, "urn:xmpp:jingle:1", "content"),
+              "urn:xmpp:jingle:transports:ice-udp:1", "transport"),
+             "urn:xmpp:jingle:apps:dtls:0", "fingerprint");
+          if (fingerprint == NULL) {
+            /* todo: might be neater to check it upon receiving the
+               stanzas, instead of checking it here */
             rexmpp_log(comp->s, LOG_ERR,
-                       "Unexpected peer certificate list size: %d",
-                       cert_list_size);
+                       "No fingerprint in the peer's Jingle element");
             rexmpp_jingle_session_terminate
               (s, sess->sid,
-               rexmpp_xml_new_elem("security-error", "urn:xmpp:jingle:1"),
-               "Unexpected certificate list size; expected exactly 1.");
+               rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
+               "No fingerprint element");
+            return REXMPP_E_TLS;
           } else {
-            rexmpp_xml_t *jingle = comp->session->initiator
-              ? comp->session->accept
-              : comp->session->initiate;
-            rexmpp_xml_t *fingerprint =
-              rexmpp_xml_find_child
-              (rexmpp_xml_find_child
-               (rexmpp_xml_find_child
-                (jingle, "urn:xmpp:jingle:1", "content"),
-                "urn:xmpp:jingle:transports:ice-udp:1", "transport"),
-               "urn:xmpp:jingle:apps:dtls:0", "fingerprint");
-            if (fingerprint == NULL) {
-              /* todo: might be neater to check it upon receiving the
-                 stanzas, instead of checking it here */
+            const char *hash_str = rexmpp_xml_find_attr_val(fingerprint, "hash");
+            if (hash_str == NULL) {
               rexmpp_log(comp->s, LOG_ERR,
-                         "No fingerprint in the peer's Jingle element");
+                         "No hash attribute in the peer's fingerprint element");
               rexmpp_jingle_session_terminate
                 (s, sess->sid,
                  rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
-                 "No fingerprint element");
+                 "No hash attribute in the fingerprint element");
+              return REXMPP_E_TLS;
             } else {
-              const char *hash_str = rexmpp_xml_find_attr_val(fingerprint, "hash");
-              if (hash_str == NULL) {
-                rexmpp_log(comp->s, LOG_ERR,
-                           "No hash attribute in the peer's fingerprint element");
-                rexmpp_jingle_session_terminate
-                  (s, sess->sid,
-                   rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
-                   "No hash attribute in the fingerprint element");
-                break;
-              } else {
-                gnutls_digest_algorithm_t algo = GNUTLS_DIG_UNKNOWN;
-                /* gnutls_digest_get_id uses different names, so
-                   checking manually here. These are SDP options,
-                   <https://datatracker.ietf.org/doc/html/rfc4572#page-8>. */
-                if (strcmp(hash_str, "sha-1") == 0) {
-                  algo = GNUTLS_DIG_SHA1;
-                } else if (strcmp(hash_str, "sha-224") == 0) {
-                  algo = GNUTLS_DIG_SHA224;
-                } else if (strcmp(hash_str, "sha-256") == 0) {
-                  algo = GNUTLS_DIG_SHA256;
-                } else if (strcmp(hash_str, "sha-384") == 0) {
-                  algo = GNUTLS_DIG_SHA384;
-                } else if (strcmp(hash_str, "sha-512") == 0) {
-                  algo = GNUTLS_DIG_SHA512;
-                } else if (strcmp(hash_str, "md5") == 0) {
-                  algo = GNUTLS_DIG_MD5;
-                }
-                if (algo == GNUTLS_DIG_UNKNOWN) {
-                  rexmpp_log(comp->s, LOG_ERR,
-                             "Unknown hash algorithm in the peer's fingerprint");
+              char fp[64], fp_str[64 * 3];
+              size_t fp_size = 64;
+              if (rexmpp_tls_peer_fp(comp->s, comp->dtls, hash_str,
+                                     fp, fp_str, &fp_size))
+                {
                   rexmpp_jingle_session_terminate
                     (s, sess->sid,
-                     rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
-                     "Unknown hash algorithm for a DTLS certificate fingerprint");
-                  break;
+                     rexmpp_xml_new_elem("connectivity-error",
+                                         "urn:xmpp:jingle:1"),
+                     "Failed to obtain the DTLS certificate fingerprint");
+                  return REXMPP_E_TLS;
                 } else {
+                const char *fingerprint_cont =
+                  rexmpp_xml_text_child(fingerprint);
+                /* Fingerprint string should be uppercase, but
+                   allowing any case for now, while Dino uses
+                   lowercase. */
+                int fingerprint_mismatch = strcasecmp(fingerprint_cont, fp_str);
+                if (fingerprint_mismatch) {
+                  rexmpp_log(comp->s, LOG_ERR,
+                             "Peer's fingerprint mismatch: expected %s,"
+                             " calculated %s",
+                             fingerprint_cont, fp_str);
+                  rexmpp_jingle_session_terminate
+                    (s, sess->sid,
+                     rexmpp_xml_new_elem("security-error", "urn:xmpp:jingle:1"),
+                     "DTLS certificate fingerprint mismatch");
+                  return REXMPP_E_TLS;
+                } else {
+                  /* The fingerprint is fine, proceed to SRTP. */
+                  rexmpp_log(comp->s, LOG_DEBUG,
+                             "Peer's fingerprint: %s", fp_str);
 
-                  char fp[64], fp_str[64 * 3];
-                  size_t fp_size = 64;
-                  gnutls_fingerprint(algo, cert_list, fp, &fp_size);
-                  size_t i;
-                  for (i = 0; i < fp_size; i++) {
-                    snprintf(fp_str + i * 3, 4, "%02X:", fp[i] & 0xFF);
+                  rexmpp_tls_srtp_get_keys(s, comp->dtls,
+                                           SRTP_AES_128_KEY_LEN, SRTP_SALT_LEN,
+                                           client_sess_key, server_sess_key);
+
+                  int active_role = rexmpp_jingle_dtls_is_active(sess, 0);
+
+                  srtp_policy_t inbound;
+                  memset(&inbound, 0x0, sizeof(srtp_policy_t));
+                  srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtp);
+                  srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtcp);
+                  inbound.ssrc.type = ssrc_any_inbound;
+                  inbound.key = active_role ? server_sess_key : client_sess_key;
+                  inbound.window_size = 1024;
+                  inbound.allow_repeat_tx = 1;
+                  inbound.next = NULL;
+                  err = srtp_create(&(comp->srtp_in), &inbound);
+                  if (err) {
+                    rexmpp_log(s, LOG_ERR, "Failed to create srtp_in");
                   }
-                  fp_str[fp_size * 3 - 1] = 0;
 
-                  const char *fingerprint_cont =
-                    rexmpp_xml_text_child(fingerprint);
-                  /* Fingerprint string should be uppercase, but
-                     allowing any case for now, while Dino uses
-                     lowercase. */
-                  int fingerprint_mismatch = strcasecmp(fingerprint_cont, fp_str);
-                  if (fingerprint_mismatch) {
-                    rexmpp_log(comp->s, LOG_ERR,
-                               "Peer's fingerprint mismatch: expected %s, calculated %s",
-                               fingerprint_cont, fp_str);
-                    rexmpp_jingle_session_terminate
-                      (s, sess->sid,
-                       rexmpp_xml_new_elem("security-error", "urn:xmpp:jingle:1"),
-                       "DTLS certificate fingerprint mismatch");
-                    break;
-                  } else {
-                    /* The fingerprint is fine, proceed to SRTP. */
-                    rexmpp_log(comp->s, LOG_DEBUG,  "Peer's fingerprint: %s", fp_str);
-
-                    key_mat_size =
-                      gnutls_srtp_get_keys(comp->dtls_session, key_mat,
-                                           SRTP_AES_ICM_128_KEY_LEN_WSALT * 2,
-                                           &client_key, &client_salt,
-                                           &server_key, &server_salt);
-                    rexmpp_log(s, LOG_DEBUG, "SRTP key material size: %d",
-                               key_mat_size);
-                    memcpy(client_sess_key, client_key.data,
-                           SRTP_AES_128_KEY_LEN);
-                    memcpy(client_sess_key + SRTP_AES_128_KEY_LEN,
-                           client_salt.data, SRTP_SALT_LEN);
-
-                    memcpy(server_sess_key, server_key.data,
-                           SRTP_AES_128_KEY_LEN);
-                    memcpy(server_sess_key + SRTP_AES_128_KEY_LEN,
-                           server_salt.data, SRTP_SALT_LEN);
-
-                    int active_role = rexmpp_jingle_dtls_is_active(sess, 0);
-
-                    srtp_policy_t inbound;
-                    memset(&inbound, 0x0, sizeof(srtp_policy_t));
-                    srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtp);
-                    srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtcp);
-                    inbound.ssrc.type = ssrc_any_inbound;
-                    inbound.key = active_role ? server_sess_key : client_sess_key;
-                    inbound.window_size = 1024;
-                    inbound.allow_repeat_tx = 1;
-                    inbound.next = NULL;
-                    err = srtp_create(&(comp->srtp_in), &inbound);
-                    if (err) {
-                      rexmpp_log(s, LOG_ERR, "Failed to create srtp_in");
-                    }
-
-                    srtp_policy_t outbound;
-                    memset(&outbound, 0x0, sizeof(srtp_policy_t));
-                    srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtp);
-                    srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtcp);
-                    outbound.ssrc.type = ssrc_any_outbound;
-                    outbound.key = active_role ? client_sess_key : server_sess_key;
-                    outbound.window_size = 1024;
-                    outbound.allow_repeat_tx = 1;
-                    outbound.next = NULL;
-                    err = srtp_create(&(comp->srtp_out), &outbound);
-                    if (err) {
-                      rexmpp_log(s, LOG_ERR, "Failed to create srtp_out");
-                    }
+                  srtp_policy_t outbound;
+                  memset(&outbound, 0x0, sizeof(srtp_policy_t));
+                  srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtp);
+                  srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtcp);
+                  outbound.ssrc.type = ssrc_any_outbound;
+                  outbound.key = active_role ? client_sess_key : server_sess_key;
+                  outbound.window_size = 1024;
+                  outbound.allow_repeat_tx = 1;
+                  outbound.next = NULL;
+                  err = srtp_create(&(comp->srtp_out), &outbound);
+                  if (err) {
+                    rexmpp_log(s, LOG_ERR, "Failed to create srtp_out");
                   }
                 }
               }
             }
           }
-        } else if (ret != GNUTLS_E_AGAIN) {
-          rexmpp_log(s, LOG_ERR, "DTLS error for session %s, component %d: %s",
-                     sess->sid, comp->component_id, gnutls_strerror(ret));
+        } else if (ret != REXMPP_TLS_E_AGAIN) {
+          rexmpp_log(s, LOG_ERR, "DTLS error for session %s, component %d",
+                     sess->sid, comp->component_id);
           comp->dtls_state = REXMPP_TLS_ERROR;
           if (comp->component_id == 1) {
             rexmpp_jingle_session_terminate
               (s, sess->sid,
                rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
                "DTLS connection error");
-            break;
+            return REXMPP_E_TLS;
           }
         }
       }
 
-      /* Check on the DTLS session too. */
+      /* Check on the DTLS session, too. */
       if (comp->dtls_state == REXMPP_TLS_ACTIVE) {
-        input_len = gnutls_record_recv(comp->dtls_session, input, 4096);
+        ssize_t received;
+        rexmpp_tls_recv(s, comp->dtls, input, 4096, &received);
       }
     }
 
     /* Send captured audio frames for established sessions. */
     if ((sess->component[0].dtls_state == REXMPP_TLS_ACTIVE)
+        && (sess->component[0].srtp_out != NULL)
         && (sess->codec != REXMPP_CODEC_UNDEFINED)) {
       struct ring_buf *capture = &(sess->ring_buffers.capture);
-      while ((sess->component[0].srtp_out != NULL) &&
-             (capture->write_pos != capture->read_pos)) {
+      while (capture->write_pos != capture->read_pos) {
         if (sess->codec == REXMPP_CODEC_PCMU) {
           for (input_len = 12;
                input_len < 4096 && capture->write_pos != capture->read_pos;
@@ -2517,7 +2415,7 @@ rexmpp_jingle_run (rexmpp_t *s,
             break;
           }
         }
-#endif
+#endif  /* HAVE_OPUS */
 
         /* Setup an RTP header */
         uint32_t hl, nl;
@@ -2551,9 +2449,9 @@ rexmpp_jingle_run (rexmpp_t *s,
     }
   }
   g_main_context_iteration(g_main_loop_get_context(s->jingle->gloop), 0);
-#else
+#else  /* ENABLE_CALLS */
   (void)s;
   (void)read_fds;
-#endif
+#endif  /* ENABLE_CALLS */
   return REXMPP_SUCCESS;
 }

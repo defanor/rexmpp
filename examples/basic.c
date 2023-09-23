@@ -140,7 +140,8 @@ int main (int argc, char **argv) {
 
   /* Could set a client certificate for SASL EXTERNAL authentication
      and Jingle's DTLS here. */
-  rexmpp_tls_set_x509_key_file(&s, "client.crt", "client.key");
+  s.x509_key_file = "client.key";
+  s.x509_cert_file = "client.crt";
 
   /* Could also set various other things manually. */
   /* s.socks_host = "127.0.0.1"; */

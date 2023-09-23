@@ -157,6 +157,11 @@ pub struct Rexmpp {
     pub iq_cache_size: u32,
     pub max_jingle_sessions: u32,
 
+    // X.509 settings (for TLS and DTLS)
+    pub x509_key_file: *const c_char,
+    pub x509_cert_file: *const c_char,
+    pub x509_trust_file: *const c_char,
+
     // Callbacks
 
     // c_variadic is experimental and cannot be used on the stable

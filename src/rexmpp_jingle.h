@@ -22,11 +22,12 @@
 #ifdef HAVE_OPUS
 #include <opus/opus.h>
 #endif
-#define DTLS_SRTP_BUF_SIZE 0x4000
 #define PA_BUF_SIZE 0x4000
 #endif
 
 #include "rexmpp.h"
+#include "rexmpp_tls.h"
+
 
 /** @brief Processes incoming Jingle IQs. */
 int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem);
@@ -76,10 +77,11 @@ struct rexmpp_jingle_component {
   rexmpp_t *s;
   rexmpp_jingle_session_t *session;
   int component_id;
-  gnutls_session_t dtls_session;
-  char dtls_buf[DTLS_SRTP_BUF_SIZE];
+  rexmpp_tls_t *dtls;
+  /* gnutls_session_t dtls_session; */
+  /* char dtls_buf[DTLS_SRTP_BUF_SIZE]; */
+  /* size_t dtls_buf_len; */
   enum tls_st dtls_state;
-  size_t dtls_buf_len;
   srtp_t srtp_in;
   srtp_t srtp_out;
 };
