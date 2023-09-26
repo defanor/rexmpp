@@ -16,7 +16,6 @@
 #ifdef ENABLE_CALLS
 #include <glib.h>
 #include <agent.h>
-#include <gnutls/gnutls.h>
 #include <srtp2/srtp.h>
 #include "portaudio.h"
 #ifdef HAVE_OPUS
@@ -78,9 +77,6 @@ struct rexmpp_jingle_component {
   rexmpp_jingle_session_t *session;
   int component_id;
   rexmpp_tls_t *dtls;
-  /* gnutls_session_t dtls_session; */
-  /* char dtls_buf[DTLS_SRTP_BUF_SIZE]; */
-  /* size_t dtls_buf_len; */
   enum tls_st dtls_state;
   srtp_t srtp_in;
   srtp_t srtp_out;

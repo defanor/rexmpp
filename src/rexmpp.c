@@ -2540,7 +2540,7 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
       s->stream_state == REXMPP_STREAM_CLOSED &&
       s->tls_state == REXMPP_TLS_CLOSING) {
-    rexmpp_tls_err_t err = rexmpp_tls_disconnect(s);
+    rexmpp_tls_err_t err = rexmpp_tls_disconnect(s, s->tls);
     if (err == REXMPP_TLS_SUCCESS) {
       s->tls_state = REXMPP_TLS_INACTIVE;
       rexmpp_cleanup(s);

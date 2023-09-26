@@ -58,6 +58,8 @@ enum rexmpp_openssl_direction {
 struct rexmpp_tls {
   SSL_CTX *openssl_ctx;
   SSL *openssl_conn;
+  BIO *bio_conn;
+  BIO *bio_io;
   enum rexmpp_openssl_direction openssl_direction;
 };
 #else
@@ -77,20 +79,20 @@ void rexmpp_tls_session_free (rexmpp_tls_t *tls_ctx);
 
 rexmpp_tls_err_t rexmpp_tls_connect (rexmpp_t *s);
 rexmpp_tls_err_t rexmpp_tls_handshake (rexmpp_t *s, rexmpp_tls_t *tls_ctx);
-rexmpp_tls_err_t rexmpp_tls_disconnect (rexmpp_t *s);
+rexmpp_tls_err_t rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx);
 rexmpp_tls_err_t
 rexmpp_dtls_connect (rexmpp_t *s,
                      rexmpp_tls_t *tls_ctx,
                      void *user_data,
                      int client);
+void rexmpp_dtls_feed(rexmpp_t *s, rexmpp_tls_t *tls_ctx, uint8_t *buf, size_t len);
 
 int
 rexmpp_tls_srtp_get_keys (rexmpp_t *s,
                           rexmpp_tls_t *tls_ctx,
                           size_t key_len,
                           size_t salt_len,
-                          unsigned char *client_key_wsalt,
-                          unsigned char *server_key_wsalt);
+                          unsigned char *key_mat);
 
 rexmpp_tls_err_t
 rexmpp_tls_send (rexmpp_t *s,
@@ -129,6 +131,11 @@ int rexmpp_tls_peer_fp (rexmpp_t *s,
                         char *raw_fp,
                         char *fp_str,
                         size_t *fp_size);
+
+int rexmpp_tls_my_fp (rexmpp_t *s,
+                      char *raw_fp,
+                      char *fp_str,
+                      size_t *fp_size);
 
 int rexmpp_tls_session_fp (rexmpp_t *s,
                            rexmpp_tls_t *tls_ctx,

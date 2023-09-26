@@ -29,7 +29,7 @@ Optional dependencies:
 For Jingle calls:
 
 - libnice (with glib)
-- gnutls
+- gnutls or openssl
 - libsrtp2
 - portaudio
 - opus (optional)

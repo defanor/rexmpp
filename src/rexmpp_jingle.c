@@ -347,6 +347,10 @@ void rexmpp_jingle_session_destroy (rexmpp_jingle_session_t *session) {
           comp->dtls_state == REXMPP_TLS_ACTIVE ||
           comp->dtls_state == REXMPP_TLS_CLOSING ||
           comp->dtls_state == REXMPP_TLS_CLOSED) {
+        if (comp->dtls_state == REXMPP_TLS_HANDSHAKE ||
+            comp->dtls_state == REXMPP_TLS_ACTIVE) {
+          rexmpp_tls_disconnect(comp->s, comp->dtls);
+        }
         rexmpp_tls_session_free(comp->dtls);
         rexmpp_tls_ctx_free(comp->dtls);
         comp->dtls = NULL;
@@ -1015,14 +1019,9 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
 
   /* We'll need a fingerprint a bit later, but checking it before
      allocating other things. */
-
-  /* TODO: should use DTLS credentials, not regular TLS ones. Using
-     these for now because DTLS ones are not allocated yet, and they
-     are the same anyway. */
   char fp[32], fp_str[32 * 3 + 1];
   size_t fp_size = 32;
-
-  if (rexmpp_tls_session_fp(sess->s, sess->s->tls, "sha-256", fp, fp_str, &fp_size)) {
+  if (rexmpp_tls_my_fp(sess->s, fp, fp_str, &fp_size)) {
     return;
   }
 
@@ -1247,35 +1246,9 @@ rexmpp_jingle_dtls_push_func (void *p, const void *data, size_t size)
                          comp->component_id, size, data);
 }
 
-rexmpp_tls_err_t
-rexmpp_jingle_dtls_pull_func (void *p,
-                              void *data,
-                              size_t size,
-                              ssize_t *received)
-{
+rexmpp_tls_t *rexmpp_jingle_component_dtls(void *p) {
   rexmpp_jingle_component_t *comp = p;
-  char *tls_buf = comp->dtls->dtls_buf;
-  size_t *tls_buf_len = &(comp->dtls->dtls_buf_len);
-
-  rexmpp_tls_err_t ret = REXMPP_TLS_SUCCESS;
-  if (*tls_buf_len > 0) {
-    if (size >= *tls_buf_len) {
-      memcpy(data, tls_buf, *tls_buf_len);
-      *received = *tls_buf_len;
-      *tls_buf_len = 0;
-    } else {
-      if (size > DTLS_SRTP_BUF_SIZE) {
-        size = DTLS_SRTP_BUF_SIZE;
-      }
-      memcpy(data, tls_buf, size);
-      memmove(tls_buf, tls_buf + size, DTLS_SRTP_BUF_SIZE - size);
-      *received = size;
-      *tls_buf_len = *tls_buf_len - size;
-    }
-  } else {
-    ret = REXMPP_TLS_E_AGAIN;
-  }
-  return ret;
+  return comp->dtls;
 }
 
 /* The timeout is always zero for DTLS. */
@@ -1284,9 +1257,9 @@ int rexmpp_jingle_dtls_pull_timeout_func (void *p,
 {
   rexmpp_jingle_component_t *comp = p;
   rexmpp_jingle_session_t *sess = comp->session;
-  if (comp->dtls->dtls_buf_len > 0) {
-    return comp->dtls->dtls_buf_len;
-  }
+  /* if (comp->dtls->dtls_buf_len > 0) { */
+  /*   return comp->dtls->dtls_buf_len; */
+  /* } */
 
   fd_set rfds;
   struct timeval tv;
@@ -1311,7 +1284,6 @@ int rexmpp_jingle_dtls_pull_timeout_func (void *p,
     }
   }
   g_ptr_array_unref(sockets);
-
 
   tv.tv_sec = ms / 1000;
   tv.tv_usec = (ms % 1000) * 1000;
@@ -1605,12 +1577,7 @@ rexmpp_jingle_ice_recv_cb (NiceAgent *agent, guint stream_id, guint component_id
       }
     }
   } else {
-    if (comp->dtls->dtls_buf_len + len < DTLS_SRTP_BUF_SIZE) {
-      memcpy(comp->dtls->dtls_buf + comp->dtls->dtls_buf_len, buf, len);
-      comp->dtls->dtls_buf_len += len;
-    } else {
-      rexmpp_log(comp->s, LOG_WARNING, "Dropping a DTLS packet");
-    }
+    rexmpp_dtls_feed(comp->s, comp->dtls, buf, len);
   }
 }
 
@@ -2206,8 +2173,9 @@ rexmpp_jingle_run (rexmpp_t *s,
 #ifdef ENABLE_CALLS
   rexmpp_jingle_session_t *sess;
   int err;
-  unsigned char client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2],
-    server_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT * 2];
+  unsigned char key_mat[2 * (SRTP_AES_ICM_128_KEY_LEN_WSALT)],
+    client_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT],
+    server_sess_key[SRTP_AES_ICM_128_KEY_LEN_WSALT];
   for (sess = s->jingle->sessions; sess != NULL; sess = sess->next) {
     char input[4096 + SRTP_MAX_TRAILER_LEN];
     int input_len;
@@ -2290,7 +2258,20 @@ rexmpp_jingle_run (rexmpp_t *s,
 
                   rexmpp_tls_srtp_get_keys(s, comp->dtls,
                                            SRTP_AES_128_KEY_LEN, SRTP_SALT_LEN,
-                                           client_sess_key, server_sess_key);
+                                           key_mat);
+                  /* client key */
+                  memcpy(client_sess_key, key_mat, SRTP_AES_128_KEY_LEN);
+                  /* server key */
+                  memcpy(server_sess_key, key_mat + SRTP_AES_128_KEY_LEN,
+                         SRTP_AES_128_KEY_LEN);
+                  /* client salt */
+                  memcpy(client_sess_key + SRTP_AES_128_KEY_LEN,
+                         key_mat + SRTP_AES_128_KEY_LEN * 2,
+                         SRTP_SALT_LEN);
+                  /* server salt */
+                  memcpy(server_sess_key + SRTP_AES_128_KEY_LEN,
+                         key_mat + SRTP_AES_128_KEY_LEN * 2 + SRTP_SALT_LEN,
+                         SRTP_SALT_LEN);
 
                   int active_role = rexmpp_jingle_dtls_is_active(sess, 0);
 
@@ -2342,7 +2323,19 @@ rexmpp_jingle_run (rexmpp_t *s,
       /* Check on the DTLS session, too. */
       if (comp->dtls_state == REXMPP_TLS_ACTIVE) {
         ssize_t received;
-        rexmpp_tls_recv(s, comp->dtls, input, 4096, &received);
+        rexmpp_tls_err_t err =
+          rexmpp_tls_recv(s, comp->dtls, input, 4096, &received);
+        if (err != REXMPP_TLS_SUCCESS && err != REXMPP_TLS_E_AGAIN) {
+          rexmpp_log(s, LOG_ERR,
+                     "Error on rexmpp_tls_recv (component id %d), "
+                     "terminating Jingle session %s",
+                     comp->component_id, sess->sid);
+          rexmpp_jingle_session_terminate
+            (s, sess->sid,
+             rexmpp_xml_new_elem("connectivity-error", "urn:xmpp:jingle:1"),
+             "TLS reading error");
+          return REXMPP_E_TLS;
+        }
       }
     }
 

@@ -9,6 +9,7 @@
 #include <syslog.h>
 #include <string.h>
 #include <stdlib.h>
+#include <gcrypt.h>
 
 #include "config.h"
 
@@ -20,35 +21,39 @@
 #include <gnutls/dtls.h>
 #elif defined(USE_OPENSSL)
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/err.h>
 #endif
 
 #include "rexmpp.h"
 #include "rexmpp_tls.h"
 
+rexmpp_tls_t *rexmpp_jingle_component_dtls(void *p);
 ssize_t
 rexmpp_jingle_dtls_push_func (void *p, const void *data, size_t size);
-rexmpp_tls_err_t
-rexmpp_jingle_dtls_pull_func (void *comp,
-                              void *data,
-                              size_t size,
-                              ssize_t *received);
 int rexmpp_jingle_dtls_pull_timeout_func (void *p,
                                           unsigned int ms);
 
 #if defined(USE_OPENSSL)
-rexmpp_tls_err_t rexmpp_process_openssl_ret (rexmpp_t *s, int ret) {
-  int err = SSL_get_error(s->tls->openssl_conn, ret);
-  s->tls->openssl_direction = REXMPP_OPENSSL_NONE;
+rexmpp_tls_err_t rexmpp_process_openssl_ret (rexmpp_t *s,
+                                             rexmpp_tls_t *tls_ctx,
+                                             const char *func,
+                                             int ret)
+{
+  int err = SSL_get_error(tls_ctx->openssl_conn, ret);
+  tls_ctx->openssl_direction = REXMPP_OPENSSL_NONE;
   if (ret == 1) {
     return REXMPP_TLS_SUCCESS;
   } else if (err == SSL_ERROR_WANT_READ) {
-    s->tls->openssl_direction = REXMPP_OPENSSL_READ;
+    tls_ctx->openssl_direction = REXMPP_OPENSSL_READ;
     return REXMPP_TLS_E_AGAIN;
   } else if (err == SSL_ERROR_WANT_WRITE) {
-    s->tls->openssl_direction = REXMPP_OPENSSL_WRITE;
+    tls_ctx->openssl_direction = REXMPP_OPENSSL_WRITE;
     return REXMPP_TLS_E_AGAIN;
   } else {
-    rexmpp_log(s, LOG_ERR, "OpenSSL error %d", err);
+    rexmpp_log(s, LOG_ERR, "OpenSSL error %d (ret %d) in %s",
+               err, ret, func);
+    ERR_print_errors_fp(stderr);
     return REXMPP_TLS_E_OTHER;
   }
 }
@@ -135,6 +140,12 @@ void rexmpp_tls_session_free (rexmpp_tls_t *tls_ctx) {
     if (tls_ctx->openssl_conn != NULL) {
       SSL_free(tls_ctx->openssl_conn);
       tls_ctx->openssl_conn = NULL;
+      /* bio_conn is freed implicitly by SSL_free. */
+      tls_ctx->bio_conn = NULL;
+    }
+    if (tls_ctx->bio_io != NULL) {
+      BIO_free(tls_ctx->bio_io);
+      tls_ctx->bio_io = NULL;
     }
     tls_ctx->openssl_direction = REXMPP_OPENSSL_NONE;
 #else
@@ -162,16 +173,61 @@ rexmpp_dtls_jingle_pull_func_gnutls (gnutls_transport_ptr_t p,
                                      void *data,
                                      size_t size)
 {
-  rexmpp_jingle_component_t *comp = p;
+  rexmpp_tls_t *tls_ctx = rexmpp_jingle_component_dtls(p);
   ssize_t received;
-  rexmpp_tls_err_t err =
-    rexmpp_jingle_dtls_pull_func(comp, data, size, &received);
-  if (err == REXMPP_TLS_SUCCESS) {
+
+  char *tls_buf = tls_ctx->dtls_buf;
+  size_t *tls_buf_len = &(tls_ctx->dtls_buf_len);
+
+  rexmpp_tls_err_t ret = REXMPP_TLS_SUCCESS;
+  if (*tls_buf_len > 0) {
+    if (size >= *tls_buf_len) {
+      memcpy(data, tls_buf, *tls_buf_len);
+      received = *tls_buf_len;
+      *tls_buf_len = 0;
+    } else {
+      if (size > DTLS_SRTP_BUF_SIZE) {
+        size = DTLS_SRTP_BUF_SIZE;
+      }
+      memcpy(data, tls_buf, size);
+      memmove(tls_buf, tls_buf + size, DTLS_SRTP_BUF_SIZE - size);
+      received = size;
+      *tls_buf_len = *tls_buf_len - size;
+    }
+  } else {
+    ret = REXMPP_TLS_E_AGAIN;
+  }
+
+  if (ret == REXMPP_TLS_SUCCESS) {
     return received;
-  } else if (err == REXMPP_TLS_E_AGAIN) {
-    gnutls_transport_set_errno(comp->dtls->gnutls_session, EAGAIN);
+  } else if (ret == REXMPP_TLS_E_AGAIN) {
+    gnutls_transport_set_errno(tls_ctx->gnutls_session, EAGAIN);
   }
   return -1;
+}
+#endif
+
+#if defined(USE_OPENSSL)
+long rexmpp_dtls_openssl_bio_cb(BIO *b, int oper, const char *argp,
+                                size_t len, int argi,
+                                long argl, int ret, size_t *processed) {
+  (void)argi;
+  (void)argl;
+  (void)processed;
+  if (oper == BIO_CB_WRITE) {
+    rexmpp_jingle_dtls_push_func(BIO_get_callback_arg(b), argp, len);
+  }
+  return ret;
+}
+#endif
+
+#if defined(USE_OPENSSL)
+int rexmpp_openssl_verify_accept_all (int preverify_ok,
+                                      X509_STORE_CTX *x509_ctx)
+{
+  (void)preverify_ok;
+  (void)x509_ctx;
+  return 1;
 }
 #endif
 
@@ -195,20 +251,72 @@ rexmpp_dtls_connect (rexmpp_t *s,
                          tls_ctx->gnutls_cred);
 
   gnutls_transport_set_ptr(*tls_session, user_data);
-  gnutls_transport_set_push_function(*tls_session, rexmpp_jingle_dtls_push_func);
-  gnutls_transport_set_pull_function(*tls_session, rexmpp_dtls_jingle_pull_func_gnutls);
-  gnutls_transport_set_pull_timeout_function(*tls_session,
-                                             rexmpp_jingle_dtls_pull_timeout_func);
+  gnutls_transport_set_push_function
+    (*tls_session, rexmpp_jingle_dtls_push_func);
+  gnutls_transport_set_pull_function
+    (*tls_session, rexmpp_dtls_jingle_pull_func_gnutls);
+  gnutls_transport_set_pull_timeout_function
+    (*tls_session, rexmpp_jingle_dtls_pull_timeout_func);
   /* todo: use the profile/crypto-suite from <crypto/> element */
   gnutls_srtp_set_profile(*tls_session, GNUTLS_SRTP_AES128_CM_HMAC_SHA1_80);
   return REXMPP_TLS_SUCCESS;
+#elif defined(USE_OPENSSL)
+  (void)client;
+  int err;
+  /* Setup credentials */
+  rexmpp_tls_set_x509_key_file(s, tls_ctx, NULL, NULL);
+  /* Create a connection. */
+  tls_ctx->openssl_conn = SSL_new(tls_ctx->openssl_ctx);
+  SSL_set_verify(tls_ctx->openssl_conn,
+                 SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                 rexmpp_openssl_verify_accept_all);
+  /* Set a BIO */
+  BIO_new_bio_pair(&(tls_ctx->bio_conn), 4096, &(tls_ctx->bio_io), 4096);
+  BIO_up_ref(tls_ctx->bio_conn);
+  SSL_set0_rbio(tls_ctx->openssl_conn, tls_ctx->bio_conn);
+  SSL_set0_wbio(tls_ctx->openssl_conn, tls_ctx->bio_conn);
+  /* Set a callback to track writes */
+  BIO_set_callback_ex(tls_ctx->bio_conn, rexmpp_dtls_openssl_bio_cb);
+  BIO_set_callback_arg(tls_ctx->bio_conn, user_data);
+  BIO_set_ssl(tls_ctx->bio_conn, tls_ctx->openssl_conn, BIO_NOCLOSE);
+  /* Enable SRTP (TODO: support different profiles) */
+  err = SSL_set_tlsext_use_srtp(tls_ctx->openssl_conn,
+                                "SRTP_AES128_CM_SHA1_80");
+  if (err) {
+    rexmpp_log(s, LOG_ERR, "Failed to setup SRTP for the DTLS connection");
+    return REXMPP_TLS_E_OTHER;
+  }
+  if (client) {
+    err = SSL_connect(tls_ctx->openssl_conn);
+  } else {
+    err = SSL_accept(tls_ctx->openssl_conn);
+  }
+  return rexmpp_process_openssl_ret(s, tls_ctx, "rexmpp_dtls_connect", err);
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)tls_ctx;
   (void)user_data;
   (void)client;
   return REXMPP_TLS_E_OTHER;
+#endif
+}
+
+void rexmpp_dtls_feed(rexmpp_t *s, rexmpp_tls_t *tls_ctx, uint8_t *buf, size_t len) {
+#if defined(USE_GNUTLS)
+  if (tls_ctx->dtls_buf_len + len < DTLS_SRTP_BUF_SIZE) {
+    memcpy(tls_ctx->dtls_buf + tls_ctx->dtls_buf_len, buf, len);
+    tls_ctx->dtls_buf_len += len;
+  } else {
+    rexmpp_log(s, LOG_WARNING, "Dropping a DTLS packet");
+  }
+#elif defined(USE_OPENSSL)
+  (void)s;
+  BIO_write(tls_ctx->bio_io, buf, len);
+#else
+  (void)s;
+  (void)tls_ctx;
+  (void)buf;
+  (void)len;
 #endif
 }
 
@@ -224,11 +332,12 @@ rexmpp_tls_err_t rexmpp_tls_handshake (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
                gnutls_strerror(ret));
     return REXMPP_TLS_E_OTHER;
   }
+#elif defined(USE_OPENSSL)
+  return rexmpp_process_openssl_ret(s, tls_ctx, "rexmpp_tls_handshake",
+                                    SSL_do_handshake(tls_ctx->openssl_conn));
 #else
   (void)s;
   (void)tls_ctx;
-  /* TODO: OpenSSL */
-  /* SSL_do_handshake */
   return REXMPP_TLS_E_OTHER;
 #endif
 }
@@ -381,7 +490,8 @@ rexmpp_tls_connect (rexmpp_t *s) {
       return REXMPP_TLS_E_OTHER;
     }
   }
-  return rexmpp_process_openssl_ret(s, SSL_connect(s->tls->openssl_conn));
+  return rexmpp_process_openssl_ret(s, s->tls, "rexmpp_tls_connect",
+                                    SSL_connect(s->tls->openssl_conn));
 #else
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
@@ -389,9 +499,9 @@ rexmpp_tls_connect (rexmpp_t *s) {
 }
 
 rexmpp_tls_err_t
-rexmpp_tls_disconnect (rexmpp_t *s) {
+rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
 #if defined(USE_GNUTLS)
-  int ret = gnutls_bye(s->tls->gnutls_session, GNUTLS_SHUT_RDWR);
+  int ret = gnutls_bye(tls_ctx->gnutls_session, GNUTLS_SHUT_RDWR);
   if (ret == GNUTLS_E_SUCCESS) {
     return REXMPP_TLS_SUCCESS;
   } else {
@@ -400,12 +510,13 @@ rexmpp_tls_disconnect (rexmpp_t *s) {
     return REXMPP_TLS_E_OTHER;
   }
 #elif defined(USE_OPENSSL)
-  int ret = SSL_shutdown(s->tls->openssl_conn);
+  int ret = SSL_shutdown(tls_ctx->openssl_conn);
   if (ret == 0) {
-    s->tls->openssl_direction = REXMPP_OPENSSL_READ;
+    tls_ctx->openssl_direction = REXMPP_OPENSSL_READ;
     return REXMPP_TLS_E_AGAIN;
   } else {
-    return rexmpp_process_openssl_ret(s, ret);
+    return rexmpp_process_openssl_ret(s, tls_ctx,
+                                      "rexmpp_tls_disconnect", ret);
   }
 #else
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
@@ -418,27 +529,31 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
                           rexmpp_tls_t *tls_ctx,
                           size_t key_len,
                           size_t salt_len,
-                          unsigned char *client_key_wsalt,
-                          unsigned char *server_key_wsalt)
+                          unsigned char *key_mat)
 {
 #if defined(USE_GNUTLS)
   int key_mat_size;
-  char key_mat[4096];
-  gnutls_datum_t client_key, client_salt, server_key, server_salt;
   key_mat_size =
     gnutls_srtp_get_keys(tls_ctx->gnutls_session, 
                          key_mat, (key_len + salt_len) * 2,
-                         &client_key, &client_salt,
-                         &server_key, &server_salt);
-  rexmpp_log(s, LOG_DEBUG, "SRTP key material size: %d",
-             key_mat_size);
-  memcpy(client_key_wsalt, client_key.data, key_len);
-  memcpy(client_key_wsalt + key_len, client_salt.data, salt_len);
-  memcpy(server_key_wsalt, server_key.data, key_len);
-  memcpy(server_key_wsalt + key_len, server_salt.data, salt_len);
+                         NULL, NULL, NULL, NULL);
+  if (key_mat_size == GNUTLS_E_SHORT_MEMORY_BUFFER ||
+      key_mat_size < 0) {
+    rexmpp_log(s, LOG_ERR,
+               "Failed to retrieve DTLS key material for SRTP: %s",
+               gnutls_strerror(key_mat_size));
+  }
   return 0;
+#elif defined(USE_OPENSSL)
+  /* https://www.rfc-editor.org/rfc/rfc5764.html */
+  const char *extractor = "EXTRACTOR-dtls_srtp";
+  int err = SSL_export_keying_material(tls_ctx->openssl_conn,
+                                       key_mat, 2 * (key_len + salt_len),
+                                       extractor, strlen(extractor),
+                                       NULL, 0, 0);
+  return rexmpp_process_openssl_ret(s, tls_ctx,
+                                    "rexmpp_tls_srtp_get_keys", err);
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)tls_ctx;
   (void)key_len;
@@ -477,7 +592,7 @@ rexmpp_tls_send (rexmpp_t *s,
   if (ret > 0) {
     return REXMPP_TLS_SUCCESS;
   } else {
-    return rexmpp_process_openssl_ret(s, ret);
+    return rexmpp_process_openssl_ret(s, tls_ctx, "rexmpp_tls_send", ret);
   }
 #else
   (void)data;
@@ -514,7 +629,7 @@ rexmpp_tls_recv (rexmpp_t *s,
   if (ret > 0) {
     return REXMPP_TLS_SUCCESS;
   } else {
-    return rexmpp_process_openssl_ret(s, ret);
+    return rexmpp_process_openssl_ret(s, tls_ctx, "rexmpp_tls_recv", ret);
   }
 #else
   (void)data;
@@ -581,7 +696,7 @@ rexmpp_tls_set_x509_key_file (rexmpp_t *s,
   int ret = gnutls_certificate_set_x509_key_file(tls_ctx->gnutls_cred,
                                                  cert_file,
                                                  key_file,
-                                                 GNUTLS_X509_FMT_PEM);
+                                                 GNUTLS_X509_FMT_DER);
   if (ret == 0) {
     return REXMPP_TLS_SUCCESS;
   } else {
@@ -592,13 +707,13 @@ rexmpp_tls_set_x509_key_file (rexmpp_t *s,
 #elif defined(USE_OPENSSL)
   if (SSL_CTX_use_certificate_file(tls_ctx->openssl_ctx,
                                    cert_file,
-                                   SSL_FILETYPE_PEM) != 1) {
+                                   SSL_FILETYPE_ASN1) != 1) {
     rexmpp_log(s, LOG_ERR, "Failed to set a certificate file");
     return REXMPP_TLS_E_OTHER;
   }
   if (SSL_CTX_use_PrivateKey_file(tls_ctx->openssl_ctx,
                                   key_file,
-                                  SSL_FILETYPE_PEM) != 1) {
+                                  SSL_FILETYPE_ASN1) != 1) {
     rexmpp_log(s, LOG_ERR, "Failed to set a key file");
     return REXMPP_TLS_E_OTHER;
   }
@@ -626,7 +741,7 @@ rexmpp_tls_set_x509_trust_file (rexmpp_t *s,
 #if defined(USE_GNUTLS)
   gnutls_certificate_set_x509_trust_file(tls_ctx->gnutls_cred,
                                          trust_file,
-                                         GNUTLS_X509_FMT_PEM);
+                                         GNUTLS_X509_FMT_DER);
   return REXMPP_TLS_SUCCESS;
 #elif defined(USE_OPENSSL)
   if (SSL_CTX_load_verify_locations(tls_ctx->openssl_ctx, trust_file, NULL) != 1) {
@@ -662,16 +777,80 @@ int rexmpp_tls_peer_fp (rexmpp_t *s,
   }
   return rexmpp_x509_raw_cert_fp(s, algo_str, cert_list,
                                  raw_fp, fp_str, fp_size);
+#elif defined(USE_OPENSSL)
+  if (strcmp(algo_str, "sha-256") != 0) {
+    rexmpp_log(s, LOG_ERR,
+               "Unsupported hash function algorithm: %s", algo_str);
+    return -1;
+  }
+  X509 *peer_cert = SSL_get0_peer_certificate(tls_ctx->openssl_conn);
+  if (peer_cert == NULL) {
+    rexmpp_log(s, LOG_ERR, "No peer certificate found");
+    return -1;
+  }
+  unsigned int len;
+  X509_digest(peer_cert, EVP_sha256(), (unsigned char*)raw_fp, &len);
+  *fp_size = len;
+  size_t i;
+  for (i = 0; i < *fp_size; i++) {
+    snprintf(fp_str + i * 3, 4, "%02X:", raw_fp[i] & 0xFF);
+  }
+  fp_str[*fp_size * 3 - 1] = 0;
+  return 0;
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)tls_ctx;
   (void)algo_str;
   (void)raw_fp;
   (void)fp_str;
   (void)fp_size;
-  return -1;
 #endif
+}
+
+/* TODO: handle different algorithms, and maybe apply this to
+   arbitrary files. */
+int rexmpp_tls_my_fp (rexmpp_t *s,
+                      char *raw_fp,
+                      char *fp_str,
+                      size_t *fp_size)
+{
+  gcry_md_hd_t hd;
+  gcry_error_t err = gcry_md_open(&hd, GCRY_MD_SHA256, 0);
+  if (err != GPG_ERR_NO_ERROR) {
+    rexmpp_log(s, LOG_ERR, "Failed to create an MD object: %s",
+               gcry_strerror(err));
+    return -1;
+  }
+
+  if (s->x509_cert_file == NULL) {
+    rexmpp_log(s, LOG_WARNING, "No X.509 certificate file defined");
+    return -1;
+  }
+  FILE *fh = fopen(s->x509_cert_file, "r");
+  if (fh == NULL) {
+    rexmpp_log(s, LOG_ERR, "Failed to open the X.509 certificate file");
+    return -1;
+  }
+  unsigned char *buf[4096];
+  size_t len = fread(buf, 1, 4096, fh);
+  while (len > 0) {
+    gcry_md_write(hd, buf, len);
+    len = fread(buf, 1, 4096, fh);
+  }
+  gcry_md_final(hd);
+  fclose(fh);
+
+  *fp_size = gcry_md_get_algo_dlen(GCRY_MD_SHA256);
+
+  memcpy(raw_fp, gcry_md_read(hd, GCRY_MD_SHA256), *fp_size);
+
+  size_t i;
+  for (i = 0; i < (*fp_size); i++) {
+    snprintf(fp_str + i * 3, 4, "%02X:", raw_fp[i] & 0xFF);
+  }
+  fp_str[(*fp_size) * 3 - 1] = 0;
+  gcry_md_close(hd);
+  return 0;
 }
 
 int rexmpp_tls_session_fp (rexmpp_t *s,
@@ -703,7 +882,6 @@ int rexmpp_tls_session_fp (rexmpp_t *s,
   gnutls_free(cert_list);
   return err;
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)tls_ctx;
   (void)algo_str;
@@ -733,7 +911,6 @@ int rexmpp_x509_cert_fp (rexmpp_t *s,
   gnutls_free(raw_cert.data);
   return err;
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)algo_str;
   (void)cert;
@@ -790,7 +967,6 @@ int rexmpp_x509_raw_cert_fp (rexmpp_t *s,
   }
   return 0;
 #else
-  /* TODO: OpenSSL */
   (void)s;
   (void)algo_str;
   (void)raw_cert;
