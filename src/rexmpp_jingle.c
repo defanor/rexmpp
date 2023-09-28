@@ -27,7 +27,6 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include <syslog.h>
 #include <errno.h>
 #include <libgen.h>
-#include <gcrypt.h>
 
 #include "config.h"
 
@@ -51,6 +50,7 @@ A/V calls over ICE-UDP + DTLS-SRTP:
 #include "rexmpp_base64.h"
 #include "rexmpp_random.h"
 #include "rexmpp_tls.h"
+#include "rexmpp_digest.h"
 
 
 /* https://en.wikipedia.org/wiki/G.711 */
@@ -665,27 +665,24 @@ rexmpp_jingle_send_file (rexmpp_t *s,
   }
 
   char buf[4096];
-  gcry_md_hd_t hd;
-  gcry_error_t err = gcry_md_open(&hd, GCRY_MD_SHA256, 0);
-  if (err != GPG_ERR_NO_ERROR) {
-    rexmpp_log(s, LOG_ERR, "Failed to create a MD object: %s",
-               gcry_strerror(err));
+  rexmpp_digest_t sha256, sha3_256;
+  if (rexmpp_digest_init(&sha256, REXMPP_DIGEST_SHA256)) {
+    rexmpp_log(s, LOG_ERR, "Failed to initialize a SHA-256 digest object");
     fclose(fh);
     return REXMPP_E_OTHER;
   }
-  err = gcry_md_enable(hd, GCRY_MD_SHA3_256);
-  if (err != GPG_ERR_NO_ERROR) {
-    rexmpp_log(s, LOG_ERR, "Failed to add sha3-256 to the MD object: %s",
-               gcry_strerror(err));
+  if (rexmpp_digest_init(&sha3_256, REXMPP_DIGEST_SHA3_256)) {
+    rexmpp_log(s, LOG_ERR, "Failed to initialize a SHA-3-256 digest object");
+    rexmpp_digest_finish(&sha256, NULL, 0);
     fclose(fh);
     return REXMPP_E_OTHER;
   }
   size_t len = fread(buf, 1, 4096, fh);
   while (len > 0) {
-    gcry_md_write(hd, buf, len);
+    rexmpp_digest_update(&sha256, buf, len);
+    rexmpp_digest_update(&sha3_256, buf, len);
     len = fread(buf, 1, 4096, fh);
   }
-  gcry_md_final(hd);
 
   char *sid = rexmpp_gen_id(s);
   char *ibb_sid = rexmpp_gen_id(s);
@@ -718,10 +715,14 @@ rexmpp_jingle_send_file (rexmpp_t *s,
   rexmpp_xml_add_text(file_name, basename(path));
   rexmpp_xml_add_child(file, file_name);
 
+  char hash[32];
   char *hash_base64 = NULL;
   size_t hash_base64_len = 0;
-  rexmpp_base64_to((char*)gcry_md_read(hd, GCRY_MD_SHA256),
-                   gcry_md_get_algo_dlen(GCRY_MD_SHA256),
+
+  rexmpp_digest_finish(&sha256, hash,
+                       rexmpp_digest_len(REXMPP_DIGEST_SHA256));
+  rexmpp_base64_to(hash,
+                   rexmpp_digest_len(REXMPP_DIGEST_SHA256),
                    &hash_base64,
                    &hash_base64_len);
   rexmpp_xml_t *file_hash =
@@ -733,8 +734,10 @@ rexmpp_jingle_send_file (rexmpp_t *s,
 
   hash_base64 = NULL;
   hash_base64_len = 0;
-  rexmpp_base64_to((char*)gcry_md_read(hd, GCRY_MD_SHA3_256),
-                   gcry_md_get_algo_dlen(GCRY_MD_SHA3_256),
+  rexmpp_digest_finish(&sha3_256, hash,
+                       rexmpp_digest_len(REXMPP_DIGEST_SHA3_256));
+  rexmpp_base64_to(hash,
+                   rexmpp_digest_len(REXMPP_DIGEST_SHA3_256),
                    &hash_base64,
                    &hash_base64_len);
   file_hash = rexmpp_xml_new_elem("hash", "urn:xmpp:hashes:2");
@@ -742,8 +745,6 @@ rexmpp_jingle_send_file (rexmpp_t *s,
   rexmpp_xml_add_text(file_hash, hash_base64);
   free(hash_base64);
   rexmpp_xml_add_child(file, file_hash);
-
-  gcry_md_close(hd);
 
   long fsize = ftell(fh);
   fseek(fh, 0, SEEK_SET);

@@ -9,7 +9,6 @@
 #include <syslog.h>
 #include <string.h>
 #include <stdlib.h>
-#include <gcrypt.h>
 
 #include "config.h"
 
@@ -26,6 +25,7 @@
 #endif
 
 #include "rexmpp.h"
+#include "rexmpp_digest.h"
 #include "rexmpp_tls.h"
 
 rexmpp_tls_t *rexmpp_jingle_component_dtls(void *p);
@@ -814,11 +814,9 @@ int rexmpp_tls_my_fp (rexmpp_t *s,
                       char *fp_str,
                       size_t *fp_size)
 {
-  gcry_md_hd_t hd;
-  gcry_error_t err = gcry_md_open(&hd, GCRY_MD_SHA256, 0);
-  if (err != GPG_ERR_NO_ERROR) {
-    rexmpp_log(s, LOG_ERR, "Failed to create an MD object: %s",
-               gcry_strerror(err));
+  rexmpp_digest_t digest_ctx;
+  if (rexmpp_digest_init(&digest_ctx, REXMPP_DIGEST_SHA256)) {
+    rexmpp_log(s, LOG_ERR, "Failed to initialize a digest object");
     return -1;
   }
 
@@ -834,22 +832,19 @@ int rexmpp_tls_my_fp (rexmpp_t *s,
   unsigned char *buf[4096];
   size_t len = fread(buf, 1, 4096, fh);
   while (len > 0) {
-    gcry_md_write(hd, buf, len);
+    rexmpp_digest_update(&digest_ctx, buf, len);
     len = fread(buf, 1, 4096, fh);
   }
-  gcry_md_final(hd);
   fclose(fh);
 
-  *fp_size = gcry_md_get_algo_dlen(GCRY_MD_SHA256);
-
-  memcpy(raw_fp, gcry_md_read(hd, GCRY_MD_SHA256), *fp_size);
+  *fp_size = rexmpp_digest_len(REXMPP_DIGEST_SHA256);
+  rexmpp_digest_finish(&digest_ctx, raw_fp, *fp_size);
 
   size_t i;
   for (i = 0; i < (*fp_size); i++) {
     snprintf(fp_str + i * 3, 4, "%02X:", raw_fp[i] & 0xFF);
   }
   fp_str[(*fp_size) * 3 - 1] = 0;
-  gcry_md_close(hd);
   return 0;
 }
 

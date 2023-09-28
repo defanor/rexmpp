@@ -15,7 +15,7 @@ it easy to implement a decent client application using it.
 Mandatory dependencies:
 
 - libxml2, libexpat, or rxml (Rust)
-- libgcrypt
+- gcrypt, nettle, or openssl
 
 Optional dependencies:
 

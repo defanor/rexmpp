@@ -44,6 +44,7 @@
 #include "rexmpp_base64.h"
 #include "rexmpp_sasl.h"
 #include "rexmpp_random.h"
+#include "rexmpp_digest.h"
 
 struct rexmpp_iq_cacher {
   rexmpp_iq_callback_t cb;
@@ -202,11 +203,15 @@ char *rexmpp_capabilities_hash (rexmpp_t *s,
   size_t out_len = 0;
   char *str = rexmpp_capabilities_string(s, info);
   if (str != NULL) {
-    unsigned int sha1_len = gcry_md_get_algo_dlen(GCRY_MD_SHA1);
+    size_t sha1_len = rexmpp_digest_len(REXMPP_DIGEST_SHA1);
     char *sha1 = malloc(sha1_len);
     if (sha1 != NULL) {
-      gcry_md_hash_buffer(GCRY_MD_SHA1, sha1, str, strlen(str));
-      rexmpp_base64_to(sha1, sha1_len, &out, &out_len);
+      if (rexmpp_digest_buffer(REXMPP_DIGEST_SHA1,
+                               str, strlen(str),
+                               sha1, sha1_len) == 0)
+        {
+          rexmpp_base64_to(sha1, sha1_len, &out, &out_len);
+        }
       free(sha1);
     }
     free(str);
@@ -606,6 +611,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     return REXMPP_E_JID;
   }
 
+#ifdef HAVE_GCRYPT
   if (! gcry_control(GCRYCTL_INITIALIZATION_FINISHED_P)) {
     rexmpp_log(s, LOG_DEBUG, "Initializing libgcrypt");
     if (gcry_check_version(NULL) == NULL) {
@@ -614,6 +620,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
     }
     gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
   }
+#endif
 
   s->xml_parser = rexmpp_xml_parser_new(&sax, s);
 

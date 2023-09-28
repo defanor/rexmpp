@@ -38,10 +38,25 @@ AM_CONDITIONAL([USE_RUST], [test "x$with_rust" == "xyes"])
 LT_INIT
 
 
-# Libgcrypt
+# Cryptographic libraries, for hashing
 
-AM_PATH_LIBGCRYPT([],
-        [AC_DEFINE([HAVE_GCRYPT], [1], [Libgcrypt is available])])
+AC_ARG_WITH([gcrypt],
+  AS_HELP_STRING([--without-gcrypt], [do not use gcrypt]))
+AC_ARG_WITH([nettle],
+  AS_HELP_STRING([--without-nettle], [do not use nettle]))
+
+AS_IF([test "x$with_gcrypt" != "xno"],
+  [AM_PATH_LIBGCRYPT([],
+    [AC_DEFINE([HAVE_GCRYPT], [1], [Libgcrypt is available])])])
+
+AS_IF([test "x$with_gcrypt" == "xno" -a "x$with_nettle" != "xno"],
+  [PKG_CHECK_MODULES([NETTLE], [nettle],
+    [AC_DEFINE([HAVE_NETTLE], [1], [Libnettle is available])])])
+
+AS_IF([test "x$with_gcrypt" == "xno" -a "x$with_nettle" == "xno"],
+  [PKG_CHECK_MODULES([OPENSSL], [openssl],
+    [AC_DEFINE([HAVE_OPENSSL], [1], [OpenSSL is available])])])
+
 
 # libnice (+ glib) and libsrtp for media calls, optional
 
