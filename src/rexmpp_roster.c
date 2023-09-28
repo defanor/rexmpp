@@ -32,7 +32,7 @@ rexmpp_roster_find_item (rexmpp_t *s,
       return cur;
     }
     prev = cur;
-    cur = cur->next;
+    cur = rexmpp_xml_next_elem_sibling(cur);
   }
   return NULL;
 }
@@ -51,9 +51,9 @@ rexmpp_err_t rexmpp_modify_roster (rexmpp_t *s, rexmpp_xml_t *item) {
     cur = rexmpp_roster_find_item(s, jid, &prev);
     if (cur != NULL) {
       if (prev != NULL) {
-        prev->next = cur->next;
+        prev->next = rexmpp_xml_next_elem_sibling(cur);
       } else {
-        s->roster_items = cur->next;
+        s->roster_items = rexmpp_xml_next_elem_sibling(cur);
       }
       rexmpp_xml_free(cur);
     } else {
@@ -66,9 +66,9 @@ rexmpp_err_t rexmpp_modify_roster (rexmpp_t *s, rexmpp_xml_t *item) {
     /* Remove the item if it was in the roster before. */
     if (cur != NULL) {
       if (prev != NULL) {
-        prev->next = cur->next;
+        prev->next = rexmpp_xml_next_elem_sibling(cur);
       } else {
-        s->roster_items = cur->next;
+        s->roster_items = rexmpp_xml_next_elem_sibling(cur);
       }
       rexmpp_xml_free(cur);
     }
@@ -95,12 +95,12 @@ void rexmpp_roster_set (rexmpp_t *s, rexmpp_xml_t *query) {
   if (roster_ver != NULL) {
     s->roster_ver = strdup(roster_ver);
   }
-  s->roster_items = rexmpp_xml_clone_list(query->alt.elem.children);
+  s->roster_items = rexmpp_xml_clone_list(rexmpp_xml_first_elem_child(query));
   if (s->roster_modify_cb != NULL) {
     rexmpp_xml_t *item;
-    for (item = query->alt.elem.children;
+    for (item = rexmpp_xml_first_elem_child(query);
          item != NULL;
-         item = item->next)
+         item = rexmpp_xml_next_elem_sibling(item))
       {
         s->roster_modify_cb(s, item);
       }
@@ -148,8 +148,9 @@ void rexmpp_iq_roster_get (rexmpp_t *s,
     rexmpp_log(s, LOG_ERR, "Roster loading failed.");
     return;
   }
-  rexmpp_xml_t *query = response->alt.elem.children;
-  if (! rexmpp_xml_match(query, "jabber:iq:roster", "query")) {
+  rexmpp_xml_t *query =
+    rexmpp_xml_find_child(response, "jabber:iq:roster", "query");
+  if (query == NULL) {
     rexmpp_log(s, LOG_DEBUG, "No roster query in reply.");
     return;
   }
