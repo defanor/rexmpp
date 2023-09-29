@@ -12,6 +12,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #include "rexmpp.h"
 #include "rexmpp_xml.h"
@@ -490,7 +491,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     msg_text = jid_str + strlen(jid_str) + 1;
 
     rexmpp_xml_t *msg = rexmpp_xml_new_elem("message", "jabber:client");
-    rexmpp_xml_add_id(s, msg);
+    rexmpp_xml_add_id(msg);
     rexmpp_xml_add_attr(msg, "to", jid.full);
     rexmpp_xml_add_attr(msg, "type", "chat");
     rexmpp_xml_t *body = rexmpp_xml_new_elem("body", NULL);
@@ -527,7 +528,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     free(b64);
 
     rexmpp_xml_t *msg = rexmpp_xml_new_elem("message", "jabber:client");
-    rexmpp_xml_add_id(s, msg);
+    rexmpp_xml_add_id(msg);
     rexmpp_xml_add_attr(msg, "to", jid.full);
     rexmpp_xml_add_attr(msg, "type", "chat");
     rexmpp_xml_add_child(msg, openpgp);
@@ -549,7 +550,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       msg_text = jid_str + strlen(jid_str) + 1;
 
       rexmpp_xml_t *msg = rexmpp_xml_new_elem("message", "jabber:client");
-      rexmpp_xml_add_id(s, msg);
+      rexmpp_xml_add_id(msg);
       rexmpp_xml_add_attr(msg, "to", jid.full);
       rexmpp_xml_add_attr(msg, "type", "groupchat");
       rexmpp_xml_t *body = rexmpp_xml_new_elem("body", NULL);
@@ -573,7 +574,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
                jid.bare, word);
       presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(s, presence);
+      rexmpp_xml_add_id(presence);
       rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
       rexmpp_xml_add_attr(presence, "to", full_jid);
       rexmpp_xml_t *x =
@@ -598,7 +599,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
                jid.bare, word);
       presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(s, presence);
+      rexmpp_xml_add_id(presence);
       rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
       rexmpp_xml_add_attr(presence, "to", full_jid);
       rexmpp_xml_add_attr(presence, "type", "unavailable");
@@ -683,7 +684,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         return;
       }
       presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(s, presence);
+      rexmpp_xml_add_id(presence);
       rexmpp_xml_add_attr(presence, "to",  word);
       rexmpp_xml_add_attr(presence, "type", "subscribe");
       rexmpp_send(s, presence);
@@ -694,7 +695,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         return;
       }
       presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(s, presence);
+      rexmpp_xml_add_id(presence);
       rexmpp_xml_add_attr(presence, "to", word);
       rexmpp_xml_add_attr(presence, "type", "subscribed");
       rexmpp_send(s, presence);
@@ -705,7 +706,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         return;
       }
       presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(s, presence);
+      rexmpp_xml_add_id(presence);
       rexmpp_xml_add_attr(presence, "to",  word);
       rexmpp_xml_add_attr(presence, "type", "unsubscribed");
       rexmpp_send(s, presence);

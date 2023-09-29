@@ -534,8 +534,6 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...);
 */
 char *rexmpp_get_name (rexmpp_t *s, const char *jid_str);
 
-char *rexmpp_gen_id (rexmpp_t *s);
-
 /**
    @brief Finds a PEP event.
    @param[in] s ::rexmpp

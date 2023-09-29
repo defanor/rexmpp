@@ -480,7 +480,7 @@ rexmpp_jingle_session_create (rexmpp_t *s,
 #endif  /* HAVE_POUS */
 #endif  /* ENABLE_CALLS */
     if (! rexmpp_jingle_session_add(s, sess)) {
-      rexmpp_jingle_session_destroy(sess);
+      /* The session is destroyed by rexmpp_jingle_session_add */
       sess = NULL;
     }
   } else {
@@ -684,8 +684,8 @@ rexmpp_jingle_send_file (rexmpp_t *s,
     len = fread(buf, 1, 4096, fh);
   }
 
-  char *sid = rexmpp_gen_id(s);
-  char *ibb_sid = rexmpp_gen_id(s);
+  char *sid = rexmpp_random_id();
+  char *ibb_sid = rexmpp_random_id();
 
   rexmpp_xml_t *jingle =
     rexmpp_xml_new_elem("jingle", "urn:xmpp:jingle:1");
@@ -1161,7 +1161,7 @@ rexmpp_jingle_candidate_gathering_done_cb (NiceAgent *agent,
       rexmpp_xml_add_attr(candidate, "component", buf);
       rexmpp_xml_add_attr(candidate, "foundation", c->foundation);
       rexmpp_xml_add_attr(candidate, "generation", "0");
-      char *cid = rexmpp_gen_id(sess->s);
+      char *cid = rexmpp_random_id();
       rexmpp_xml_add_attr(candidate, "id", cid);
       free(cid);
       nice_address_to_string(&c->addr, buf);
@@ -1767,7 +1767,7 @@ rexmpp_jingle_call (rexmpp_t *s,
                     const char *jid)
 {
   rexmpp_jingle_session_t *sess =
-    rexmpp_jingle_session_create(s, strdup(jid), rexmpp_gen_id(s),
+    rexmpp_jingle_session_create(s, strdup(jid), rexmpp_random_id(),
                                  REXMPP_JINGLE_SESSION_MEDIA, 1);
   rexmpp_jingle_ice_agent_init(sess);
   rexmpp_jingle_discover_turn(s, sess);
@@ -1896,11 +1896,13 @@ int rexmpp_jingle_iq (rexmpp_t *s, rexmpp_xml_t *elem) {
             rexmpp_jingle_session_t *sess =
               rexmpp_jingle_session_create(s, strdup(from_jid), strdup(sid),
                                            REXMPP_JINGLE_SESSION_MEDIA, 0);
-            sess->rtcp_mux =
-              (rexmpp_xml_find_child(rtp_description,
-                                     "urn:xmpp:jingle:apps:rtp:1",
-                                     "rtcp-mux") != NULL);
-            sess->initiate = rexmpp_xml_clone(jingle);
+            if (sess != NULL) {
+              sess->rtcp_mux =
+                (rexmpp_xml_find_child(rtp_description,
+                                       "urn:xmpp:jingle:apps:rtp:1",
+                                       "rtcp-mux") != NULL);
+              sess->initiate = rexmpp_xml_clone(jingle);
+            }
 #endif  /* ENABLE_CALLS */
           } else if (file_description == NULL &&
                      rtp_description == NULL) {

@@ -9,6 +9,8 @@
 #ifndef REXMPP_XML_H
 #define REXMPP_XML_H
 
+#include <stdio.h>
+
 typedef struct rexmpp_xml_qname rexmpp_xml_qname_t;
 typedef struct rexmpp_xml_attribute rexmpp_xml_attr_t;
 typedef struct rexmpp_xml_node rexmpp_xml_t;
@@ -139,8 +141,7 @@ int rexmpp_xml_add_attr_ns (rexmpp_xml_t *node,
    composition.
 */
 rexmpp_xml_t *
-rexmpp_xml_add_id (rexmpp_t *s,
-                   rexmpp_xml_t *node);
+rexmpp_xml_add_id (rexmpp_xml_t *node);
 
 /**
    @brief A helper function for XML serialisation.

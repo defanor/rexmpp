@@ -64,8 +64,10 @@ int rexmpp_jid_parse (const char *str, struct rexmpp_jid *jid) {
   jid->local[local_len] = '\0';
   strncpy(jid->domain, domain, domain_len);
   jid->domain[domain_len] = '\0';
-  strncpy(jid->resource, resource, resource_len);
-  jid->resource[resource_len] = '\0';
+  if (resource != NULL) {
+    strncpy(jid->resource, resource, resource_len);
+    jid->resource[resource_len] = '\0';
+  }
 
   return 0;
 }

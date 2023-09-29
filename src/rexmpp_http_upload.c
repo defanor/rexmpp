@@ -73,13 +73,19 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
           if (header_name != NULL) {
             const char *header_str = rexmpp_xml_text_child(header);
             if (header_str != NULL) {
-              size_t full_header_str_len = strlen(header_name) + 3 + strlen(header_str);
+              size_t full_header_str_len =
+                strlen(header_name) + 3 + strlen(header_str);
               char *full_header_str = malloc(full_header_str_len);
-              snprintf(full_header_str, full_header_str_len, "%s: %s",
-                       header_name, header_str);
-              task->http_headers =
-                curl_slist_append(task->http_headers, full_header_str);
-              free(full_header_str);
+              if (full_header_str != NULL) {
+                snprintf(full_header_str, full_header_str_len, "%s: %s",
+                         header_name, header_str);
+                task->http_headers =
+                  curl_slist_append(task->http_headers, full_header_str);
+                free(full_header_str);
+              } else {
+                rexmpp_log(s, LOG_ERR,
+                           "Failed to allocate memory for a header");
+              }
             }
           }
           header = rexmpp_xml_next_elem_sibling(header);
@@ -137,8 +143,18 @@ rexmpp_http_upload (rexmpp_t *s,
                     http_upload_cb cb,
                     void *cb_data)
 {
+  if (fname == NULL) {
+    rexmpp_log(s, LOG_ERR, "No file name is provided");
+    fclose(fh);
+    return REXMPP_E_PARAM;
+  }
   struct rexmpp_http_upload_task *task =
     malloc(sizeof(struct rexmpp_http_upload_task));
+  if (task == NULL) {
+    rexmpp_log(s, LOG_ERR, "Failed to allocate memory for an upload task");
+    fclose(fh);
+    return REXMPP_E_MALLOC;
+  }
   task->fname = strdup(fname);
   task->fsize = fsize;
   task->fh = fh;

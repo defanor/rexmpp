@@ -41,13 +41,15 @@ void rexmpp_xml_sax_elem_start (rexmpp_xml_parser_ctx_t ctx,
   for (i = nb_attributes - 1; i >= 0; i--) {
     size_t attr_len = attributes[i * 5 + 4] - attributes[i * 5 + 3];
     char *attr_val = malloc(attr_len + 1);
-    attr_val[attr_len] = '\0';
-    strncpy(attr_val, attributes[i * 5 + 3], attr_len);
-    rexmpp_xml_attr_t *attr =
-      rexmpp_xml_attr_new(attributes[i * 5], NULL, attr_val);
-    free(attr_val);
-    attr->next = attrs;
-    attrs = attr;
+    if (attr_val != NULL) {
+      attr_val[attr_len] = '\0';
+      strncpy(attr_val, attributes[i * 5 + 3], attr_len);
+      rexmpp_xml_attr_t *attr =
+        rexmpp_xml_attr_new(attributes[i * 5], NULL, attr_val);
+      free(attr_val);
+      attr->next = attrs;
+      attrs = attr;
+    }
   }
 
   ctx->handlers->elem_start(ctx->user_data, localname, URI, attrs);

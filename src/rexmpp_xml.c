@@ -12,6 +12,7 @@
 #include "rexmpp.h"
 #include "rexmpp_utf8.h"
 #include "rexmpp_xml.h"
+#include "rexmpp_random.h"
 
 #ifndef USE_RUST
 void rexmpp_xml_qname_free (rexmpp_xml_qname_t *qname) {
@@ -449,10 +450,9 @@ char *rexmpp_xml_serialize (const rexmpp_xml_t *node, int pretty) {
 }
 
 rexmpp_xml_t *
-rexmpp_xml_add_id (rexmpp_t *s,
-                   rexmpp_xml_t *node)
+rexmpp_xml_add_id (rexmpp_xml_t *node)
 {
-  char *buf = rexmpp_gen_id(s);
+  char *buf = rexmpp_random_id();
   if (buf == NULL) {
     return NULL;
   }
@@ -557,10 +557,12 @@ rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
   size_t init_len = 0;
   ssize_t buf_len = 0;
   do {
+    buf = NULL;
     buf_len = getline(&buf, &init_len, fd);
     if (buf_len > 0) {
       rexmpp_xml_parser_feed(parser, buf, buf_len, 0);
     }
+    free(buf);
   } while (buf_len > 0 &&
            ! (builder.root != NULL && builder.current == NULL) );
 

@@ -14,6 +14,7 @@
 #include <arpa/nameser.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <assert.h>
 
 #include "config.h"
 
@@ -401,6 +402,9 @@ rexmpp_disco_find_feature (rexmpp_t *s,
 {
   struct rexmpp_feature_search *search =
     malloc(sizeof(struct rexmpp_feature_search));
+  if (search == NULL) {
+    return REXMPP_E_MALLOC;
+  }
   search->max_requests = max_requests - 1;
   search->found = 0;
   search->pending = 1;
@@ -700,6 +704,7 @@ void rexmpp_cleanup (rexmpp_t *s) {
   if (s->tcp_state == REXMPP_TCP_CONNECTING) {
     int sock = rexmpp_tcp_conn_finish(&s->server_connection);
     if (sock != -1) {
+      rexmpp_log(s, LOG_DEBUG, "TCP disconnected");
       close(sock);
     }
     s->tcp_state = REXMPP_TCP_NONE;
@@ -853,15 +858,6 @@ const char *jid_bare_to_host (const char *jid_bare) {
     return jid_host + 1;
   }
   return NULL;
-}
-
-char *rexmpp_gen_id (rexmpp_t *s) {
-  (void)s;
-  char buf_raw[18], *buf_base64 = NULL;
-  size_t buf_base64_len = 0;
-  rexmpp_random_buf(buf_raw, 18);
-  rexmpp_base64_to(buf_raw, 18, &buf_base64, &buf_base64_len);
-  return buf_base64;
 }
 
 rexmpp_xml_t *rexmpp_xml_set_delay (rexmpp_t *s, rexmpp_xml_t *node) {
@@ -1095,6 +1091,8 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
     last = last->next;
   }
   if (i >= s->iq_queue_size && s->iq_queue_size > 0) {
+    assert(prev != NULL);
+    assert(last != NULL);
     rexmpp_log(s, LOG_WARNING,
                "The IQ queue limit is reached, giving up on the oldest IQ.");
     prev->next = NULL;
@@ -1103,7 +1101,7 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
 
   rexmpp_xml_t *iq_stanza =
     rexmpp_xml_new_elem("iq", "jabber:client");
-  rexmpp_xml_add_id(s, iq_stanza);
+  rexmpp_xml_add_id(iq_stanza);
   rexmpp_xml_add_attr(iq_stanza, "type", type);
   if (to != NULL) {
     rexmpp_xml_add_attr(iq_stanza, "to", to);
@@ -1113,6 +1111,9 @@ rexmpp_err_t rexmpp_iq_new (rexmpp_t *s,
   }
   rexmpp_xml_add_child(iq_stanza, payload);
   rexmpp_iq_t *iq = malloc(sizeof(rexmpp_iq_t));
+  if (iq == NULL) {
+    return REXMPP_E_MALLOC;
+  }
   iq->request = rexmpp_xml_clone(iq_stanza);
   iq->cb = cb;
   iq->cb_data = cb_data;
@@ -1263,9 +1264,9 @@ rexmpp_err_t rexmpp_recv (rexmpp_t *s) {
     } else if (chunk_raw_len == 0) {
       if (tls_was_active) {
         s->tls_state = REXMPP_TLS_CLOSED;
-        rexmpp_log(s, LOG_INFO, "TLS disconnected");
+        rexmpp_log(s, LOG_DEBUG, "TLS disconnected");
       }
-      rexmpp_log(s, LOG_INFO, "TCP disconnected");
+      rexmpp_log(s, LOG_DEBUG, "TCP disconnected");
       rexmpp_cleanup(s);
       if (s->stream_state == REXMPP_STREAM_READY ||
           s->stream_state == REXMPP_STREAM_ERROR_RECONNECT) {
@@ -1619,7 +1620,7 @@ void rexmpp_stream_is_ready(rexmpp_t *s) {
   }
   rexmpp_xml_t *presence =
     rexmpp_xml_new_elem("presence", "jabber:client");
-  rexmpp_xml_add_id(s, presence);
+  rexmpp_xml_add_id(presence);
 
   char *caps_hash = rexmpp_capabilities_hash(s, rexmpp_disco_info(s));
   if (caps_hash != NULL) {
@@ -2042,7 +2043,7 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
                       strcmp(autojoin, "1") == 0) {
                     rexmpp_xml_t *presence =
                       rexmpp_xml_new_elem("presence", "jabber:client");
-                    rexmpp_xml_add_id(s, presence);
+                    rexmpp_xml_add_id(presence);
                     rexmpp_xml_add_attr(presence, "from",
                                              s->assigned_jid.full);
                     rexmpp_xml_t *nick =
@@ -2253,6 +2254,7 @@ void rexmpp_sax_start_elem_ns (rexmpp_t *s,
       strcmp(namespace, "http://etherx.jabber.org/streams") == 0) {
     rexmpp_log(s, LOG_DEBUG, "stream start");
     s->stream_state = REXMPP_STREAM_NEGOTIATION;
+    rexmpp_xml_attribute_free_list(attributes);
     return;
   }
 
@@ -2326,7 +2328,7 @@ rexmpp_err_t rexmpp_stop (rexmpp_t *s) {
   if (s->stream_state == REXMPP_STREAM_READY) {
     rexmpp_xml_t *presence =
       rexmpp_xml_new_elem("presence", "jabber:client");
-    rexmpp_xml_add_id(s, presence);
+    rexmpp_xml_add_id(presence);
     rexmpp_xml_add_attr(presence, "type", "unavailable");
     rexmpp_send(s, presence);
   }
@@ -2549,10 +2551,11 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       s->tls_state == REXMPP_TLS_CLOSING) {
     rexmpp_tls_err_t err = rexmpp_tls_disconnect(s, s->tls);
     if (err == REXMPP_TLS_SUCCESS) {
+      rexmpp_log(s, LOG_DEBUG, "TLS disconnected");
       s->tls_state = REXMPP_TLS_INACTIVE;
       rexmpp_cleanup(s);
       s->tcp_state = REXMPP_TCP_CLOSED;
-    } else {
+    } else if (err != REXMPP_TLS_E_AGAIN) {
       s->tls_state = REXMPP_TLS_ERROR;
       return REXMPP_E_TLS;
     }

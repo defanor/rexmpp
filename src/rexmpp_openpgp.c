@@ -732,6 +732,11 @@ char *rexmpp_openpgp_payload (rexmpp_t *s,
     /* Add keys for encryption. */
     allocated = 8;
     keys = malloc(sizeof(gpgme_key_t *) * allocated);
+    if (keys == NULL) {
+      rexmpp_log(s, LOG_ERR, "Failed to allocate memory for keys");
+      rexmpp_xml_free(elem);
+      return NULL;
+    }
     keys[0] = NULL;
     rexmpp_openpgp_add_keys(s, s->initial_jid.bare, &keys, &nkeys, &allocated);
     for (i = 0; recipients[i] != NULL; i++) {

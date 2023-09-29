@@ -61,6 +61,10 @@ rexmpp_tls_err_t rexmpp_process_openssl_ret (rexmpp_t *s,
 
 rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
   rexmpp_tls_t *tls_ctx = malloc(sizeof(rexmpp_tls_t));
+  if (tls_ctx == NULL) {
+    rexmpp_log(s, LOG_CRIT, "Failed to allocate memory for a TLS context");
+    return NULL;
+  }
 #if defined(USE_GNUTLS)
   (void)dtls;
   int err;
@@ -71,6 +75,7 @@ rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
   if (err) {
     rexmpp_log(s, LOG_CRIT, "gnutls credentials allocation error: %s",
                gnutls_strerror(err));
+    free(tls_ctx);
     return NULL;
   }
   if (! dtls) {
@@ -79,6 +84,7 @@ rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
   if (err < 0) {
     rexmpp_log(s, LOG_CRIT, "Certificates loading error: %s",
                gnutls_strerror(err));
+    free(tls_ctx);
     return NULL;
   }
 
@@ -91,6 +97,7 @@ rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
                                      : TLS_method());
   if (tls_ctx->openssl_ctx == NULL) {
     rexmpp_log(s, LOG_CRIT, "OpenSSL context creation error");
+    free(tls_ctx);
     return NULL;
   }
   SSL_CTX_set_verify(tls_ctx->openssl_ctx, SSL_VERIFY_PEER, NULL);
@@ -99,6 +106,7 @@ rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
                "Failed to set default verify paths for OpenSSL context");
     SSL_CTX_free(tls_ctx->openssl_ctx);
     tls_ctx->openssl_ctx = NULL;
+    free(tls_ctx);
     return NULL;
   }
 #else
@@ -149,7 +157,7 @@ void rexmpp_tls_session_free (rexmpp_tls_t *tls_ctx) {
     }
     tls_ctx->openssl_direction = REXMPP_OPENSSL_NONE;
 #else
-    (void)s;
+    (void)tls_ctx;
 #endif
 }
 
@@ -504,6 +512,8 @@ rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
   int ret = gnutls_bye(tls_ctx->gnutls_session, GNUTLS_SHUT_RDWR);
   if (ret == GNUTLS_E_SUCCESS) {
     return REXMPP_TLS_SUCCESS;
+  } else if (ret == GNUTLS_E_AGAIN) {
+    return REXMPP_TLS_E_AGAIN;
   } else {
     rexmpp_log(s, LOG_WARNING, "Failed to close TLS connection: %s",
                gnutls_strerror(ret));
@@ -519,6 +529,7 @@ rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
                                       "rexmpp_tls_disconnect", ret);
   }
 #else
+  (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
 #endif
@@ -558,8 +569,8 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
   (void)tls_ctx;
   (void)key_len;
   (void)salt_len;
-  (void)client_key_wsalt;
-  (void)server_key_wsalt;
+  (void)key_mat;
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return -1;
 #endif
 }
@@ -598,6 +609,7 @@ rexmpp_tls_send (rexmpp_t *s,
   (void)data;
   (void)data_size;
   (void)written;
+  (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
 #endif
@@ -635,6 +647,7 @@ rexmpp_tls_recv (rexmpp_t *s,
   (void)data;
   (void)data_size;
   (void)received;
+  (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
 #endif
@@ -721,6 +734,7 @@ rexmpp_tls_set_x509_key_file (rexmpp_t *s,
 #else
   (void)cert_file;
   (void)key_file;
+  (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
 #endif
@@ -751,6 +765,7 @@ rexmpp_tls_set_x509_trust_file (rexmpp_t *s,
   return REXMPP_TLS_SUCCESS;
 #else
   (void)trust_file;
+  (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
 #endif
@@ -798,12 +813,13 @@ int rexmpp_tls_peer_fp (rexmpp_t *s,
   fp_str[*fp_size * 3 - 1] = 0;
   return 0;
 #else
-  (void)s;
   (void)tls_ctx;
   (void)algo_str;
   (void)raw_fp;
   (void)fp_str;
   (void)fp_size;
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
+  return -1;
 #endif
 }
 

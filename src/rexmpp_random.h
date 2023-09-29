@@ -19,4 +19,11 @@
 */
 void rexmpp_random_buf (void *buf, size_t len);
 
+/**
+   @brief Generates a random ASCII identifier.
+   @returns A null-terminated string, which must be freed by the
+   caller.
+*/
+char *rexmpp_random_id ();
+
 #endif

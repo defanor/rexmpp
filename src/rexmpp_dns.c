@@ -85,17 +85,33 @@ void rexmpp_dns_result_free (rexmpp_dns_result_t *result) {
 
 rexmpp_dns_result_t *result_from_hostent (struct hostent *hostinfo) {
   rexmpp_dns_result_t *r = malloc(sizeof(rexmpp_dns_result_t));
+  if (r == NULL) {
+    return NULL;
+  }
   r->secure = 0;
   int i, size = 0;
   while (hostinfo->h_addr_list[size] != NULL) {
     size++;
   }
   r->data = malloc(sizeof(void *) * (size + 1));
+  if (r->data == NULL) {
+    free(r);
+    return NULL;
+  }
   r->len = malloc(sizeof(int) * size);
+  if (r->len == NULL) {
+    free(r->data);
+    free(r);
+    return NULL;
+  }
   for (i = 0; i < size; i++) {
     r->len[i] = hostinfo->h_length;
     r->data[i] = malloc(r->len[i]);
-    memcpy(r->data[i], hostinfo->h_addr_list[i], hostinfo->h_length);
+    if (r->data[i] != NULL) {
+      memcpy(r->data[i], hostinfo->h_addr_list[i], hostinfo->h_length);
+    } else {
+      return r;
+    }
   }
   r->data[size] = NULL;
   return r;
@@ -257,20 +273,54 @@ void rexmpp_dns_cb (void *ptr,
     size++;
   }
   rexmpp_dns_result_t *res = malloc(sizeof(rexmpp_dns_result_t));
-  res->data = malloc(sizeof(void *) * (size + 1));
+  if (res == NULL) {
+    rexmpp_log(s, LOG_DEBUG,
+               "Failed to allocate memory for a DNS resolution result");
+    ub_resolve_free(result);
+    d->cb(s, d->ptr, NULL);
+    free(d);
+    return;
+  }
+  res->data = calloc((size + 1), sizeof(void *));
+  if (res->data == NULL) {
+    rexmpp_log(s, LOG_DEBUG,
+               "Failed to allocate memory for a DNS resolution result's data");
+    free(res);
+    ub_resolve_free(result);
+    d->cb(s, d->ptr, NULL);
+    free(d);
+    return;
+  }
   res->len = malloc(sizeof(int) * size);
+  if (res->len == NULL) {
+    rexmpp_log(s, LOG_DEBUG,
+               "Failed to allocate memory for a DNS resolution result's len");
+    free(res->data);
+    free(res);
+    ub_resolve_free(result);
+    d->cb(s, d->ptr, NULL);
+    free(d);
+    return;
+  }
   for (i = 0; i < size; i++) {
     if (result->qtype == 33) {
       /* SRV */
       res->len[i] = sizeof(rexmpp_dns_srv_t);
       res->data[i] = malloc(res->len[i]);
+      if (res->data[i] == NULL) {
+        rexmpp_log(s, LOG_ERR,
+                   "Failed to allocate memory for an SRV record");
+        d->cb(s, d->ptr, res);
+        rexmpp_dns_result_free(res);
+        free(d);
+        return;
+      }
       int err = rexmpp_parse_srv(result->data[i], result->len[i],
                                  (rexmpp_dns_srv_t*)res->data[i]);
       if (err) {
         rexmpp_log(s, LOG_WARNING, "Failed to parse an SRV record");
-        res->data[i + 1] = NULL;
+        d->cb(s, d->ptr, res);
         rexmpp_dns_result_free(res);
-        d->cb(s, d->ptr, NULL);
         free(d);
         return;
       }
@@ -278,7 +328,12 @@ void rexmpp_dns_cb (void *ptr,
       /* Non-SRV, for now that's just A or AAAA */
       res->len[i] = result->len[i];
       res->data[i] = malloc(res->len[i]);
-      memcpy(res->data[i], result->data[i], res->len[i]);
+      if (res->data[i] == NULL) {
+        rexmpp_log(s, LOG_WARNING,
+                   "Failed to allocate memory for a DNS result's data record");
+      } else {
+        memcpy(res->data[i], result->data[i], res->len[i]);
+      }
     }
   }
   res->data[size] = NULL;
@@ -352,6 +407,10 @@ int rexmpp_dns_resolve (rexmpp_t *s,
 #if defined(USE_UNBOUND)
   struct rexmpp_dns_query_cb_data *d =
     malloc(sizeof(struct rexmpp_dns_query_cb_data));
+  if (d == NULL) {
+    rexmpp_log(s, LOG_ERR, "Failed to allocate memory for a DNS query");
+    return 1;
+  }
   d->s = s;
   d->cb = callback;
   d->ptr = ptr;
@@ -365,6 +424,10 @@ int rexmpp_dns_resolve (rexmpp_t *s,
 #elif defined(USE_CARES)
   struct rexmpp_dns_query_cb_data *d =
     malloc(sizeof(struct rexmpp_dns_query_cb_data));
+  if (d == NULL) {
+    rexmpp_log(s, LOG_ERR, "Failed to allocate memory for a DNS query");
+    return 1;
+  }
   d->s = s;
   d->cb = callback;
   d->ptr = ptr;

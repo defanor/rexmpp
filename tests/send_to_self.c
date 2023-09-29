@@ -16,7 +16,6 @@ that it's the expected message.
 #include <stdio.h>
 #include <errno.h>
 #include <syslog.h>
-#include <gsasl.h>
 #include <rexmpp.h>
 #include <rexmpp_sasl.h>
 
@@ -89,9 +88,7 @@ int my_xml_out_cb (rexmpp_t *s, rexmpp_xml_t *node) {
   return 0;
 }
 
-int main (int argc, char **argv) {
-  (void)argc;
-  (void)argv;
+int main () {
   jid = getenv("JID");
   pass = getenv("PASS");
   char *tls_policy = getenv("TLS_POLICY");
@@ -143,8 +140,7 @@ int main (int argc, char **argv) {
 
     if (stage == TEST_CONNECTING && s.stream_state == REXMPP_STREAM_READY) {
       rexmpp_xml_t *msg =
-        rexmpp_xml_add_id(&s,
-                          rexmpp_xml_new_elem("message", "jabber:client"));
+        rexmpp_xml_add_id(rexmpp_xml_new_elem("message", "jabber:client"));
       rexmpp_xml_add_attr(msg, "to", jid);
       rexmpp_xml_add_attr(msg, "type", "chat");
       rexmpp_xml_t *body = rexmpp_xml_new_elem("body", NULL);

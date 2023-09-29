@@ -87,7 +87,6 @@ int rexmpp_digest_init (rexmpp_digest_t *ctx, rexmpp_digest_algorithm algo) {
 
 int rexmpp_digest_update (rexmpp_digest_t *ctx, const void *in, size_t len) {
 #if defined(HAVE_GCRYPT)
-  printf("wirte: %s %lu\n", (const char*)in, len);
   gcry_md_write(*ctx, in, len);
 #elif defined(HAVE_NETTLE)
   ctx->nh->update(ctx->nh_ctx, len, in);

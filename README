@@ -98,8 +98,7 @@ A rough roadmap:
 [+] XEP-0176 v1.1: Jingle ICE-UDP Transport Method (uses libnice,
     discovers TURN/STUN servers with XEP-0215: External Service
     Discovery)
-[+] XEP-0320 v1.0: Use of DTLS-SRTP in Jingle Sessions (uses gnutls
-    and libsrtp2)
+[+] XEP-0320 v1.0: Use of DTLS-SRTP in Jingle Sessions
 [ ] XEP-0260: Jingle SOCKS5 Bytestreams Transport Method?
 [ ] XEP-0391: Jingle Encrypted Transports?
 [ ] XEP-0184: Message Delivery Receipts?
