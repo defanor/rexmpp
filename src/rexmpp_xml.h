@@ -233,10 +233,10 @@ rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len);
 /**
    @brief Reads XML from a file stream, reading the stream line by
    line.
-   @param[in] fd A file stream
+   @param[in] fd A file descriptor
    @returns Parsed XML, or NULL on failure.
 */
-rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd);
+rexmpp_xml_t *rexmpp_xml_read_fd (int fd);
 
 /**
    @brief Reads XML from a file

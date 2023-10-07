@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::Write;
 
 use super::{rexmpp};
+use super::{rexmpp_random};
 
 // extern {
 //     fn rexmpp_xml_parse (str: *mut c_char, str_len: c_int) -> *mut RexmppXML;
@@ -585,13 +586,13 @@ fn rexmpp_xml_serialize (node_ptr: *const RexmppXML,
 
 #[no_mangle]
 pub extern "C"
-fn rexmpp_xml_add_id (s: *mut rexmpp::Rexmpp, node: *mut RexmppXML)
+fn rexmpp_xml_add_id (node: *mut RexmppXML)
                       -> *mut RexmppXML
 {
     match CString::new("id") {
         Err(_) => return ptr::null_mut(),
         Ok(id_cstr) => {
-            let buf = unsafe { rexmpp::rexmpp_gen_id(s) };
+            let buf = unsafe { rexmpp_random::rexmpp_random_id() };
             if buf == ptr::null_mut() {
                 return ptr::null_mut();
             }

@@ -10,7 +10,7 @@ supposed to respond to requests starting with the most recent one.
 
 This program's output is separated with NUL ('\0') characters, to
 simplify parsing in Emacs, while the input is separated with newlines,
-to simplify reading with rexmpp_xml_read_fd (getline).
+to simplify reading with rexmpp_xml_read_fd.
 
 */
 
@@ -34,7 +34,7 @@ void print_xml (rexmpp_xml_t *node) {
 char *request (rexmpp_t *s, rexmpp_xml_t *payload)
 {
   rexmpp_xml_t *req = rexmpp_xml_new_elem("request", NULL);
-  rexmpp_xml_add_id(s, req);
+  rexmpp_xml_add_id(req);
   rexmpp_xml_add_child(req, payload);
   print_xml(req);
   char *id = strdup(rexmpp_xml_find_attr_val(req, "id"));
@@ -46,7 +46,7 @@ void req_process (rexmpp_t *s,
                   rexmpp_xml_t *elem);
 
 rexmpp_xml_t *read_response (rexmpp_t *s, const char *id) {
-  rexmpp_xml_t *elem = rexmpp_xml_read_fd(stdin);
+  rexmpp_xml_t *elem = rexmpp_xml_read_fd(STDIN_FILENO);
   if (elem != NULL) {
     if (rexmpp_xml_match(elem, NULL, "response")) {
       const char *resp_id = rexmpp_xml_find_attr_val(elem, "id");
@@ -327,7 +327,7 @@ int main (int argc, char **argv) {
   do {
     /* Check if we have some user input. */
     if (n > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
-      rexmpp_xml_t *elem = rexmpp_xml_read_fd(stdin);
+      rexmpp_xml_t *elem = rexmpp_xml_read_fd(STDIN_FILENO);
       if (elem != NULL) {
         req_process(&s, elem);
         rexmpp_xml_free(elem);

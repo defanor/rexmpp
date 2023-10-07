@@ -89,10 +89,6 @@ pub enum TLSPolicy {
     Avoid
 }
 
-extern {
-    pub fn rexmpp_gen_id (s: *mut Rexmpp) -> *mut c_char;
-}
-
 type IQCallback = unsafe extern "C"
 fn (s: *mut Rexmpp, cb_data: *mut c_void,
     request: *mut rexmpp_xml::RexmppXML, response: *mut rexmpp_xml::RexmppXML,

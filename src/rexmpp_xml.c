@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
 #include "rexmpp.h"
 #include "rexmpp_utf8.h"
 #include "rexmpp_xml.h"
@@ -545,7 +546,7 @@ rexmpp_xml_t *rexmpp_xml_parse (const char *str, int str_len) {
   return builder.root;
 }
 
-rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
+rexmpp_xml_t *rexmpp_xml_read_fd (int fd) {
   struct rexmpp_xml_builder builder = { NULL, NULL };
   rexmpp_xml_parser_ctx_t parser =
     rexmpp_xml_parser_new(&builder_sax, &builder);
@@ -553,16 +554,13 @@ rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
     return NULL;
   }
 
-  char *buf;
-  size_t init_len = 0;
+  char buf[4096];
   ssize_t buf_len = 0;
   do {
-    buf = NULL;
-    buf_len = getline(&buf, &init_len, fd);
+    buf_len = read(fd, buf, 4096);
     if (buf_len > 0) {
       rexmpp_xml_parser_feed(parser, buf, buf_len, 0);
     }
-    free(buf);
   } while (buf_len > 0 &&
            ! (builder.root != NULL && builder.current == NULL) );
 
@@ -578,12 +576,12 @@ rexmpp_xml_t *rexmpp_xml_read_fd (FILE *fd) {
 }
 
 rexmpp_xml_t *rexmpp_xml_read_file (const char *path) {
-  FILE *fd = fopen(path, "r");
-  if (fd == NULL) {
+  int fd = open(path, O_RDONLY);
+  if (fd < 0) {
     return NULL;
   }
   rexmpp_xml_t *node = rexmpp_xml_read_fd(fd);
-  fclose(fd);
+  close(fd);
   return node;
 }
 
