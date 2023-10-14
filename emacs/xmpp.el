@@ -463,6 +463,7 @@ its printing--which doesn't handle namespaces--can be used too."
               (delete-region (point-min) zero)
               (setq zero (search-forward "\0" nil t)))))))))
 
+;;;###autoload
 (defun xmpp (jid)
   "Initiates a new XMPP session."
   (interactive "sJID: ")
