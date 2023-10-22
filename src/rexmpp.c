@@ -912,62 +912,64 @@ rexmpp_err_t rexmpp_send_continue (rexmpp_t *s)
   }
   ssize_t ret;
   rexmpp_tls_err_t err;
-  int tls_was_active;
   while (1) {
-    tls_was_active = (s->tls_state == REXMPP_TLS_ACTIVE);
-    if (tls_was_active) {
+    if (s->tls_state == REXMPP_TLS_ACTIVE) {
       err = rexmpp_tls_send (s,
                              s->tls,
                              s->send_buffer,
                              s->send_buffer_len,
                              &ret);
-    } else {
-      ret = send (s->server_socket,
-                  s->send_buffer + s->send_buffer_sent,
-                  s->send_buffer_len - s->send_buffer_sent,
-                  0);
-    }
-    if (ret > 0) {
-      clock_gettime(CLOCK_MONOTONIC, &(s->last_network_activity));
-      s->send_buffer_sent += ret;
-      if (s->send_buffer_sent == s->send_buffer_len) {
-        free(s->send_buffer);
-        s->send_buffer = NULL;
-        if (s->send_queue != NULL) {
-          rexmpp_xml_t *node = s->send_queue;
-          char *buf = rexmpp_xml_serialize(node, 0);
-          ret = rexmpp_send_start(s, buf, strlen(buf));
-          free(buf);
-          if (ret != REXMPP_SUCCESS) {
-            return ret;
-          }
-          s->send_queue = s->send_queue->next;
-          rexmpp_xml_free(node);
-        } else {
-          return REXMPP_SUCCESS;
-        }
-      }
-    } else {
-      if (tls_was_active) {
+      if (ret <= 0) {
         if (err != REXMPP_TLS_E_AGAIN) {
           s->tls_state = REXMPP_TLS_ERROR;
           /* Assume a TCP error for now as well. */
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
-          return REXMPP_E_AGAIN;
         }
-      } else {
+        /* Returning E_AGAIN for now, since the error is potentially
+           recoverable after the scheduled reconnect. */
+        return REXMPP_E_AGAIN;
+      }
+    } else {
+      ret = send (s->server_socket,
+                  s->send_buffer + s->send_buffer_sent,
+                  s->send_buffer_len - s->send_buffer_sent,
+                  0);
+      if (ret <= 0) {
         if (errno != EAGAIN) {
           rexmpp_log(s, LOG_ERR, "TCP send error: %s", strerror(errno));
           rexmpp_cleanup(s);
           s->tcp_state = REXMPP_TCP_ERROR;
           rexmpp_schedule_reconnect(s);
-          return REXMPP_E_AGAIN;
         }
+        /* E_AGAIN, similarly to the TLS case. */
+        return REXMPP_E_AGAIN;
       }
-      return REXMPP_E_AGAIN;
     }
+
+    assert(ret > 0);
+
+    clock_gettime(CLOCK_MONOTONIC, &(s->last_network_activity));
+    s->send_buffer_sent += ret;
+    if (s->send_buffer_sent == s->send_buffer_len) {
+      free(s->send_buffer);
+      s->send_buffer = NULL;
+      if (s->send_queue != NULL) {
+        rexmpp_xml_t *node = s->send_queue;
+        char *buf = rexmpp_xml_serialize(node, 0);
+        ret = rexmpp_send_start(s, buf, strlen(buf));
+        free(buf);
+        if (ret != REXMPP_SUCCESS) {
+          return ret;
+        }
+        s->send_queue = s->send_queue->next;
+        rexmpp_xml_free(node);
+      } else {
+        return REXMPP_SUCCESS;
+      }
+    }
+
   }
 }
 

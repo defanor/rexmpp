@@ -437,17 +437,24 @@ rexmpp_jingle_session_create (rexmpp_t *s,
 {
   rexmpp_jingle_session_t *sess = malloc(sizeof(rexmpp_jingle_session_t));
   if (sess != NULL) {
-    sess->s = s;
     sess->jid = jid;
     sess->sid = sid;
-    sess->type = type;
-    sess->initiator = initiator;
     sess->initiate = NULL;
     sess->accept = NULL;
+    sess->s = s;
+    sess->initiator = initiator;
+    sess->type = type;
     sess->ibb_fh = NULL;
     sess->ibb_sid = NULL;
     sess->ibb_seq = 0;
 #ifdef ENABLE_CALLS
+    sess->stun_host = NULL;
+    sess->stun_port = 0;
+    sess->turn_host = NULL;
+    sess->turn_port = 0;
+    sess->turn_username = NULL;
+    sess->turn_password = NULL;
+
     int i;
     for (i = 0; i < 2; i++) {
       sess->component[i].component_id = i + 1;
@@ -458,15 +465,11 @@ rexmpp_jingle_session_create (rexmpp_t *s,
       sess->component[i].srtp_out = NULL;
       sess->component[i].srtp_in = NULL;
     }
-    sess->ice_agent = NULL;
-    sess->rtcp_mux = s->jingle_prefer_rtcp_mux;
 
-    sess->stun_host = NULL;
-    sess->stun_port = 0;
-    sess->turn_host = NULL;
-    sess->turn_port = 0;
-    sess->turn_username = NULL;
-    sess->turn_password = NULL;
+    sess->rtcp_mux = s->jingle_prefer_rtcp_mux;
+    sess->ice_agent = NULL;
+
+    sess->pa_stream = NULL;
 
     sess->ring_buffers.capture.read_pos = 0;
     sess->ring_buffers.capture.write_pos = 0;
@@ -474,6 +477,7 @@ rexmpp_jingle_session_create (rexmpp_t *s,
     sess->ring_buffers.playback.write_pos = 0;
     sess->codec = REXMPP_CODEC_UNDEFINED;
     sess->payload_type = 0;
+
 #ifdef HAVE_OPUS
     sess->opus_enc = NULL;
     sess->opus_dec = NULL;
@@ -481,12 +485,13 @@ rexmpp_jingle_session_create (rexmpp_t *s,
 #endif  /* ENABLE_CALLS */
     if (! rexmpp_jingle_session_add(s, sess)) {
       /* The session is destroyed by rexmpp_jingle_session_add */
-      sess = NULL;
+      return NULL;
     }
+    return sess;
   } else {
     rexmpp_log(s, LOG_ERR, "Failed to allocate memory for a Jingle session");
+    return NULL;
   }
-  return sess;
 }
 
 rexmpp_jingle_session_t *
@@ -1769,9 +1774,14 @@ rexmpp_jingle_call (rexmpp_t *s,
   rexmpp_jingle_session_t *sess =
     rexmpp_jingle_session_create(s, strdup(jid), rexmpp_random_id(),
                                  REXMPP_JINGLE_SESSION_MEDIA, 1);
-  rexmpp_jingle_ice_agent_init(sess);
-  rexmpp_jingle_discover_turn(s, sess);
-  return REXMPP_SUCCESS;
+  if (sess != NULL) {
+    rexmpp_jingle_ice_agent_init(sess);
+    rexmpp_jingle_discover_turn(s, sess);
+    return REXMPP_SUCCESS;
+  } else {
+    rexmpp_log(s, LOG_ERR, "Failed to create a Jingle session for a call");
+    return REXMPP_E_OTHER;
+  }
 }
 
 rexmpp_err_t

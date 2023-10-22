@@ -250,7 +250,7 @@ int rexmpp_xml_remove_attr (rexmpp_xml_t *node,
 }
 
 /* Adds a character, grows the string as needed. */
-inline char *rexmpp_str_putc (char *str, size_t *len, char c) {
+static inline char *rexmpp_str_putc (char *str, size_t *len, char c) {
   char *ret = str;
   if ((*len) % 1024 == 0) {
     ret = realloc(str, (*len) + 1024);
@@ -372,9 +372,9 @@ char *rexmpp_xml_print_raw (char *str, size_t *len, const char *text) {
   return ret;
 }
 
-inline char *rexmpp_xml_print_indent (char *str,
-                                      size_t *len,
-                                      int indent) {
+static inline char *rexmpp_xml_print_indent (char *str,
+                                             size_t *len,
+                                             int indent) {
   if (indent <= 0) {
     return str;
   }

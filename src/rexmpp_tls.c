@@ -582,8 +582,8 @@ rexmpp_tls_send (rexmpp_t *s,
                  size_t data_size,
                  ssize_t *written)
 {
-#if defined(USE_GNUTLS)
   *written = -1;
+#if defined(USE_GNUTLS)
   ssize_t ret = gnutls_record_send(tls_ctx->gnutls_session,
                                    data,
                                    data_size);
@@ -597,7 +597,6 @@ rexmpp_tls_send (rexmpp_t *s,
     return REXMPP_TLS_E_OTHER;
   }
 #elif defined(USE_OPENSSL)
-  *written = -1;
   int ret = SSL_write_ex(tls_ctx->openssl_conn, data, data_size,
                          (size_t*)written);
   if (ret > 0) {
@@ -608,7 +607,6 @@ rexmpp_tls_send (rexmpp_t *s,
 #else
   (void)data;
   (void)data_size;
-  (void)written;
   (void)tls_ctx;
   rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
   return REXMPP_TLS_E_OTHER;
