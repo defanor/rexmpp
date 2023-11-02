@@ -7,7 +7,6 @@ use std::ffi::{CStr, CString};
 use std::slice;
 use rxml::{FeedParser, Error, ResolvedEvent, XmlVersion, EventRead, CData};
 use std::io;
-use std::sync::Arc;
 use super::{rexmpp_xml};
 
 type RexmppXMLParserElementStart = unsafe extern "C"

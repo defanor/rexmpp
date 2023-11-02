@@ -73,41 +73,42 @@ impl Copy for RexmppXMLAltElem { }
 
 impl Clone for RexmppXMLAltElem {
     fn clone(&self) -> RexmppXMLAltElem {
-        let mut ret = RexmppXMLAltElem {
-            qname: Clone::clone(&self.qname),
-            attributes: ptr::null_mut(),
-            children: ptr::null_mut()
-        };
-        let mut old_attr_ptr = self.attributes;
-        let mut next_attr_ptr_ptr : *mut *mut RexmppXMLAttribute = &mut ret.attributes;
-        loop {
-            match unsafe { old_attr_ptr.as_mut() } {
-                None => break,
-                Some(old_attr) => {
-                    let new_attr_ptr = rexmpp_xml_attr_new(old_attr.qname.name,
-                                                           old_attr.qname.namespace,
-                                                           old_attr.value);
-                    unsafe { next_attr_ptr_ptr.write(new_attr_ptr) };
-                    next_attr_ptr_ptr = unsafe { &mut ((*new_attr_ptr).next) };
-                    old_attr_ptr = old_attr.next;
+        unsafe {
+            let mut ret = RexmppXMLAltElem {
+                qname: Clone::clone(&self.qname),
+                attributes: ptr::null_mut(),
+                children: ptr::null_mut()
+            };
+            let mut old_attr_ptr = self.attributes;
+            let mut next_attr_ptr_ptr : *mut *mut RexmppXMLAttribute = &mut ret.attributes;
+            loop {
+                match old_attr_ptr.as_mut() {
+                    None => break,
+                    Some(old_attr) => {
+                        let new_attr_ptr = rexmpp_xml_attr_new(old_attr.qname.name,
+                                                               old_attr.qname.namespace,
+                                                               old_attr.value);
+                        next_attr_ptr_ptr.write(new_attr_ptr);
+                        next_attr_ptr_ptr = &mut ((*new_attr_ptr).next);
+                        old_attr_ptr = old_attr.next;
+                    }
                 }
             }
+            ret.children = rexmpp_xml_clone_list(self.children);
+            return ret;
         }
-        ret.children = rexmpp_xml_clone_list(self.children);
-        return ret;
     }
 }
 
 #[derive(Copy, Clone)]
 #[repr(C)]
-pub union RexmppXMLAlt {
-    pub elem: RexmppXMLAltElem,
-    pub text: *mut c_char
+pub enum RexmppXMLAlt {
+    Elem(RexmppXMLAltElem),
+    Text(*mut c_char)
 }
 
 #[repr(C)]
 pub struct RexmppXML {
-    pub node_type: NodeType,
     pub alt: RexmppXMLAlt,
     pub next: *mut RexmppXML
 }
@@ -117,12 +118,11 @@ impl Copy for RexmppXML { }
 impl Clone for RexmppXML {
     fn clone(&self) -> RexmppXML {
         RexmppXML {
-            node_type: Clone::clone(&self.node_type),
-            alt: match self.node_type {
-                NodeType::Text => RexmppXMLAlt
-                { text: unsafe { strdup(self.alt.text) }},
-                NodeType::Element => RexmppXMLAlt
-                { elem: Clone::clone(& unsafe { self.alt.elem }) }
+            alt: match self.alt {
+                RexmppXMLAlt::Text(text) =>
+                    RexmppXMLAlt::Text(unsafe { strdup(text) }),
+                RexmppXMLAlt::Elem(e) =>
+                    RexmppXMLAlt::Elem(Clone::clone(& e))
             },
             next: ptr::null_mut()
         }
@@ -180,16 +180,12 @@ fn rexmpp_xml_free (node_ptr: *mut RexmppXML) {
     }
     let mut node : RexmppXML = unsafe { *Box::from_raw(node_ptr) };
     unsafe {
-        match node {
-            RexmppXML { node_type : NodeType::Text,
-                        alt : RexmppXMLAlt { text: text_ptr },
-                        next: _} => {
-                free(text_ptr as *mut c_void);
-                node.alt.text = ptr::null_mut();
+        match node.alt {
+            RexmppXMLAlt::Text(mut t) => {
+                free(t as *mut c_void);
+                t = ptr::null_mut();
             },
-            RexmppXML { node_type : NodeType::Element,
-                        alt : RexmppXMLAlt { elem: mut element },
-                        next: _} => {
+            RexmppXMLAlt::Elem(mut element) => {
                 rexmpp_xml_qname_free(&mut (element.qname));
                 rexmpp_xml_attribute_free_list(element.attributes);
                 rexmpp_xml_free_list(element.children);
@@ -240,8 +236,7 @@ fn rexmpp_xml_clone_list (mut node_ptr: *mut RexmppXML) -> *mut RexmppXML {
 pub extern "C"
 fn rexmpp_xml_new_text (str: *const c_char) -> *mut RexmppXML {
     let node = RexmppXML {
-        node_type: NodeType::Text,
-        alt: RexmppXMLAlt { text: unsafe { strdup(str) } },
+        alt: RexmppXMLAlt::Text( unsafe { strdup(str) } ),
         next: ptr::null_mut()
     };
     let b = Box::new(node);
@@ -252,8 +247,7 @@ fn rexmpp_xml_new_text (str: *const c_char) -> *mut RexmppXML {
 pub extern "C"
 fn rexmpp_xml_new_text_len (str: *const c_char, len: usize) -> *mut RexmppXML {
     let node = RexmppXML {
-        node_type: NodeType::Text,
-        alt: RexmppXMLAlt { text: unsafe { strndup(str, len) } },
+        alt: RexmppXMLAlt::Text( unsafe { strndup(str, len) } ),
         next: ptr::null_mut()
     };
     let b = Box::new(node);
@@ -262,13 +256,22 @@ fn rexmpp_xml_new_text_len (str: *const c_char, len: usize) -> *mut RexmppXML {
 
 #[no_mangle]
 pub extern "C" fn rexmpp_xml_add_child (node: *mut RexmppXML,
-                                    child: *mut RexmppXML) -> () {
-    let mut last_ptr : &mut *mut RexmppXML =
-        unsafe { &mut ((*node).alt.elem.children) };
-    while *last_ptr != ptr::null_mut() {
-        last_ptr = unsafe { &mut ((*(* last_ptr)).next) };
+                                        child: *mut RexmppXML) -> () {
+    // It is important to wrap everything in "unsafe" here; somehow
+    // the enum fields are not mutated otherwise.
+    unsafe {
+        match (*node).alt {
+            RexmppXMLAlt::Elem(ref mut elem) => {
+                let mut last_ptr : &mut *mut RexmppXML =
+                    &mut ((*elem).children);
+                while *last_ptr != ptr::null_mut() {
+                    last_ptr = &mut ((*(* last_ptr)).next);
+                }
+                *last_ptr = child;
+            },
+            _ => ()
+        }
     }
-    *last_ptr = child;
 }
 
 #[no_mangle]
@@ -299,9 +302,8 @@ pub extern "C"
 fn rexmpp_xml_new_elem (name: *const c_char,
                         namespace: *const c_char) -> *mut RexmppXML {
     let node = RexmppXML {
-        node_type: NodeType::Element,
-        alt: RexmppXMLAlt {
-            elem: RexmppXMLAltElem {
+        alt: RexmppXMLAlt::Elem (
+            RexmppXMLAltElem {
                 qname: RexmppXMLQName {
                     name: unsafe { strdup(name) },
                     namespace: if namespace == ptr::null_mut() {
@@ -313,7 +315,7 @@ fn rexmpp_xml_new_elem (name: *const c_char,
                 attributes: ptr::null_mut(),
                 children: ptr::null_mut()
             }
-        },
+        ),
         next: ptr::null_mut()
     };
     let b = Box::new(node);
@@ -346,16 +348,22 @@ fn rexmpp_xml_add_attr_ns (node: *mut RexmppXML,
                            name: *const c_char,
                            namespace: *const c_char,
                            value: *const c_char) -> c_int {
-    if node == ptr::null_mut()
-        || unsafe { (*node).node_type } != NodeType::Element {
-            return -1;
-        }
-    let attr = rexmpp_xml_attr_new(name, namespace, value);
-    unsafe {
-        (*attr).next = (*node).alt.elem.attributes;
-        (*node).alt.elem.attributes = attr;
+    if node == ptr::null_mut() {
+        return -1;
     }
-    return 0;
+    // Wrapping everything into "unsafe", otherwise enum fields are
+    // not mutated.
+    unsafe {
+        match(*node).alt {
+            RexmppXMLAlt::Elem(ref mut elem) => {
+                let attr = rexmpp_xml_attr_new(name, namespace, value);
+                (*attr).next = (*elem).attributes;
+                (*elem).attributes = attr;
+                0
+            },
+            _ => -1
+        }
+    }
 }
 
 #[no_mangle]
@@ -363,23 +371,32 @@ pub extern "C"
 fn rexmpp_xml_remove_attr_ns (node: *mut RexmppXML,
                               name: *const c_char,
                               namespace: *const c_char) -> c_int {
-    if node == ptr::null_mut()
-        || unsafe { (*node).node_type } != NodeType::Element {
-            return -1;
-        }
-    let mut attr_ptr_ptr: *mut *mut RexmppXMLAttribute =
-        unsafe { &mut (*node).alt.elem.attributes };
-    while unsafe { *attr_ptr_ptr } != ptr::null_mut() {
-        if rexmpp_xml_attr_match(unsafe { *attr_ptr_ptr }, namespace, name) > 0 {
-            let next_attr_ptr : *mut RexmppXMLAttribute =
-                unsafe { (**attr_ptr_ptr).next };
-            rexmpp_xml_attribute_free(unsafe { *attr_ptr_ptr });
-            unsafe { *attr_ptr_ptr = next_attr_ptr }
-            return 0;
-        }
-        attr_ptr_ptr = unsafe { &mut (**attr_ptr_ptr).next };
+    if node == ptr::null_mut() {
+        return -1;
     }
-    return 1;
+    // Wrapping everything into "unsafe", otherwise enum fields are
+    // not mutated.
+    unsafe {
+        match (*node).alt {
+            RexmppXMLAlt::Elem(ref mut elem) => {
+                let mut attr_ptr_ptr: *mut *mut RexmppXMLAttribute =
+                    &mut (*elem).attributes;
+                while *attr_ptr_ptr != ptr::null_mut() {
+                    if rexmpp_xml_attr_match(*attr_ptr_ptr,
+                                             namespace, name) > 0 {
+                        let next_attr_ptr : *mut RexmppXMLAttribute =
+                            (**attr_ptr_ptr).next;
+                        rexmpp_xml_attribute_free(*attr_ptr_ptr);
+                        *attr_ptr_ptr = next_attr_ptr;
+                        return 0;
+                    }
+                    attr_ptr_ptr = &mut (**attr_ptr_ptr).next;
+                }
+                1
+            },
+            _ => -1,
+        }
+    }
 }
 
 #[no_mangle]
@@ -468,8 +485,7 @@ fn rexmpp_xml_print (node_ptr: *const RexmppXML,
     unsafe {
         let node : RexmppXML = *node_ptr;
         match node {
-            RexmppXML { node_type : NodeType::Text,
-                        alt : RexmppXMLAlt { text: text_ptr },
+            RexmppXML { alt : RexmppXMLAlt::Text (text_ptr),
                         next: _} => {
                 let text_cstr : &CStr = CStr::from_ptr(text_ptr);
                 let text_str : String =
@@ -479,8 +495,7 @@ fn rexmpp_xml_print (node_ptr: *const RexmppXML,
                 text_str.chars().
                     for_each(|c| rexmpp_xml_print_text(c, ret));
             },
-            RexmppXML { node_type : NodeType::Element,
-                        alt : RexmppXMLAlt { elem: element },
+            RexmppXML { alt : RexmppXMLAlt::Elem (element),
                         next: _} => {
                 // let mut ret = String::with_capacity(1024);
                 let name_cstr : &CStr =
@@ -544,7 +559,7 @@ fn rexmpp_xml_print (node_ptr: *const RexmppXML,
                                          if indent > -1 { indent + 1 }
                                          else { -1 } );
                         last_child_is_textual =
-                            (*child).node_type == NodeType::Text;
+                            matches!((*child).alt, RexmppXMLAlt::Text(_));
                         child = (*child).next;
                     }
                     if indent > 0 && ! last_child_is_textual {
@@ -636,38 +651,40 @@ fn rexmpp_xml_siblings_count (mut node: *const RexmppXML) -> c_uint {
 
 #[no_mangle]
 pub extern "C"
-fn rexmpp_xml_match (node_ptr: *const RexmppXML,
+fn rexmpp_xml_match (node: *const RexmppXML,
                      namespace: *const c_char,
                      name: *const c_char) -> c_int {
-    if node_ptr == ptr::null_mut() {
+    if node == ptr::null_mut() {
         return 0;
     }
-    let node : RexmppXML = unsafe { *node_ptr };
-    if node.node_type != NodeType::Element {
-        return 0;
-    }
-    if name != ptr::null_mut() {
-        let name_cstr : &CStr = unsafe { CStr::from_ptr(name) };
-        let elem_name_cstr : &CStr = unsafe { CStr::from_ptr(node.alt.elem.qname.name) };
-        if name_cstr != elem_name_cstr {
-            return 0;
-        }
-    }
-    if namespace != ptr::null_mut() {
-        let namespace_cstr : &CStr = unsafe { CStr::from_ptr(namespace) };
-        if unsafe { node.alt.elem.qname.namespace } == ptr::null_mut() {
-            match CStr::to_str(namespace_cstr) {
-                Ok(namespace_str) => if namespace_str == "jabber:client" {
-                    return 1;
-                },
-                Err(_) => return 0
+    match unsafe { (*node).alt } {
+        RexmppXMLAlt::Text(_) => return 0,
+        RexmppXMLAlt::Elem(elem) => {
+            if name != ptr::null_mut() {
+                let name_cstr : &CStr = unsafe { CStr::from_ptr(name) };
+                let elem_name_cstr : &CStr =
+                    unsafe { CStr::from_ptr(elem.qname.name) };
+                if name_cstr != elem_name_cstr {
+                    return 0;
+                }
             }
-            return 0;
-        }
-        let elem_namespace_cstr : &CStr =
-            unsafe { CStr::from_ptr(node.alt.elem.qname.namespace) };
-        if namespace_cstr != elem_namespace_cstr {
-            return 0;
+            if namespace != ptr::null_mut() {
+                let namespace_cstr : &CStr = unsafe { CStr::from_ptr(namespace) };
+                if unsafe { elem.qname.namespace } == ptr::null_mut() {
+                    match CStr::to_str(namespace_cstr) {
+                        Ok(namespace_str) => if namespace_str == "jabber:client" {
+                            return 1;
+                        },
+                        Err(_) => return 0
+                    }
+                    return 0;
+                }
+                let elem_namespace_cstr : &CStr =
+                    unsafe { CStr::from_ptr(elem.qname.namespace) };
+                if namespace_cstr != elem_namespace_cstr {
+                    return 0;
+                }
+            }
         }
     }
     return 1;
@@ -751,26 +768,27 @@ fn rexmpp_xml_error (error_type: *const c_char, condition: *const c_char)
 
 #[no_mangle]
 pub extern "C"
-fn rexmpp_xml_find_attr (node_ptr: *mut RexmppXML,
+fn rexmpp_xml_find_attr (node: *mut RexmppXML,
                          name: *const c_char,
                          namespace: *const c_char)
                          -> *mut RexmppXMLAttribute {
-    if node_ptr == ptr::null_mut() {
+    if node == ptr::null_mut() {
         return ptr::null_mut();
     }
-    let node : RexmppXML = unsafe { *node_ptr };
-    if node.node_type != NodeType::Element {
-        return ptr::null_mut();
+    match unsafe { (*node).alt } {
+        RexmppXMLAlt::Elem(elem) => {
+            let mut attr_ptr : *mut RexmppXMLAttribute =
+                unsafe { elem.attributes };
+            while attr_ptr != ptr::null_mut() {
+                if rexmpp_xml_attr_match(attr_ptr, namespace, name) > 0 {
+                    return attr_ptr;
+                }
+                unsafe { attr_ptr = (*attr_ptr).next };
+            }
+            return ptr::null_mut();
+        },
+        _ => return ptr::null_mut(),
     }
-    let mut attr_ptr : *mut RexmppXMLAttribute =
-        unsafe { node.alt.elem.attributes };
-    while attr_ptr != ptr::null_mut() {
-        if rexmpp_xml_attr_match(attr_ptr, namespace, name) > 0 {
-            return attr_ptr;
-        }
-        unsafe { attr_ptr = (*attr_ptr).next };
-    }
-    return ptr::null_mut();
 }
 
 #[no_mangle]
@@ -797,25 +815,26 @@ fn rexmpp_xml_find_attr_val (node: *mut RexmppXML,
 
 #[no_mangle]
 pub extern "C"
-fn rexmpp_xml_find_child (node_ptr: *mut RexmppXML,
+fn rexmpp_xml_find_child (node: *mut RexmppXML,
                           namespace: *const c_char,
                           name: *const c_char)
                           -> *mut RexmppXML {
-    if node_ptr == ptr::null_mut() {
+    if node == ptr::null_mut() {
         return ptr::null_mut();
     }
-    let node : RexmppXML = unsafe { *node_ptr };
-    if node.node_type != NodeType::Element {
-        return ptr::null_mut();
+    match unsafe { (*node).alt } {
+        RexmppXMLAlt::Elem(elem) => {
+            let mut child: *mut RexmppXML = unsafe { elem.children };
+            while child != ptr::null_mut() {
+                if rexmpp_xml_match(child, namespace, name) > 0 {
+                    return child;
+                }
+                unsafe { child = (*child).next };
+            }
+            ptr::null_mut()
+        },
+        _ => ptr::null_mut()
     }
-    let mut child: *mut RexmppXML = unsafe { node.alt.elem.children };
-    while child != ptr::null_mut() {
-        if rexmpp_xml_match(child, namespace, name) > 0 {
-            return child;
-        }
-        unsafe { child = (*child).next };
-    }
-    return ptr::null_mut();
 }
 
 
@@ -830,36 +849,32 @@ fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
     }
     unsafe {
         match (*n1, *n2) {
-            (RexmppXML { node_type : NodeType::Text,
-                         alt : RexmppXMLAlt { text: text1 },
-                         next: next1 },
-             RexmppXML { node_type : NodeType::Text,
-                         alt : RexmppXMLAlt { text: text2 },
-                         next: next2 }
+            (RexmppXML { alt : RexmppXMLAlt::Text (text1),
+                         next: _ },
+             RexmppXML { alt : RexmppXMLAlt::Text (text2),
+                         next: _ }
             ) => strcmp(text1, text2) == 0,
             (RexmppXML
-             { node_type : NodeType::Element,
-               alt : RexmppXMLAlt
-               { elem: RexmppXMLAltElem {
+             { alt : RexmppXMLAlt::Elem
+               ( RexmppXMLAltElem {
                    qname: RexmppXMLQName {
                        name: name1,
                        namespace: namespace1
                    },
                    attributes: attributes1,
                    children: children1
-               } },
+               } ),
                next: _},
              RexmppXML
-             { node_type : NodeType::Element,
-               alt : RexmppXMLAlt
-               { elem: RexmppXMLAltElem {
+             { alt : RexmppXMLAlt::Elem
+               ( RexmppXMLAltElem {
                    qname: RexmppXMLQName {
                        name: name2,
                        namespace: namespace2
                    },
                    attributes: attributes2,
                    children: children2
-               } },
+               } ),
                next: _}
             ) => {
                 // Compare names
@@ -918,11 +933,13 @@ fn rexmpp_xml_eq (n1: *const RexmppXML, n2: *const RexmppXML) -> bool {
 pub extern "C"
 fn rexmpp_xml_children (node: *const RexmppXML)
                         -> *mut RexmppXML {
-    if node != ptr::null_mut()
-        && unsafe { (*node).node_type } == NodeType::Element {
-            return unsafe { (*node).alt.elem.children };
-        }
-    return ptr::null_mut();
+    if node == ptr::null_mut() {
+        return ptr::null_mut();
+    }
+    match unsafe { (*node).alt } {
+        RexmppXMLAlt::Elem(elem) => elem.children,
+        _ => ptr::null_mut()
+    }
 }
 
 #[no_mangle]
@@ -931,7 +948,7 @@ fn rexmpp_xml_first_elem_child (node: *mut RexmppXML)
                                 -> *mut RexmppXML {
     let mut child: *mut RexmppXML = rexmpp_xml_children(node);
     while child != ptr::null_mut() {
-        if unsafe { (*child).node_type == NodeType::Element } {
+        if matches!(unsafe { (*child).alt }, RexmppXMLAlt::Elem(_)) {
             return child;
         }
         unsafe { child = (*child).next };
@@ -948,7 +965,7 @@ fn rexmpp_xml_next_elem_sibling (node: *mut RexmppXML)
     }
     let mut sibling: *mut RexmppXML = unsafe { (*node).next };
     while sibling != ptr::null_mut() {
-        if unsafe { (*sibling).node_type == NodeType::Element } {
+        if matches!(unsafe { (*sibling).alt }, RexmppXMLAlt::Elem(_)) {
             return sibling;
         }
         unsafe { sibling = (*sibling).next };
@@ -960,11 +977,13 @@ fn rexmpp_xml_next_elem_sibling (node: *mut RexmppXML)
 pub extern "C"
 fn rexmpp_xml_text (node: *mut RexmppXML)
                     -> *mut c_char {
-    if node != ptr::null_mut()
-        && unsafe { (*node).node_type == NodeType::Text } {
-            return unsafe { (*node).alt.text };
-        }
-    return ptr::null_mut();
+    if node == ptr::null_mut() {
+        return ptr::null_mut();
+    }
+    match unsafe { (*node).alt } {
+        RexmppXMLAlt::Text(text) => text,
+        _ => ptr::null_mut()
+    }
 }
 
 #[no_mangle]
@@ -996,22 +1015,26 @@ pub extern "C"
 fn rexmpp_xml_reverse_children (node: *mut RexmppXML)
                                 -> *mut RexmppXML {
     unsafe {
-        if node == ptr::null_mut() || (*node).node_type != NodeType::Element {
+        if node == ptr::null_mut() {
             return node;
         }
-        (*node).alt.elem.children =
-            rexmpp_xml_reverse_list((*node).alt.elem.children);
-
-        let mut cur = node;
-        while cur != ptr::null_mut() {
-            if (*cur).node_type == NodeType::Element &&
-                (*cur).alt.elem.children != ptr::null_mut()
-            {
-                (*cur).alt.elem.children =
-                    rexmpp_xml_reverse_children((*cur).alt.elem.children);
-            }
-            cur = (*cur).next;
-        }
+        match (*node).alt {
+            RexmppXMLAlt::Elem(ref mut elem) => {
+                (*elem).children = rexmpp_xml_reverse_list((*elem).children);
+                let mut cur = node;
+                while cur != ptr::null_mut() {
+                    match (*cur).alt {
+                        RexmppXMLAlt::Elem(ref mut cur_elem) => {
+                            (*cur_elem).children =
+                                rexmpp_xml_reverse_children((*cur_elem).children);
+                        },
+                        _ => ()
+                    }
+                    cur = (*cur).next;
+                }
+            },
+            _ => ()
+         }
     }
     return node;
 }

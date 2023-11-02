@@ -11,6 +11,7 @@ int main () {
     "</foo>";
   rexmpp_xml_t *xml = rexmpp_xml_parse (str, strlen(str));
 
+  printf("Input:\n%s\n\n", str);
   if (xml == NULL) {
     ret = -1;
   } else {
@@ -18,6 +19,7 @@ int main () {
     if (str_new == NULL) {
       ret = -2;
     } else {
+      printf("Output:\n%s\n", str_new);
       ret = strcmp(str, str_new);
       free(str_new);
     }
