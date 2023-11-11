@@ -474,7 +474,12 @@ void rexmpp_xml_parse_sax_characters (struct rexmpp_xml_builder *builder,
     if (last_node != NULL && last_node->type == REXMPP_XML_TEXT) {
       /* The last child is textual as well, just extend it */
       size_t last_len = strlen(last_node->alt.text);
-      last_node->alt.text = realloc(last_node->alt.text, last_len + len + 1);
+      char *new_alt_text = realloc(last_node->alt.text, last_len + len + 1);
+      if (new_alt_text == NULL) {
+        /* TODO: Would be nice a report an error here. */
+        return;
+      }
+      last_node->alt.text = new_alt_text;
       strncpy(last_node->alt.text + last_len, ch, len);
       last_node->alt.text[last_len + len] = '\0';
     } else {

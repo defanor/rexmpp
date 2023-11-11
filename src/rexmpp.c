@@ -147,7 +147,15 @@ char *rexmpp_capabilities_string (rexmpp_t *s, rexmpp_xml_t *info) {
         while (cur_len > buf_len - str_len) {
           buf_len *= 2;
         }
-        str = realloc(str, buf_len);
+        char *new_str = realloc(str, buf_len);
+        if (new_str == NULL) {
+          rexmpp_log(s, LOG_ERR,
+                     "Failed to reallocate the capabilities string: %s",
+                     strerror(errno));
+          free(str);
+          return NULL;
+        }
+        str = new_str;
       }
 
       /* Fill the data. */
@@ -182,7 +190,15 @@ char *rexmpp_capabilities_string (rexmpp_t *s, rexmpp_xml_t *info) {
         while (cur_len > buf_len - str_len) {
           buf_len *= 2;
         }
-        str = realloc(str, buf_len);
+        char *new_str = realloc(str, buf_len);
+        if (new_str == NULL) {
+          rexmpp_log(s, LOG_ERR,
+                     "Failed to reallocate the capabilities string: %s",
+                     strerror(errno));
+          free(str);
+          return NULL;
+        }
+        str = new_str;
       }
       strcpy(str + str_len, var);
       str_len += strlen(var);
@@ -2232,7 +2248,14 @@ void rexmpp_sax_characters (rexmpp_t *s, const char *ch, size_t len)
     if (last_node != NULL && last_node->type == REXMPP_XML_TEXT) {
       /* The last child is textual as well, just extend it */
       size_t last_len = strlen(last_node->alt.text);
-      last_node->alt.text = realloc(last_node->alt.text, last_len + len + 1);
+      char *new_alt_text = realloc(last_node->alt.text, last_len + len + 1);
+      if (new_alt_text == NULL) {
+        rexmpp_log(s, LOG_ERR,
+                   "Failed to reallocate the XML element text buffer: %s",
+                   strerror(errno));
+        return;
+      }
+      last_node->alt.text = new_alt_text;
       strncpy(last_node->alt.text + last_len, ch, len);
       last_node->alt.text[last_len + len] = '\0';
     } else {

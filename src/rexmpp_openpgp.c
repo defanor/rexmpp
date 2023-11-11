@@ -619,7 +619,15 @@ void rexmpp_openpgp_add_keys (rexmpp_t *s,
         *nkeys = *nkeys + 1;
         if (*nkeys == *allocated) {
           *allocated = *allocated * 2;
-          *keys = realloc(*keys, sizeof(gpgme_key_t *) * *allocated);
+          gpgme_key_t *new_keys =
+            realloc(*keys, sizeof(gpgme_key_t *) * *allocated);
+          if (new_keys == NULL) {
+            rexmpp_log(s, LOG_ERR,
+                       "Failed to reallocate the OpenPGP keys array: %s",
+                       strerror(errno));
+            continue;
+          }
+          *keys = new_keys;
         }
       } else {
         gpgme_key_unref((*keys)[*nkeys]);
