@@ -112,128 +112,58 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
   }
 }
 
-char *rexmpp_capabilities_string (rexmpp_t *s, rexmpp_xml_t *info) {
-  /* Assuming the info is sorted already. Would be better to sort it
-     here (todo). */
-  rexmpp_xml_t *cur;
-  int buf_len = 1024, str_len = 0;
-  char *str = malloc(buf_len);
-  for (cur = info; cur; cur = cur->next) {
-    if (strcmp(cur->alt.elem.qname.name, "identity") == 0) {
-      int cur_len = 5;          /* ///< for an empty identity */
-
-      /* Collect the properties we'll need. */
-      const char *category = rexmpp_xml_find_attr_val(cur, "category");
-      const char *type = rexmpp_xml_find_attr_val(cur, "type");
-      const char *lang = rexmpp_xml_find_attr_val(cur, "xml:lang");
-      const char *name = rexmpp_xml_find_attr_val(cur, "name");
-
-      /* Calculate the length needed. */
-      if (category != NULL) {
-        cur_len += strlen(category);
-      }
-      if (type != NULL) {
-        cur_len += strlen(type);
-      }
-      if (lang != NULL) {
-        cur_len += strlen(lang);
-      }
-      if (name != NULL) {
-        cur_len += strlen(name);
-      }
-
-      /* Reallocate the buffer if necessary. */
-      if (cur_len > buf_len - str_len) {
-        while (cur_len > buf_len - str_len) {
-          buf_len *= 2;
-        }
-        char *new_str = realloc(str, buf_len);
-        if (new_str == NULL) {
-          rexmpp_log(s, LOG_ERR,
-                     "Failed to reallocate the capabilities string: %s",
-                     strerror(errno));
-          free(str);
-          return NULL;
-        }
-        str = new_str;
-      }
-
-      /* Fill the data. */
-      if (category != NULL) {
-        strcpy(str + str_len, category);
-        str_len += strlen(category);
-      }
-      str[str_len] = '/';
-      str_len++;
-      if (type != NULL) {
-        strcpy(str + str_len, type);
-        str_len += strlen(type);
-      }
-      str[str_len] = '/';
-      str_len++;
-      if (lang != NULL) {
-        strcpy(str + str_len, lang);
-        str_len += strlen(lang);
-      }
-      str[str_len] = '/';
-      str_len++;
-      if (name != NULL) {
-        strcpy(str + str_len, name);
-        str_len += strlen(name);
-      }
-      str[str_len] = '<';
-      str_len++;
-    } else if (strcmp(cur->alt.elem.qname.name, "feature") == 0) {
-      const char *var = rexmpp_xml_find_attr_val(cur, "var");
-      int cur_len = 2 + strlen(var);
-      if (cur_len > buf_len - str_len) {
-        while (cur_len > buf_len - str_len) {
-          buf_len *= 2;
-        }
-        char *new_str = realloc(str, buf_len);
-        if (new_str == NULL) {
-          rexmpp_log(s, LOG_ERR,
-                     "Failed to reallocate the capabilities string: %s",
-                     strerror(errno));
-          free(str);
-          return NULL;
-        }
-        str = new_str;
-      }
-      strcpy(str + str_len, var);
-      str_len += strlen(var);
-      str[str_len] = '<';
-      str_len++;
-    } else {
-      rexmpp_log(s, LOG_ERR,
-                 "Unsupported node type in disco info: %s", cur->alt.elem.qname.name);
-    }
-  }
-  str[str_len] = '\0';
-  return str;
-}
-
 char *rexmpp_capabilities_hash (rexmpp_t *s,
                                 rexmpp_xml_t *info)
 {
-  char *out = NULL;
-  size_t out_len = 0;
-  char *str = rexmpp_capabilities_string(s, info);
-  if (str != NULL) {
-    size_t sha1_len = rexmpp_digest_len(REXMPP_DIGEST_SHA1);
-    char *sha1 = malloc(sha1_len);
-    if (sha1 != NULL) {
-      if (rexmpp_digest_buffer(REXMPP_DIGEST_SHA1,
-                               str, strlen(str),
-                               sha1, sha1_len) == 0)
-        {
-          rexmpp_base64_to(sha1, sha1_len, &out, &out_len);
-        }
-      free(sha1);
-    }
-    free(str);
+  /* Assuming the info is sorted already. Might be useful to sort it
+     here. */
+  rexmpp_digest_t digest_ctx;
+  if (rexmpp_digest_init(&digest_ctx, REXMPP_DIGEST_SHA1)) {
+    rexmpp_log(s, LOG_ERR, "Failed to initialize a digest object");
+    return NULL;
   }
-  return out;
+
+  rexmpp_xml_t *cur;
+  for (cur = info; cur; cur = cur->next) {
+    if (strcmp(cur->alt.elem.qname.name, "identity") == 0) {
+      const char *identity_strings[4] =
+        { rexmpp_xml_find_attr_val(cur, "category"),
+          rexmpp_xml_find_attr_val(cur, "type"),
+          rexmpp_xml_find_attr_val(cur, "xml:lang"),
+          rexmpp_xml_find_attr_val(cur, "name")
+        };
+      int i;
+      for (i = 0; i < 4; i++) {
+        if (identity_strings[i] != NULL) {
+          rexmpp_digest_update(&digest_ctx,
+                               identity_strings[i],
+                               strlen(identity_strings[i]));
+        }
+        rexmpp_digest_update(&digest_ctx, (i < 3) ? "/" : "<", 1);
+      }
+    } else if (strcmp(cur->alt.elem.qname.name, "feature") == 0) {
+      const char *var = rexmpp_xml_find_attr_val(cur, "var");
+      if (var != NULL) {
+        rexmpp_digest_update(&digest_ctx, var, strlen(var));
+        rexmpp_digest_update(&digest_ctx, "<", 1);
+      } else {
+        rexmpp_log(s, LOG_ERR, "Found an empty feature var");
+      }
+    } else {
+      rexmpp_log(s, LOG_ERR,
+                 "Unsupported node type in disco info: %s",
+                 cur->alt.elem.qname.name);
+    }
+  }
+
+  size_t digest_len = rexmpp_digest_len(REXMPP_DIGEST_SHA1);
+  char *digest_buf = malloc(digest_len);
+  rexmpp_digest_finish(&digest_ctx, digest_buf, digest_len);
+  char *digest_base64 = NULL;
+  size_t digest_base64_len = 0;
+  rexmpp_base64_to(digest_buf, digest_len, &digest_base64, &digest_base64_len);
+  free(digest_buf);
+  return digest_base64;
 }
 
 rexmpp_xml_t *rexmpp_find_event (rexmpp_t *s,
