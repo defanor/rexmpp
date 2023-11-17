@@ -112,6 +112,142 @@ void rexmpp_log (rexmpp_t *s, int priority, const char *format, ...)
   }
 }
 
+rexmpp_err_t rexmpp_muc_ping_set (rexmpp_t *s,
+                                  const char *occupant_jid,
+                                  const char *password,
+                                  unsigned int delay)
+{
+  /* At first try to edit an existing record. */
+  rexmpp_muc_ping_t *mp = s->muc_ping;
+  while (mp != NULL) {
+    if (strcmp(mp->jid, occupant_jid) == 0) {
+      mp->delay = delay;
+      return REXMPP_SUCCESS;
+    }
+    mp = mp->next;
+  }
+
+  /* No existing self-ping record for this occupant JID; create a new
+     one. */
+  mp = malloc(sizeof(rexmpp_muc_ping_t));
+  if (mp == NULL) {
+    rexmpp_log(s, LOG_ERR,
+               "Failed to allocate memory for a MUC self-ping record: %s",
+               strerror(errno));
+    return REXMPP_E_MALLOC;
+  }
+  mp->jid = strdup(occupant_jid);
+  if (mp->jid == NULL) {
+    rexmpp_log(s, LOG_ERR,
+               "Failed to duplicate JID string for a MUC self-ping record: %s",
+               strerror(errno));
+    free(mp);
+    return REXMPP_E_OTHER;
+  }
+  if (password != NULL) {
+    mp->password = strdup(password);
+  } else {
+    mp->password = NULL;
+  }
+
+  mp->delay = delay;
+  mp->requested = 0;
+  mp->last_activity.tv_sec = 0;
+  mp->last_activity.tv_nsec = 0;
+  mp->next = s->muc_ping;
+  s->muc_ping = mp;
+  return REXMPP_SUCCESS;
+}
+
+rexmpp_err_t rexmpp_muc_ping_remove (rexmpp_t *s, const char *occupant_jid) {
+  rexmpp_muc_ping_t **mp = &(s->muc_ping);
+  while (*mp != NULL) {
+    if (strcmp(occupant_jid, (*mp)->jid) == 0) {
+      rexmpp_muc_ping_t *found = *mp;
+      *mp = found->next;
+      free(found->jid);
+      if (found->password != NULL) {
+        free(found->password);
+      }
+      free(found);
+      return REXMPP_SUCCESS;
+    }
+    mp = &((*mp)->next);
+  }
+  rexmpp_log(s, LOG_WARNING,
+             "Removal of MUC self-ping record for JID %s is requested, "
+             "but no such record is found",
+             occupant_jid);
+  return REXMPP_E_OTHER;
+}
+
+rexmpp_err_t rexmpp_muc_join (rexmpp_t *s,
+                              const char *occupant_jid,
+                              const char *password,
+                              unsigned int ping_delay)
+{
+  rexmpp_xml_t *presence =
+    rexmpp_xml_new_elem("presence", "jabber:client");
+  rexmpp_xml_add_id(presence);
+  rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
+  rexmpp_xml_add_attr(presence, "to", occupant_jid);
+  rexmpp_xml_t *x =
+    rexmpp_xml_new_elem("x", "http://jabber.org/protocol/muc");
+  rexmpp_xml_add_child(presence, x);
+  rexmpp_err_t ret = rexmpp_send(s, presence);
+  if (ping_delay > 0) {
+    rexmpp_muc_ping_set(s, occupant_jid, password, ping_delay);
+  }
+  return ret;
+}
+
+rexmpp_err_t rexmpp_muc_leave (rexmpp_t *s, const char *occupant_jid) {
+  rexmpp_muc_ping_remove(s, occupant_jid);
+  rexmpp_xml_t *presence =
+    rexmpp_xml_new_elem("presence", "jabber:client");
+  rexmpp_xml_add_id(presence);
+  rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
+  rexmpp_xml_add_attr(presence, "to", occupant_jid);
+  rexmpp_xml_add_attr(presence, "type", "unavailable");
+  return rexmpp_send(s, presence);
+}
+
+void rexmpp_muc_pong (rexmpp_t *s,
+                      void *ptr,
+                      rexmpp_xml_t *req,
+                      rexmpp_xml_t *response,
+                      int success)
+{
+  rexmpp_muc_ping_t *mp = ptr;
+  clock_gettime(CLOCK_MONOTONIC, &(mp->last_activity));
+  mp->requested = 0;
+  if (! success) {
+    const char *jid = rexmpp_xml_find_attr_val(req, "to");
+    rexmpp_xml_t *error = rexmpp_xml_first_elem_child(response);
+    if (error == NULL) {
+      rexmpp_log(s, LOG_ERR,
+                 "MUC self-ping failure for %s, and no error element received",
+                 jid);
+      rexmpp_muc_ping_remove(s, jid);
+    } else {
+      rexmpp_log(s, LOG_WARNING, "MUC self-ping failure for %s: %s",
+                 jid, error->alt.elem.qname.name);
+      if (rexmpp_xml_match(error, NULL, "service-unavailable") ||
+          rexmpp_xml_match(error, NULL, "feature-not-implemented") ||
+          rexmpp_xml_match(error, NULL, "remote-server-not-found") ||
+          rexmpp_xml_match(error, NULL, "remote-server-timeout")) {
+        rexmpp_log(s, LOG_WARNING, "Giving up on pinging it");
+        rexmpp_muc_ping_remove(s, jid);
+      } else if (rexmpp_xml_match(error, NULL, "item-not-found")) {
+        /* Ignore and keep pinging? */
+      } else {
+        /* Some other error, re-join. */
+        rexmpp_muc_join(s, jid, NULL, 0);
+      }
+    }
+  }
+}
+
 char *rexmpp_capabilities_hash (rexmpp_t *s,
                                 rexmpp_xml_t *info)
 {
@@ -474,6 +610,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->local_address = NULL;
   s->jingle_prefer_rtcp_mux = 1;
   s->path_mtu_discovery = -1;
+  s->muc_ping_default_delay = 600;
   s->send_buffer = NULL;
   s->send_queue = NULL;
   s->server_srv = NULL;
@@ -517,6 +654,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->ping_requested = 0;
   s->last_network_activity.tv_sec = 0;
   s->last_network_activity.tv_nsec = 0;
+  s->muc_ping = NULL;
   s->disco_info = NULL;
 
   s->jingle_rtp_description =
@@ -746,6 +884,12 @@ void rexmpp_done (rexmpp_t *s) {
   if (s->roster_ver != NULL) {
     free(s->roster_ver);
     s->roster_ver = NULL;
+  }
+  while (s->muc_ping != NULL) {
+    rexmpp_muc_ping_t *mp_next = s->muc_ping->next;
+    free(s->muc_ping->jid);
+    free(s->muc_ping);
+    s->muc_ping = mp_next;
   }
   if (s->disco_info != NULL) {
     rexmpp_xml_free_list(s->disco_info);
@@ -1983,36 +2127,32 @@ rexmpp_err_t rexmpp_process_element (rexmpp_t *s, rexmpp_xml_t *elem) {
                   if (item_id == NULL) {
                     continue;
                   }
-                  const char *autojoin = rexmpp_xml_find_attr_val(conference, "autojoin");
+                  const char *autojoin =
+                    rexmpp_xml_find_attr_val(conference, "autojoin");
                   if (autojoin == NULL) {
                     continue;
                   }
                   if (strcmp(autojoin, "true") == 0 ||
                       strcmp(autojoin, "1") == 0) {
-                    rexmpp_xml_t *presence =
-                      rexmpp_xml_new_elem("presence", "jabber:client");
-                    rexmpp_xml_add_id(presence);
-                    rexmpp_xml_add_attr(presence, "from",
-                                             s->assigned_jid.full);
                     rexmpp_xml_t *nick =
                       rexmpp_xml_find_child(conference,
                                             "urn:xmpp:bookmarks:1",
                                             "nick");
-                    const char *nick_str;
+                    const char *nick_str = NULL;
                     if (nick != NULL) {
                       nick_str = rexmpp_xml_text_child(nick);
-                    } else {
+                    }
+                    if (nick_str == NULL) {
                       nick_str = s->initial_jid.local;
                     }
-                    char *jid = malloc(strlen(item_id) + strlen(nick_str) + 2);
-                    sprintf(jid, "%s/%s", item_id, nick_str);
-                    rexmpp_xml_add_attr(presence, "to", jid);
-                    free(jid);
-                    rexmpp_xml_t *x =
-                      rexmpp_xml_new_elem("x",
-                                          "http://jabber.org/protocol/muc");
-                    rexmpp_xml_add_child(presence, x);
-                    rexmpp_send(s, presence);
+                    char *occupant_jid =
+                      malloc(strlen(item_id) + strlen(nick_str) + 2);
+                    sprintf(occupant_jid, "%s/%s", item_id, nick_str);
+                    const char *password =
+                      rexmpp_xml_find_attr_val(conference, "password");
+                    rexmpp_muc_join(s, occupant_jid, password,
+                                    s->muc_ping_default_delay);
+                    free(occupant_jid);
                   }
                 }
               }
@@ -2446,8 +2586,41 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
     }
   }
 
+  /* MUC self-pinging. */
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_READY)
+    {
+      rexmpp_muc_ping_t *mp = s->muc_ping;
+      while (mp != NULL) {
+        if (mp->last_activity.tv_sec + mp->delay <= now.tv_sec) {
+          if (mp->requested == 0) {
+            clock_gettime(CLOCK_MONOTONIC, &(mp->last_activity));
+            mp->requested = 1;
+            rexmpp_xml_t *ping_cmd =
+              rexmpp_xml_new_elem("ping", "urn:xmpp:ping");
+            rexmpp_iq_new(s, "get", mp->jid,
+                          ping_cmd, rexmpp_muc_pong, mp);
+          } else {
+            /* Requested already, and delay time passed again, without
+               a reply (not even an error). Warn the user, remove this
+               MUC. */
+            char *occupant_jid_to_remove = mp->jid;
+            rexmpp_log(s, LOG_WARNING,
+                       "No MUC self-ping reply for %s, "
+                       "disabling self-ping for it",
+                       mp->jid);
+            mp = mp->next;
+            rexmpp_muc_ping_remove(s, occupant_jid_to_remove);
+            continue;
+          }
+        }
+        mp = mp->next;
+      }
+    }
+
   /* Pinging the server. */
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_READY &&
       s->last_network_activity.tv_sec + s->ping_delay <= now.tv_sec) {
     if (s->ping_requested == 0) {
       s->ping_requested = 1;
@@ -2456,6 +2629,9 @@ rexmpp_err_t rexmpp_run (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
       rexmpp_iq_new(s, "get", s->initial_jid.domain,
                     ping_cmd, rexmpp_pong, NULL);
     } else {
+      /* Last network activity is updated on sending as well as on
+         receiving, so this will not be triggered right after sending
+         the request. */
       rexmpp_log(s, LOG_WARNING, "Ping timeout, reconnecting.");
       rexmpp_cleanup(s);
       rexmpp_schedule_reconnect(s);
@@ -2609,6 +2785,24 @@ struct timespec *rexmpp_timeout (rexmpp_t *s,
   }
 
   if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_READY) {
+    rexmpp_muc_ping_t *mp = s->muc_ping;
+    while (mp != NULL) {
+      if (mp->last_activity.tv_sec + mp->delay > now.tv_sec) {
+        time_t next_ping =
+          mp->last_activity.tv_sec + mp->delay - now.tv_sec;
+        if (ret == NULL || next_ping < ret->tv_sec) {
+          tv->tv_sec = next_ping;
+          tv->tv_nsec = 0;
+          ret = tv;
+        }
+      }
+      mp = mp->next;
+    }
+  }
+
+  if (s->tcp_state == REXMPP_TCP_CONNECTED &&
+      s->stream_state == REXMPP_STREAM_READY &&
       s->last_network_activity.tv_sec + s->ping_delay > now.tv_sec) {
     time_t next_ping =
       s->last_network_activity.tv_sec + s->ping_delay - now.tv_sec;

@@ -298,7 +298,7 @@ its printing--which doesn't handle namespaces--can be used too."
                        (add-face-text-property
                         0
                         (length from-nick)
-                        (if (equal xmpp-muc-my-nick from-nick)
+                        (if (equal xmpp-muc-my-occupant-jid message-from)
                             'xmpp-my-nick
                           'xmpp-other-nick)
                         nil
@@ -348,9 +348,20 @@ its printing--which doesn't handle namespaces--can be used too."
                         (concat
                          (xmpp-timestamp-string) ", "
                          my-name
-                         (xmpp-message-string (car (xml-node-children message-body)))
-                          "\n")))))))
-              ("groupchat" nil)))))))))
+                         (xmpp-message-string
+                          (car (xml-node-children message-body)))
+                         "\n")))))))
+              ("groupchat" nil))))))))
+  (when (and (xmpp-xml-match xml 'presence "jabber:client")
+             (or (not (xml-get-attribute-or-nil xml 'type))
+                 (equal (xml-get-attribute-or-nil xml 'type) "available"))
+             (xmpp-xml-child xml 'x "http://jabber.org/protocol/muc"))
+    ;; Joining a MUC
+    (let* ((occupant-jid (xml-get-attribute xml 'to))
+           (muc-jid (xmpp-jid-to-bare occupant-jid))
+           (buf (xmpp-muc-buffer muc-jid proc)))
+      (with-current-buffer buf
+        (setq-local xmpp-muc-my-occupant-jid occupant-jid)))))
 
 (defun xmpp-process (proc xml)
   (let* ((buf (process-buffer proc))
@@ -645,20 +656,25 @@ its printing--which doesn't handle namespaces--can be used too."
                              (id . ,(xmpp-gen-id))
                              (to . ,full-jid))
                             (x ((xmlns . "http://jabber.org/protocol/muc")))))
-      (let ((buf (xmpp-muc-buffer jid proc)))
-        (with-current-buffer buf
-          (setq-local xmpp-muc-my-nick my-nick))
-        buf))))
+      (xmpp-request
+       `(muc-ping-set ((occupant-jid . ,full-jid)
+                       (delay . "600"))
+                      nil)
+       nil
+       proc))))
 
 (defun xmpp-muc-leave (jid &optional proc)
   (interactive "sConference JID: ")
-  (let ((process (or proc xmpp-proc))
-        (full-jid (concat jid "/" xmpp-muc-my-nick)))
-    (xmpp-send `(presence ((xmlns . "jabber:client")
-                           (id . ,(xmpp-gen-id))
-                           (to . ,full-jid)
-                           (type . "unavailable"))))))
-
+  (with-current-buffer (process-buffer (or proc xmpp-proc))
+    (with-current-buffer (cdr (assoc jid xmpp-muc-buffers))
+      (xmpp-send `(presence ((xmlns . "jabber:client")
+                             (id . ,(xmpp-gen-id))
+                             (to . ,xmpp-muc-my-occupant-jid)
+                             (type . "unavailable"))))
+      (xmpp-request
+       `(muc-ping-remove ((occupant-jid . ,xmpp-muc-my-occupant-jid))
+                         nil)
+       nil))))
 
 (defun xmpp-muc-buffer (jid &optional proc)
   (let* ((process (or proc xmpp-proc))

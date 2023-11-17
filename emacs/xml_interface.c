@@ -182,6 +182,22 @@ void req_process (rexmpp_t *s,
     char *in = strdup(rexmpp_xml_text_child(child));
     rexmpp_http_upload_path(s, NULL, in, NULL, on_http_upload, strdup(id));
     free(in);
+    /* Responding from on_http_upload */
+  } else if (rexmpp_xml_match(child, NULL, "muc-ping-set")) {
+    const char *occupant_jid = rexmpp_xml_find_attr_val(child, "occupant-jid");
+    const char *delay = rexmpp_xml_find_attr_val(child, "delay");
+    const char *password = rexmpp_xml_find_attr_val(child, "password");
+    if (occupant_jid != NULL && delay != NULL) {
+      snprintf(buf, 64, "%d",
+               rexmpp_muc_ping_set(s, occupant_jid, password, atoi(delay)));
+      respond_text(s, id, buf);
+    }
+  } else if (rexmpp_xml_match(child, NULL, "muc-ping-remove")) {
+    const char *occupant_jid = rexmpp_xml_find_attr_val(child, "occupant-jid");
+    if (occupant_jid != NULL) {
+      snprintf(buf, 64, "%d", rexmpp_muc_ping_remove(s, occupant_jid));
+      respond_text(s, id, buf);
+    }
   }
   return;
 }

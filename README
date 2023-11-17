@@ -88,7 +88,8 @@ A rough roadmap:
 [+] XEP-0092 v1.1: Software Version
 [+] XEP-0172 v1.1: User Nickname
 [+] XEP-0373 v0.6: OpenPGP for XMPP
-[+] XEP-0402 v1.1: PEP Native Bookmarks (autojoin conferences)
+[+] XEP-0402 v1.1: PEP Native Bookmarks
+[+] XEP-0410 v1.1: MUC Self-Ping
 [+] XEP-0363 v1.0: HTTP File Upload (when built with curl)
 [+] XEP-0166 v1.1: Jingle
 [+] XEP-0234 v0.19: Jingle File Transfer (sending and accepting, but

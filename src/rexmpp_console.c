@@ -351,6 +351,38 @@ void rexmpp_console_pubsub_node_deleted (rexmpp_t *s,
   }
 }
 
+void rexmpp_bookmark_added (rexmpp_t *s,
+                            void *ptr,
+                            rexmpp_xml_t *req,
+                            rexmpp_xml_t *response,
+                            int success)
+{
+  (void)ptr;
+  (void)req;
+  (void)response;
+  if (success) {
+    rexmpp_console_printf(s, "Added a bookmark.\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to add a bookmark.\n");
+  }
+}
+
+void rexmpp_bookmark_removed (rexmpp_t *s,
+                              void *ptr,
+                              rexmpp_xml_t *req,
+                              rexmpp_xml_t *response,
+                              int success)
+{
+  (void)ptr;
+  (void)req;
+  (void)response;
+  if (success) {
+    rexmpp_console_printf(s, "Removed a bookmark.\n");
+  } else {
+    rexmpp_console_printf(s, "Failed to remove a bookmark.\n");
+  }
+}
+
 void rexmpp_console_blocklist (rexmpp_t *s,
                                void *ptr,
                                rexmpp_xml_t *req,
@@ -440,6 +472,8 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
     "muc join <conference> [as] <nick>\n"
     "muc leave <conference> [as] <nick>\n"
     "muc tell <conference> <message>\n"
+    "bookmark add <conference> [autojoin] [nick] [password]\n"
+    "bookmark remove <conference>\n"
     "roster list\n"
     "roster add <jid>\n"
     "roster delete <jid>\n"
@@ -564,24 +598,20 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         return;
       }
       word = strtok_r(NULL, " ", &words_save_ptr);
+      if (word == NULL) {
+        return;
+      }
       if (! strcmp(word, "as")) {
         word = strtok_r(NULL, " ", &words_save_ptr);
       }
       if (word == NULL) {
         return;
       }
-      char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
-      snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
+      char *occupant_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
+      snprintf(occupant_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
                jid.bare, word);
-      presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(presence);
-      rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
-      rexmpp_xml_add_attr(presence, "to", full_jid);
-      rexmpp_xml_t *x =
-        rexmpp_xml_new_elem("x", "http://jabber.org/protocol/muc");
-      rexmpp_xml_add_child(presence, x);
-      rexmpp_send(s, presence);
-      free(full_jid);
+      rexmpp_muc_join(s, occupant_jid, NULL, s->muc_ping_default_delay);
+      free(occupant_jid);
     }
     if (! strcmp(word, "leave")) {
       jid_str = strtok_r(NULL, " ", &words_save_ptr);
@@ -589,22 +619,58 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
         return;
       }
       word = strtok_r(NULL, " ", &words_save_ptr);
+      if (word == NULL) {
+        return;
+      }
       if (! strcmp(word, "as")) {
         word = strtok_r(NULL, " ", &words_save_ptr);
       }
       if (word == NULL) {
         return;
       }
-      char *full_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
-      snprintf(full_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
+      char *occupant_jid = malloc(strlen(jid.bare) + strlen(word) + 2);
+      snprintf(occupant_jid, strlen(jid_str) + strlen(word) + 2, "%s/%s",
                jid.bare, word);
-      presence = rexmpp_xml_new_elem("presence", "jabber:client");
-      rexmpp_xml_add_id(presence);
-      rexmpp_xml_add_attr(presence, "from", s->assigned_jid.full);
-      rexmpp_xml_add_attr(presence, "to", full_jid);
-      rexmpp_xml_add_attr(presence, "type", "unavailable");
-      rexmpp_send(s, presence);
-      free(full_jid);
+      rexmpp_muc_leave(s, occupant_jid);
+      free(occupant_jid);
+    }
+  }
+
+  if (! strcmp(word, "bookmark")) {
+    word = strtok_r(NULL, " ", &words_save_ptr);
+    if (! strcmp(word, "add")) {
+      char *muc_jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (muc_jid == NULL) {
+        return;
+      }
+      char *autojoin = strtok_r(NULL, " ", &words_save_ptr);
+      char *nick_str = strtok_r(NULL, " ", &words_save_ptr);
+      char *password = strtok_r(NULL, " ", &words_save_ptr);
+
+      rexmpp_xml_t *conference =
+        rexmpp_xml_new_elem("conference", "urn:xmpp:bookmarks:1");
+      if (autojoin != NULL) {
+        rexmpp_xml_add_attr(conference, "autojoin", autojoin);
+      }
+      if (password != NULL) {
+        rexmpp_xml_add_attr(conference, "password", password);
+      }
+      if (nick_str != NULL) {
+        rexmpp_xml_t *nick =
+          rexmpp_xml_new_elem("nick", "urn:xmpp:bookmarks:1");
+        rexmpp_xml_add_text(nick, nick_str);
+        rexmpp_xml_add_child(conference, nick);
+      }
+      rexmpp_pubsub_item_publish(s, NULL, "urn:xmpp:bookmarks:1", muc_jid,
+                                 conference, rexmpp_bookmark_added, NULL);
+    }
+    if (! strcmp(word, "remove")) {
+      char *muc_jid = strtok_r(NULL, " ", &words_save_ptr);
+      if (muc_jid == NULL) {
+        return;
+      }
+      rexmpp_pubsub_item_retract(s, NULL, "urn:xmpp:bookmarks:1", muc_jid,
+                                 rexmpp_bookmark_removed, NULL);
     }
   }
 

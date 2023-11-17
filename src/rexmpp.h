@@ -227,6 +227,24 @@ struct rexmpp_iq
   rexmpp_iq_t *next;
 };
 
+typedef struct rexmpp_muc_ping rexmpp_muc_ping_t;
+
+/** @brief MUC self-ping data. */
+struct rexmpp_muc_ping
+{
+  /** @brief Own occupant JID to ping. */
+  char *jid;
+  /** @brief Optional password to rejoin with. */
+  char *password;
+  /** @brief Ping delay, in seconds. */
+  unsigned int delay;
+  /** @brief Whether a ping is requested (pending) already. */
+  int requested;
+  /** @brief When the MUC was active. */
+  struct timespec last_activity;
+  rexmpp_muc_ping_t *next;
+};
+
 typedef void (*log_function_t) (rexmpp_t *s, int priority, const char *format, va_list args);
 typedef int (*sasl_property_cb_t) (rexmpp_t *s, rexmpp_sasl_property prop);
 typedef int (*xml_in_cb_t) (rexmpp_t *s, rexmpp_xml_t *node);
@@ -281,6 +299,8 @@ struct rexmpp
   int jingle_prefer_rtcp_mux;
   int path_mtu_discovery;       /* An IP_MTU_DISCOVER parameter for
                                    TCP sockets, or -1 to not set it */
+  /* A delay in seconds, to use for MUC self-ping by default */
+  unsigned int muc_ping_default_delay;
 
   /* Resource limits. */
   uint32_t stanza_queue_size;
@@ -337,9 +357,12 @@ struct rexmpp
   char *stream_id;
 
   /* Server ping configuration and state. */
-  int ping_delay;
+  unsigned int ping_delay;
   int ping_requested;
   struct timespec last_network_activity;
+
+  /* MUC self-ping */
+  rexmpp_muc_ping_t *muc_ping;
 
   /* DNS-related structures. */
   rexmpp_dns_ctx_t resolver;
@@ -583,5 +606,44 @@ rexmpp_disco_find_feature (rexmpp_t *s,
                            void *cb_data,
                            int fresh,
                            int max_requests);
+
+/**
+   @brief Add a MUC JID to self-ping
+   @param[in,out] s ::rexmpp
+   @param[in] jid Own occupant JID to ping
+   @param[in] password Optional password to rejoin with
+   @param[in] delay How often to ping, in seconds
+*/
+rexmpp_err_t rexmpp_muc_ping_set (rexmpp_t *s,
+                                  const char *occupant_jid,
+                                  const char *password,
+                                  unsigned int delay);
+
+/**
+   @brief Remove a MUC JID to self-ping
+   @param[in,out] s ::rexmpp
+   @param[in] jid Own occupant JID
+*/
+rexmpp_err_t rexmpp_muc_ping_remove (rexmpp_t *s,
+                                     const char *occupant_jid);
+
+/**
+   @brief Join a MUC, optionally setting self-ping
+   @param[in,out] s ::rexmpp
+   @param[in] occupant_jid Occupant JID
+   @param[in] password Optional password
+   @param[in] ping_delay MUC self-ping delay, 0 to not set it
+*/
+rexmpp_err_t rexmpp_muc_join (rexmpp_t *s,
+                              const char *occupant_jid,
+                              const char *password,
+                              unsigned int ping_delay);
+
+/**
+   @brief Leave a MUC, stop self-pinging it
+   @param[in,out] s ::rexmpp
+   @param[in] occupant_jid Occupant JID
+*/
+rexmpp_err_t rexmpp_muc_leave (rexmpp_t *s, const char *occupant_jid);
 
 #endif

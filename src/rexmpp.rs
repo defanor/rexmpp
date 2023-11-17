@@ -103,6 +103,16 @@ pub struct RexmppIQ {
 }
 
 #[repr(C)]
+pub struct RexmppMUCPing {
+    pub jid: *mut c_char,
+    pub password: *mut c_char,
+    pub delay: c_uint,
+    pub requested: bool,
+    pub last_activity: timespec,
+    pub next: *mut RexmppMUCPing
+}
+
+#[repr(C)]
 pub struct Rexmpp {
     pub resolver_state: ResolverState,
     pub tcp_state: TCPState,
@@ -118,7 +128,7 @@ pub struct Rexmpp {
     // Manual host/port configuration
     pub manual_host: *const c_char,
     pub manual_port: u16,
-    pub manual_direct_tls: c_int,
+    pub manual_direct_tls: bool,
 
     // Miscellaneous settings
     pub disco_node: *const c_char,
@@ -128,24 +138,26 @@ pub struct Rexmpp {
     pub socks_port: u16,
 
     // Various knobs (these are used instead of loadable modules)
-    pub enable_carbons: c_int,           // XEP-0280
-    pub manage_roster: c_int,
+    pub enable_carbons: bool,            // XEP-0280
+    pub manage_roster: bool,
     pub roster_cache_file: *const c_char,
-    pub track_roster_presence: c_int,
-    pub track_roster_events: c_int,      // XEP-0163
-    pub nick_notifications: c_int,       // XEP-0172
-    pub retrieve_openpgp_keys: c_int,    // XEP-0373
-    pub autojoin_bookmarked_mucs: c_int, // XEP-0402
+    pub track_roster_presence: bool,
+    pub track_roster_events: bool,       // XEP-0163
+    pub nick_notifications: bool,        // XEP-0172
+    pub retrieve_openpgp_keys: bool,     // XEP-0373
+    pub autojoin_bookmarked_mucs: bool,  // XEP-0402
     pub tls_policy: TLSPolicy,
-    pub enable_jingle: c_int,
+    pub enable_jingle: bool,
     pub client_name: *const c_char,      // XEP-0030, XEP-0092
     pub client_type: *const c_char,      // XEP-0030
     pub client_version: *const c_char,   // XEP-0092
     pub local_address: *const c_char,    // For ICE, XEP-0176
-    pub jingle_prefer_rtcp_mux: c_int,
+    pub jingle_prefer_rtcp_mux: bool,
     // An IP_MTU_DISCOVER parameter for TCP sockets, or -1 to not set
     // it
     pub path_mtu_discovery: c_int,
+    // A delay in seconds, to use for MUC self-ping by default
+    pub muc_ping_default_delay: c_uint,
     // Resource limits
     pub stanza_queue_size: u32,
     pub send_queue_size: u32,
@@ -203,9 +215,12 @@ pub struct Rexmpp {
     pub stream_id: *mut c_char,
 
     // Server ping configuration and state
-    pub ping_delay: c_int,
-    pub ping_requested: c_int,
+    pub ping_delay: c_uint,
+    pub ping_requested: bool,
     pub last_network_activity: timespec,
+
+    // MUC self-ping
+    pub muc_ping: *mut RexmppMUCPing,
 
     // DNS-related structures
     pub resolver: *mut c_void,
@@ -222,7 +237,7 @@ pub struct Rexmpp {
     // The primary socket used for communication with the server
     pub server_socket: c_int,
     // Whether the address it's connected to was verified with DNSSEC
-    pub server_socket_dns_secure: c_int,
+    pub server_socket_dns_secure: bool,
 
     // A structure used to establish a TCP connection
     pub server_connection: rexmpp_tcp::RexmppTCPConnection,
