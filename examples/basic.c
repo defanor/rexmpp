@@ -88,6 +88,11 @@ int my_console_print_cb (rexmpp_t *s, const char *fmt, va_list args) {
   return 0;
 }
 
+/* void my_socket_options(rexmpp_t *s, int sock) { */
+/*   int pmtudisc = IP_PMTUDISC_WANT; */
+/*   setsockopt(sock, IPPROTO_IP, IP_MTU_DISCOVER, &pmtudisc, sizeof(pmtudisc)); */
+/* } */
+
 void print_help (char *prog_name) {
   printf("Usage: %s [options] <jid>\n" \
          "Options:\n" \
@@ -152,6 +157,7 @@ int main (int argc, char **argv) {
   /* rexmpp_openpgp_set_home_dir(&s, "pgp"); */
   s.roster_cache_file = "roster.xml";
   /* s.tls_policy = REXMPP_TLS_AVOID; */
+  /* s.socket_cb = my_socket_options; */
 
   /* Once the main structure is initialised and everything is
      sufficiently configured, we are ready to run the main loop and

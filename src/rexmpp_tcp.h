@@ -20,6 +20,7 @@
 #define REXMPP_TCP_H
 
 #include <sys/time.h>
+#include <stdbool.h>
 
 #include "rexmpp.h"
 #include "rexmpp_dns.h"
@@ -104,7 +105,7 @@ struct rexmpp_tcp_connection {
   int fd;
   /** @brief Whether the A or AAAA records used to establish the final
       connection were verified with DNSSEC. */
-  int dns_secure;
+  bool dns_secure;
 };
 
 /**

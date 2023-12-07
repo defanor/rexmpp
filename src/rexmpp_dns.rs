@@ -29,7 +29,7 @@ extern {
 pub struct RexmppDNSResult {
     pub data: *mut *mut c_void,
     pub len: *mut c_int,
-    pub secure: c_int
+    pub secure: bool
 }
 
 #[repr(C)]

@@ -94,6 +94,9 @@ fn (s: *mut Rexmpp, cb_data: *mut c_void,
     request: *mut rexmpp_xml::RexmppXML, response: *mut rexmpp_xml::RexmppXML,
     success: c_int) -> ();
 
+type SocketCallback = unsafe extern "C"
+fn (s: *mut Rexmpp, socket: c_int) -> ();
+
 #[repr(C)]
 pub struct RexmppIQ {
     pub requset: *mut rexmpp_xml::RexmppXML,
@@ -153,9 +156,6 @@ pub struct Rexmpp {
     pub client_version: *const c_char,   // XEP-0092
     pub local_address: *const c_char,    // For ICE, XEP-0176
     pub jingle_prefer_rtcp_mux: bool,
-    // An IP_MTU_DISCOVER parameter for TCP sockets, or -1 to not set
-    // it
-    pub path_mtu_discovery: c_int,
     // A delay in seconds, to use for MUC self-ping by default
     pub muc_ping_default_delay: c_uint,
     // Resource limits
@@ -182,6 +182,7 @@ pub struct Rexmpp {
     pub xml_out_cb: *const c_void,
     pub roster_modify_cb: *const c_void,
     pub console_print_cb: *const c_void,
+    pub socket_cb: Option<SocketCallback>,
 
     // Stream-related state
     pub assigned_jid: rexmpp_jid::RexmppJID,

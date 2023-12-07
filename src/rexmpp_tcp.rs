@@ -1,6 +1,6 @@
 use std::os::raw::{c_int, c_char};
 use libc::*;
-use std::ptr::null_mut;
+use std::ptr::{null_mut,null};
 use std::mem;
 use errno::{errno};
 
@@ -52,7 +52,7 @@ pub struct RexmppTCPConnection {
     pub connection_attempts: c_int,
     pub next_connection_time: timespec,
     pub fd: c_int,
-    pub dns_secure: c_int
+    pub dns_secure: bool
 }
 
 #[no_mangle]
@@ -150,12 +150,8 @@ fn rexmpp_tcp_socket (s: *mut rexmpp::Rexmpp, domain: c_int) -> c_int {
     let flags: c_int = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-    // Set path MTU discovery, if provided
-    if (*s).path_mtu_discovery != -1 {
-        setsockopt(sock, SOL_IP, IP_MTU_DISCOVER,
-                   &mut (*s).path_mtu_discovery as *mut i32 as *mut c_void,
-                   mem::size_of::<c_int>() as u32);
-    }
+    // Call the socket creation callback, if provided
+    ((*s).socket_cb).map(|cb| cb(s, sock));
 
     return sock;
 }
@@ -175,7 +171,7 @@ fn rexmpp_tcp_conn_init (s: *mut rexmpp::Rexmpp,
     (*conn).resolved_v4 = null_mut();
     (*conn).resolved_v6 = null_mut();
     (*conn).fd = -1;
-    (*conn).dns_secure = 0;
+    (*conn).dns_secure = false;
     (*conn).next_connection_time.tv_sec = 0;
     (*conn).next_connection_time.tv_nsec = 0;
 

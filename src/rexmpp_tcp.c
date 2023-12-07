@@ -106,10 +106,9 @@ int rexmpp_tcp_socket(rexmpp_t *s, int domain) {
   int flags = fcntl(sock, F_GETFL, 0);
   fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-  /* Set path MTU discovery, if provided */
-  if (s->path_mtu_discovery != -1) {
-    setsockopt(sock, SOL_IP, IP_MTU_DISCOVER, &(s->path_mtu_discovery),
-               sizeof(s->path_mtu_discovery));
+  /* Call the socket creation callback, if provided */
+  if (s->socket_cb != NULL) {
+    s->socket_cb(s, sock);
   }
 
   return sock;

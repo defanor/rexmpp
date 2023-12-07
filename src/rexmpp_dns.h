@@ -12,6 +12,7 @@
 #define REXMPP_DNS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "config.h"
 
 #include "rexmpp.h"
@@ -58,7 +59,7 @@ struct rexmpp_dns_result {
   int *len;
   /** @brief Whether the result was retrieved securely (that is,
       verified with DNSSEC). */
-  int secure;
+  bool secure;
 };
 
 typedef struct rexmpp_dns_result rexmpp_dns_result_t;

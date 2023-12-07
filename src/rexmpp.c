@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <assert.h>
+#include <stdbool.h>
 
 #include "config.h"
 
@@ -586,30 +587,29 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->carbons_state = REXMPP_CARBONS_INACTIVE;
   s->manual_host = NULL;
   s->manual_port = 5222;
-  s->manual_direct_tls = 0;
+  s->manual_direct_tls = false;
   s->disco_node = "rexmpp";
   s->socks_host = NULL;
   s->server_host = NULL;
-  s->enable_carbons = 1;
-  s->manage_roster = 1;
+  s->enable_carbons = true;
+  s->manage_roster = true;
   s->roster_cache_file = NULL;
-  s->track_roster_presence = 1;
-  s->track_roster_events = 1;
-  s->nick_notifications = 1;
+  s->track_roster_presence = true;
+  s->track_roster_events = true;
+  s->nick_notifications = true;
 #ifdef HAVE_GPGME
-  s->retrieve_openpgp_keys = 1;
+  s->retrieve_openpgp_keys = true;
 #else
-  s->retrieve_openpgp_keys = 0;
+  s->retrieve_openpgp_keys = false;
 #endif
-  s->autojoin_bookmarked_mucs = 1;
+  s->autojoin_bookmarked_mucs = true;
   s->tls_policy = REXMPP_TLS_REQUIRE;
-  s->enable_jingle = 1;
+  s->enable_jingle = true;
   s->client_name = PACKAGE_NAME;
   s->client_type = "console";
   s->client_version = PACKAGE_VERSION;
   s->local_address = NULL;
-  s->jingle_prefer_rtcp_mux = 1;
-  s->path_mtu_discovery = -1;
+  s->jingle_prefer_rtcp_mux = true;
   s->muc_ping_default_delay = 600;
   s->send_buffer = NULL;
   s->send_queue = NULL;
@@ -618,6 +618,7 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->server_srv_tls = NULL;
   s->server_srv_tls_cur = -1;
   s->server_socket = -1;
+  s->server_socket_dns_secure = false;
   s->current_element_root = NULL;
   s->current_element = NULL;
   s->input_queue = NULL;
@@ -650,8 +651,9 @@ rexmpp_err_t rexmpp_init (rexmpp_t *s,
   s->xml_out_cb = NULL;
   s->roster_modify_cb = NULL;
   s->console_print_cb = NULL;
+  s->socket_cb = NULL;
   s->ping_delay = 600;
-  s->ping_requested = 0;
+  s->ping_requested = false;
   s->last_network_activity.tv_sec = 0;
   s->last_network_activity.tv_nsec = 0;
   s->muc_ping = NULL;

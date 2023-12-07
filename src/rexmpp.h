@@ -10,6 +10,7 @@
 #define REXMPP_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "config.h"
 
@@ -251,6 +252,7 @@ typedef int (*xml_in_cb_t) (rexmpp_t *s, rexmpp_xml_t *node);
 typedef int (*xml_out_cb_t) (rexmpp_t *s, rexmpp_xml_t *node);
 typedef void (*roster_modify_cb_t) (rexmpp_t *s, rexmpp_xml_t *item);
 typedef int (*console_print_cb_t) (rexmpp_t *s, const char *format, va_list args);
+typedef void (*socket_cb_t) (rexmpp_t *s, int socket);
 
 /** @brief Complete connection state */
 struct rexmpp
@@ -272,7 +274,7 @@ struct rexmpp
   /* Manual host/port configuration. */
   const char *manual_host;
   uint16_t manual_port;
-  int manual_direct_tls;
+  bool manual_direct_tls;
 
   /* Miscellaneous settings */
   const char *disco_node;
@@ -282,23 +284,21 @@ struct rexmpp
   uint16_t socks_port;
 
   /* Various knobs (these are used instead of loadable modules). */
-  int enable_carbons;           /* XEP-0280 */
-  int manage_roster;
+  bool enable_carbons;          /* XEP-0280 */
+  bool manage_roster;
   const char *roster_cache_file;
-  int track_roster_presence;
-  int track_roster_events;      /* XEP-0163 */
-  int nick_notifications;       /* XEP-0172 */
-  int retrieve_openpgp_keys;    /* XEP-0373 */
-  int autojoin_bookmarked_mucs; /* XEP-0402 */
+  bool track_roster_presence;
+  bool track_roster_events;       /* XEP-0163 */
+  bool nick_notifications;        /* XEP-0172 */
+  bool retrieve_openpgp_keys;     /* XEP-0373 */
+  bool autojoin_bookmarked_mucs;  /* XEP-0402 */
   enum tls_pol tls_policy;
-  int enable_jingle;
+  bool enable_jingle;
   const char *client_name;      /* XEP-0030, XEP-0092 */
   const char *client_type;      /* XEP-0030 */
   const char *client_version;   /* XEP-0092 */
   const char *local_address;    /* For ICE, XEP-0176 */
-  int jingle_prefer_rtcp_mux;
-  int path_mtu_discovery;       /* An IP_MTU_DISCOVER parameter for
-                                   TCP sockets, or -1 to not set it */
+  bool jingle_prefer_rtcp_mux;
   /* A delay in seconds, to use for MUC self-ping by default */
   unsigned int muc_ping_default_delay;
 
@@ -322,6 +322,7 @@ struct rexmpp
   xml_out_cb_t xml_out_cb;
   roster_modify_cb_t roster_modify_cb;
   console_print_cb_t console_print_cb;
+  socket_cb_t socket_cb;
 
   /* Stream-related state. */
   struct rexmpp_jid assigned_jid;
@@ -358,7 +359,7 @@ struct rexmpp
 
   /* Server ping configuration and state. */
   unsigned int ping_delay;
-  int ping_requested;
+  bool ping_requested;
   struct timespec last_network_activity;
 
   /* MUC self-ping */
@@ -380,7 +381,7 @@ struct rexmpp
   int server_socket;
   /* Whether the address it's connected to was verified with
      DNSSEC. */
-  int server_socket_dns_secure;
+  bool server_socket_dns_secure;
 
   /* A structure used to establish a TCP connection. */
   rexmpp_tcp_conn_t server_connection;
