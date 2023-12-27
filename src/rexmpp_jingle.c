@@ -1816,6 +1816,15 @@ rexmpp_jingle_call_accept (rexmpp_t *s,
 }
 #else  /* ENABLE_CALLS */
 
+ssize_t
+rexmpp_jingle_dtls_push_func (void *p, const void *data, size_t size)
+{
+  (void)p;
+  (void)data;
+  (void)size;
+  return -1;
+}
+
 rexmpp_err_t
 rexmpp_jingle_call (rexmpp_t *s,
                     const char *jid)
