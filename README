@@ -75,7 +75,8 @@ A rough roadmap:
 [+] Abstraction of the used XML, SASL, TLS, and DNS libraries, and
     optional usage of alternative ones.
 [.] Automated testing.
-[.] Alternative module implementations in Rust.
+[.] Alternative module implementations in Rust (looks like there is a
+    memory leak somewhere around those though).
 
 
 - IM features:

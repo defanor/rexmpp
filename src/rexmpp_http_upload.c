@@ -66,6 +66,7 @@ void rexmpp_http_upload_slot_cb (rexmpp_t *s,
         curl_easy_setopt(ce, CURLOPT_UPLOAD, 1);
         curl_easy_setopt(ce, CURLOPT_READDATA, task->fh);
         curl_easy_setopt(ce, CURLOPT_URL, put_url);
+        curl_easy_setopt(ce, CURLOPT_INFILESIZE, task->fsize);
 
         rexmpp_xml_t *header = rexmpp_xml_first_elem_child(put);
         while (header) {
