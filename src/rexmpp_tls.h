@@ -80,6 +80,7 @@ void rexmpp_tls_session_free (rexmpp_tls_t *tls_ctx);
 rexmpp_tls_err_t rexmpp_tls_connect (rexmpp_t *s);
 rexmpp_tls_err_t rexmpp_tls_handshake (rexmpp_t *s, rexmpp_tls_t *tls_ctx);
 rexmpp_tls_err_t rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx);
+#ifdef ENABLE_CALLS
 rexmpp_tls_err_t
 rexmpp_dtls_connect (rexmpp_t *s,
                      rexmpp_tls_t *tls_ctx,
@@ -93,6 +94,7 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
                           size_t key_len,
                           size_t salt_len,
                           unsigned char *key_mat);
+#endif
 
 rexmpp_tls_err_t
 rexmpp_tls_send (rexmpp_t *s,
@@ -106,8 +108,9 @@ rexmpp_tls_recv (rexmpp_t *s,
                  void *data,
                  size_t data_size,
                  ssize_t *received);
-
+#ifdef ENABLE_CALLS
 unsigned  int rexmpp_dtls_timeout (rexmpp_t *s, rexmpp_tls_t *tls_ctx);
+#endif
 int rexmpp_tls_fds(rexmpp_t *s, fd_set *read_fds, fd_set *write_fds);
 
 /**

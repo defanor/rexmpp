@@ -48,6 +48,7 @@ Possible future improvements:
 #include <gpgme.h>
 #endif
 #include <gcrypt.h>
+#include <errno.h>
 
 #include "rexmpp.h"
 #include "rexmpp_xml.h"

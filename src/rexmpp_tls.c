@@ -28,11 +28,13 @@
 #include "rexmpp_digest.h"
 #include "rexmpp_tls.h"
 
+#ifdef ENABLE_CALLS
 rexmpp_tls_t *rexmpp_jingle_component_dtls(void *p);
 ssize_t
 rexmpp_jingle_dtls_push_func (void *p, const void *data, size_t size);
 int rexmpp_jingle_dtls_pull_timeout_func (void *p,
                                           unsigned int ms);
+#endif
 
 #if defined(USE_OPENSSL)
 rexmpp_tls_err_t rexmpp_process_openssl_ret (rexmpp_t *s,
@@ -66,7 +68,6 @@ rexmpp_tls_t *rexmpp_tls_ctx_new (rexmpp_t *s, int dtls) {
     return NULL;
   }
 #if defined(USE_GNUTLS)
-  (void)dtls;
   int err;
   tls_ctx->tls_session_data = NULL;
   tls_ctx->tls_session_data_size = 0;
@@ -175,6 +176,7 @@ void rexmpp_tls_deinit (rexmpp_t *s) {
   }
 }
 
+#ifdef ENABLE_CALLS
 #if defined(USE_GNUTLS)
 ssize_t
 rexmpp_dtls_jingle_pull_func_gnutls (gnutls_transport_ptr_t p,
@@ -228,6 +230,7 @@ long rexmpp_dtls_openssl_bio_cb(BIO *b, int oper, const char *argp,
   return ret;
 }
 #endif
+#endif
 
 #if defined(USE_OPENSSL)
 int rexmpp_openssl_verify_accept_all (int preverify_ok,
@@ -239,6 +242,7 @@ int rexmpp_openssl_verify_accept_all (int preverify_ok,
 }
 #endif
 
+#ifdef ENABLE_CALLS
 rexmpp_tls_err_t
 rexmpp_dtls_connect (rexmpp_t *s,
                      rexmpp_tls_t *tls_ctx,
@@ -327,6 +331,7 @@ void rexmpp_dtls_feed(rexmpp_t *s, rexmpp_tls_t *tls_ctx, uint8_t *buf, size_t l
   (void)len;
 #endif
 }
+#endif
 
 rexmpp_tls_err_t rexmpp_tls_handshake (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
 #if defined(USE_GNUTLS)
@@ -535,6 +540,7 @@ rexmpp_tls_disconnect (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
 #endif
 }
 
+#ifdef ENABLE_CALLS
 int
 rexmpp_tls_srtp_get_keys (rexmpp_t *s,
                           rexmpp_tls_t *tls_ctx,
@@ -574,6 +580,7 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
   return -1;
 #endif
 }
+#endif
 
 rexmpp_tls_err_t
 rexmpp_tls_send (rexmpp_t *s,
@@ -651,6 +658,7 @@ rexmpp_tls_recv (rexmpp_t *s,
 #endif
 }
 
+#ifdef ENABLE_CALLS
 unsigned int rexmpp_dtls_timeout (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
   (void)s;
 #if defined(USE_GNUTLS)
@@ -660,6 +668,7 @@ unsigned int rexmpp_dtls_timeout (rexmpp_t *s, rexmpp_tls_t *tls_ctx) {
   return -1;
 #endif
 }
+#endif
 
 int rexmpp_tls_fds (rexmpp_t *s, fd_set *read_fds, fd_set *write_fds) {
 #if defined(USE_GNUTLS)
