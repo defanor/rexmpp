@@ -79,6 +79,10 @@ const char *rexmpp_sasl_suggest_mechanism (rexmpp_t *s, const char *mech_list) {
   return gsasl_client_suggest_mechanism(s->sasl->ctx, mech_list);
 }
 
+const char *rexmpp_sasl_mechanism_name (rexmpp_t *s) {
+  return gsasl_mechanism_name(s->sasl->session);
+}
+
 void rexmpp_sasl_property_set (rexmpp_t *s, rexmpp_sasl_property prop, const char *data) {
   gsasl_property_set (s->sasl->session, (Gsasl_property)prop, data);
 }
@@ -191,6 +195,17 @@ const char *rexmpp_sasl_suggest_mechanism (rexmpp_t *s, const char *mech_list) {
   }
   free(mlist);
   return rexmpp_sasl_mech_name(preferred);
+}
+
+const char *rexmpp_sasl_mechanism_name (rexmpp_t *s) {
+  switch (s->sasl->mech) {
+  case REXMPP_SASL_MECH_EXTERNAL:
+    return "EXTERNAL";
+  case REXMPP_SASL_MECH_PLAIN:
+    return "PLAIN";
+  default:
+    return NULL;
+  }
 }
 
 int rexmpp_sasl_start (rexmpp_t *s, const char *mech) {

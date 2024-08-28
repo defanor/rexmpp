@@ -23,6 +23,7 @@ to simplify reading with rexmpp_xml_read_fd.
 #include <rexmpp_xml.h>
 #include <rexmpp_openpgp.h>
 #include <rexmpp_http_upload.h>
+#include <rexmpp_base64.h>
 
 
 void print_xml (rexmpp_xml_t *node) {
@@ -240,6 +241,24 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
   if (prop == REXMPP_SASL_PROP_AUTHID) {
     rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_AUTHID, s->initial_jid.local);
     return 0;
+  }
+  if (strstr(rexmpp_sasl_mechanism_name(s), "-PLUS") &&
+      prop == REXMPP_SASL_PROP_CB_TLS_EXPORTER) {
+    unsigned char cb_data[32];
+    if (rexmpp_tls_get_channel_binding_data(s,
+                                            s->tls,
+                                            REXMPP_TLS_CB_EXPORTER,
+                                            cb_data) == 0) {
+      char *cb_data_base64 = NULL;
+      size_t cb_size_base64 = 0;
+      rexmpp_base64_to(cb_data, 32, &cb_data_base64, &cb_size_base64);
+      rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_CB_TLS_EXPORTER,
+                                cb_data_base64);
+      free(cb_data_base64);
+      return 0;
+    } else {
+      return -1;
+    }
   }
   char *prop_str = NULL;
   switch (prop) {

@@ -36,6 +36,17 @@ enum rexmpp_tls_err {
 typedef enum rexmpp_tls_err rexmpp_tls_err_t;
 
 /**
+   @brief Channel binding type
+*/
+enum rexmpp_tls_cb {
+  REXMPP_TLS_CB_UNIQUE,
+  REXMPP_TLS_CB_SERVER_END_POINT,
+  REXMPP_TLS_CB_EXPORTER
+};
+
+typedef enum rexmpp_tls_cb rexmpp_tls_cb_t;
+
+/**
    @brief TLS context.
 */
 #if defined(USE_GNUTLS)
@@ -95,6 +106,12 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
                           size_t salt_len,
                           unsigned char *key_mat);
 #endif
+
+int rexmpp_tls_get_channel_binding_data
+  (rexmpp_t *s,
+   rexmpp_tls_t *tls_ctx,
+   rexmpp_tls_cb_t cb_type,
+   unsigned char *cb_data);
 
 rexmpp_tls_err_t
 rexmpp_tls_send (rexmpp_t *s,

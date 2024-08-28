@@ -42,6 +42,7 @@ typedef enum {
   REXMPP_SASL_PROP_SAML20_REDIRECT_URL = 20,
   REXMPP_SASL_PROP_OPENID20_REDIRECT_URL = 21,
   REXMPP_SASL_PROP_OPENID20_OUTCOME_DATA = 22,
+  REXMPP_SASL_PROP_CB_TLS_EXPORTER = 25,
   /* Client callbacks. */
   REXMPP_SASL_PROP_SAML20_AUTHENTICATE_IN_BROWSER = 250,
   REXMPP_SASL_PROP_OPENID20_AUTHENTICATE_IN_BROWSER = 251,
@@ -101,6 +102,7 @@ int rexmpp_sasl_encode (rexmpp_t *s, const char *in, size_t in_len, char **out, 
 int rexmpp_sasl_decode (rexmpp_t *s, const char *in, size_t in_len, char **out, size_t *out_len);
 
 const char *rexmpp_sasl_suggest_mechanism (rexmpp_t *s, const char *mech_list);
+const char *rexmpp_sasl_mechanism_name (rexmpp_t *s);
 
 int rexmpp_sasl_start (rexmpp_t *s, const char *mech);
 int rexmpp_sasl_step64 (rexmpp_t *s, const char *b64_in, char **b64_out);

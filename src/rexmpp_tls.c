@@ -551,7 +551,7 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
 #if defined(USE_GNUTLS)
   int key_mat_size;
   key_mat_size =
-    gnutls_srtp_get_keys(tls_ctx->gnutls_session, 
+    gnutls_srtp_get_keys(tls_ctx->gnutls_session,
                          key_mat, (key_len + salt_len) * 2,
                          NULL, NULL, NULL, NULL);
   if (key_mat_size == GNUTLS_E_SHORT_MEMORY_BUFFER ||
@@ -563,10 +563,10 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
   return 0;
 #elif defined(USE_OPENSSL)
   /* https://www.rfc-editor.org/rfc/rfc5764.html */
-  const char *extractor = "EXTRACTOR-dtls_srtp";
+  const char *label = "EXTRACTOR-dtls_srtp";
   int err = SSL_export_keying_material(tls_ctx->openssl_conn,
                                        key_mat, 2 * (key_len + salt_len),
-                                       extractor, strlen(extractor),
+                                       label, strlen(label),
                                        NULL, 0, 0);
   return rexmpp_process_openssl_ret(s, tls_ctx,
                                     "rexmpp_tls_srtp_get_keys", err);
@@ -581,6 +581,53 @@ rexmpp_tls_srtp_get_keys (rexmpp_t *s,
 #endif
 }
 #endif
+
+int rexmpp_tls_get_channel_binding_data
+  (rexmpp_t *s,
+   rexmpp_tls_t *tls_ctx,
+   rexmpp_tls_cb_t cb_type,
+   unsigned char *cb_data) {
+#if defined(USE_GNUTLS)
+  gnutls_datum_t cbd;
+  int ret = gnutls_session_channel_binding(tls_ctx->gnutls_session,
+                                           (gnutls_channel_binding_t)cb_type,
+                                           &cbd);
+  if (ret != GNUTLS_E_SUCCESS) {
+    rexmpp_log(s, LOG_ERR,
+               "Failed to retrieve channel binding data (type %d): %s",
+               cb_type,
+               gnutls_strerror(ret));
+    return -1;
+  }
+  memcpy(cb_data, cbd.data, cbd.size);
+  gnutls_free(cbd.data);
+  return 0;
+#elif defined(USE_OPENSSL)
+  /* https://www.ietf.org/rfc/rfc9266.html */
+  const char *label = NULL;
+  if (cb_type == REXMPP_TLS_CB_EXPORTER) {
+    label = "EXPORTER-Channel-Binding";
+  } else {
+    rexmpp_log(s, LOG_ERR,
+               "An unsupported channel binding type for OpenSSL: %d",
+               cb_type);
+    return -1;
+  }
+  int err = SSL_export_keying_material(tls_ctx->openssl_conn,
+                                       cb_data, 32,
+                                       label, strlen(label),
+                                       NULL, 0, 0);
+  return
+    rexmpp_process_openssl_ret(s, tls_ctx,
+                               "rexmpp_tls_get_channel_binding_data", err);
+#else
+  (void)tls_ctx;
+  (void)cb_type;
+  (void)cb_data;
+  rexmpp_log(s, LOG_ERR, "rexmpp is compiled without TLS support");
+  return -1;
+#endif
+}
 
 rexmpp_tls_err_t
 rexmpp_tls_send (rexmpp_t *s,

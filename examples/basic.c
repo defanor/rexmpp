@@ -16,6 +16,7 @@
 #include <rexmpp.h>
 #include <rexmpp_xml.h>
 #include <rexmpp_sasl.h>
+#include <rexmpp_base64.h>
 
 int log_level = 8;
 
@@ -62,6 +63,28 @@ int my_sasl_property_cb (rexmpp_t *s, rexmpp_sasl_property prop) {
   if (prop == REXMPP_SASL_PROP_AUTHID) {
     rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_AUTHID, s->initial_jid.local);
     return 0;
+  }
+  /* GSASL fails on non-PLUS SCRAM mechanisms if
+     REXMPP_TLS_CB_EXPORTER is provided, but asks for
+     REXMPP_TLS_CB_EXPORTER when those are used anyway, so ensuring
+     here that we only provide it for "-PLUS" mechanisms. */
+  if (strstr(rexmpp_sasl_mechanism_name(s), "-PLUS") &&
+      prop == REXMPP_SASL_PROP_CB_TLS_EXPORTER) {
+    unsigned char cb_data[32];
+    if (rexmpp_tls_get_channel_binding_data(s,
+                                            s->tls,
+                                            REXMPP_TLS_CB_EXPORTER,
+                                            cb_data) == 0) {
+      char *cb_data_base64 = NULL;
+      size_t cb_size_base64 = 0;
+      rexmpp_base64_to(cb_data, 32, &cb_data_base64, &cb_size_base64);
+      rexmpp_sasl_property_set (s, REXMPP_SASL_PROP_CB_TLS_EXPORTER,
+                                cb_data_base64);
+      free(cb_data_base64);
+      return 0;
+    } else {
+      return -1;
+    }
   }
   printf("unhandled SASL property: %d\n", prop);
   return -1;
