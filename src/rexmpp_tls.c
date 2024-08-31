@@ -121,7 +121,7 @@ void rexmpp_tls_ctx_free (rexmpp_tls_t *tls_ctx) {
 #if defined(USE_GNUTLS)
   gnutls_certificate_free_credentials(tls_ctx->gnutls_cred);
   if (tls_ctx->tls_session_data != NULL) {
-    free(tls_ctx->tls_session_data);
+    gnutls_free(tls_ctx->tls_session_data);
     tls_ctx->tls_session_data = NULL;
   }
 #elif defined(USE_OPENSSL)
@@ -385,7 +385,7 @@ rexmpp_tls_connect (rexmpp_t *s) {
       if (ret != GNUTLS_E_SUCCESS) {
         rexmpp_log(s, LOG_WARNING, "Failed to set TLS session data: %s",
                    gnutls_strerror(ret));
-        free(s->tls->tls_session_data);
+        gnutls_free(s->tls->tls_session_data);
         s->tls->tls_session_data = NULL;
         s->tls->tls_session_data_size = 0;
       }
@@ -461,19 +461,18 @@ rexmpp_tls_connect (rexmpp_t *s) {
     } else {
       if (s->tls->tls_session_data != NULL) {
         rexmpp_log(s, LOG_DEBUG, "TLS session is not resumed");
-        free(s->tls->tls_session_data);
+        gnutls_free(s->tls->tls_session_data);
         s->tls->tls_session_data = NULL;
       }
-      gnutls_session_get_data(s->tls->gnutls_session, NULL,
-                              &s->tls->tls_session_data_size);
-      s->tls->tls_session_data = malloc(s->tls->tls_session_data_size);
-      ret = gnutls_session_get_data(s->tls->gnutls_session, s->tls->tls_session_data,
-                                    &s->tls->tls_session_data_size);
+      gnutls_datum_t sd;
+      gnutls_session_get_data2(s->tls->gnutls_session, &sd);
       if (ret != GNUTLS_E_SUCCESS) {
         rexmpp_log(s, LOG_ERR, "Failed to get TLS session data: %s",
                    gnutls_strerror(ret));
         return REXMPP_TLS_E_OTHER;
       }
+      s->tls->tls_session_data = sd.data;
+      s->tls->tls_session_data_size = sd.size;
     }
 
     return REXMPP_TLS_SUCCESS;
