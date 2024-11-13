@@ -213,9 +213,13 @@ char *rexmpp_xml_text (rexmpp_xml_t *node);
 
 char *rexmpp_xml_text_child (rexmpp_xml_t *node);
 
+rexmpp_xml_t *rexmpp_xml_first_elem_sibling (rexmpp_xml_t *node);
+
 rexmpp_xml_t *rexmpp_xml_first_elem_child (rexmpp_xml_t *node);
 
 rexmpp_xml_t *rexmpp_xml_next_elem_sibling (rexmpp_xml_t *node);
+
+rexmpp_xml_t *rexmpp_xml_remove_text_siblings (rexmpp_xml_t *node);
 
 /**
    @brief Compares two XML elements.

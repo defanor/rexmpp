@@ -683,7 +683,7 @@ void rexmpp_console_feed (rexmpp_t *s, char *str, ssize_t str_len) {
       rexmpp_xml_t *item;
       for (item = s->roster_items;
            item != NULL;
-           item = item->next) {
+           item = rexmpp_xml_next_elem_sibling(item)) {
         const char *item_jid = rexmpp_xml_find_attr_val(item, "jid");
         const char *item_ask = rexmpp_xml_find_attr_val(item, "ask");
         const char *item_subscription =

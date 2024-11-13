@@ -744,14 +744,18 @@ rexmpp_xml_t *rexmpp_xml_children (const rexmpp_xml_t *node) {
   return NULL;
 }
 
-rexmpp_xml_t *rexmpp_xml_first_elem_child (rexmpp_xml_t *node) {
-  rexmpp_xml_t *child;
-  for (child = rexmpp_xml_children(node); child != NULL; child = child->next) {
-    if (child->type == REXMPP_XML_ELEMENT) {
-      return child;
+rexmpp_xml_t *rexmpp_xml_first_elem_sibling (rexmpp_xml_t *node) {
+  rexmpp_xml_t *sibling;
+  for (sibling = node; sibling != NULL; sibling = sibling->next) {
+    if (sibling->type == REXMPP_XML_ELEMENT) {
+      return sibling;
     }
   }
   return NULL;
+}
+
+rexmpp_xml_t *rexmpp_xml_first_elem_child (rexmpp_xml_t *node) {
+  return rexmpp_xml_first_elem_sibling(rexmpp_xml_children(node));
 }
 
 rexmpp_xml_t *rexmpp_xml_next_elem_sibling (rexmpp_xml_t *node) {
@@ -765,6 +769,23 @@ rexmpp_xml_t *rexmpp_xml_next_elem_sibling (rexmpp_xml_t *node) {
     }
   }
   return NULL;
+}
+
+rexmpp_xml_t *rexmpp_xml_remove_text_siblings (rexmpp_xml_t *node) {
+  rexmpp_xml_t *first = rexmpp_xml_first_elem_sibling(node);
+  rexmpp_xml_t *last = first, *cur = first, *next = NULL;
+  while (cur != NULL) {
+    next = cur->next;
+    if (cur->type != REXMPP_XML_TEXT) {
+      last->next = cur;
+      last = cur;
+      last->next = NULL;
+    } else {
+      rexmpp_xml_free(cur);
+    }
+    cur = next;
+  }
+  return first;
 }
 
 char *rexmpp_xml_text (rexmpp_xml_t *node) {

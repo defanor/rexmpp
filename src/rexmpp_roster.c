@@ -95,7 +95,8 @@ void rexmpp_roster_set (rexmpp_t *s, rexmpp_xml_t *query) {
   if (roster_ver != NULL) {
     s->roster_ver = strdup(roster_ver);
   }
-  s->roster_items = rexmpp_xml_clone_list(rexmpp_xml_first_elem_child(query));
+  s->roster_items = rexmpp_xml_remove_text_siblings
+    (rexmpp_xml_clone_list(rexmpp_xml_first_elem_child(query)));
   if (s->roster_modify_cb != NULL) {
     rexmpp_xml_t *item;
     for (item = rexmpp_xml_first_elem_child(query);
